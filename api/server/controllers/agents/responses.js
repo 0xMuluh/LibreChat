@@ -416,7 +416,7 @@ async function saveResponseOutput(
   const langfuseTraceFields = await getLangfuseTraceMessageFields(req.config, responseId);
 
   // Save the assistant message
-  await db.saveMessage(
+  return db.saveMessage(
     req,
     {
       messageId: responseId,
@@ -438,13 +438,15 @@ async function saveResponseOutput(
 /**
  * Drives the unseen-reply indicator, and only once the assistant output is actually persisted:
  * the conversation write happens first and its failure is swallowed by the caller, so stamping
- * there would light a dot for a reply no message backs.
+ * there would light a dot for a reply no message backs. A message write that resolved empty
+ * (duplicate-key recovery that could not re-read the row) is the same case.
  * @param {import('express').Request} req
  * @param {string} conversationId
+ * @param {import('@librechat/data-schemas').IMessage | null | undefined} savedMessage
  * @returns {Promise<void>}
  */
-async function stampResponseReply(req, conversationId) {
-  if (req?.body?.isTemporary === true) {
+async function stampResponseReply(req, conversationId, savedMessage) {
+  if (req?.body?.isTemporary === true || savedMessage == null) {
     return;
   }
   await db.stampConvoLastResponse(req.user.id, conversationId);
@@ -1292,7 +1294,7 @@ const executeResponse = async (envelope, { req, res }) => {
 
             // Build response for saving (use tracker with buildResponse for streaming)
             const finalResponse = buildResponse(context, tracker, 'completed');
-            await saveResponseOutput(
+            const savedResponse = await saveResponseOutput(
               req,
               conversationId,
               responseId,
@@ -1300,7 +1302,7 @@ const executeResponse = async (envelope, { req, res }) => {
               agentId,
               tracker.usage.outputTokens,
             );
-            await stampResponseReply(req, conversationId);
+            await stampResponseReply(req, conversationId, savedResponse);
 
             logger.debug(
               `[Responses API] Stored response ${responseId} in conversation ${conversationId}`,
@@ -1507,7 +1509,7 @@ const executeResponse = async (envelope, { req, res }) => {
 
             await saveInputMessages(req, conversationId, inputMessages, agentId);
 
-            await saveResponseOutput(
+            const savedResponse = await saveResponseOutput(
               req,
               conversationId,
               responseId,
@@ -1515,7 +1517,7 @@ const executeResponse = async (envelope, { req, res }) => {
               agentId,
               aggregator.usage.outputTokens,
             );
-            await stampResponseReply(req, conversationId);
+            await stampResponseReply(req, conversationId, savedResponse);
 
             logger.debug(
               `[Responses API] Stored response ${responseId} in conversation ${conversationId}`,
