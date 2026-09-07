@@ -8,7 +8,7 @@ import type {
 import type { GenerationJobManager as GenerationManager } from '../stream/GenerationJobManager';
 import type { deleteConvoSharedLinksWithCleanup as deleteLinks } from '../shared-links/service';
 import type { SubagentThreadTaskStore } from '../agents/subagentThreads';
-import { getOwnedAgentCheckpointScope } from '../agents/checkpointer';
+import { getOwnedAgentCheckpointScopes } from '../agents/checkpointer';
 
 type ConversationFilter = Parameters<ConversationMethods['deleteConvos']>[1];
 type DeletionResult = Awaited<ReturnType<ConversationMethods['deleteConvos']>>;
@@ -135,6 +135,7 @@ export function createConversationDeletionService({
       logger.warn('Conversation generation index lookup failed', error);
       throw new Error('Conversation generations could not be confirmed drained.');
     }
+    const deletionTargets = new Set(conversationIds);
     const generationIds = [
       ...new Set([...conversationIds, ...leaseTaskIds, ...conversationRunIds]),
     ];
@@ -153,11 +154,10 @@ export function createConversationDeletionService({
         }
         const jobTenantId = job.metadata.tenantId;
         if (jobTenantId != null && jobTenantId !== tenantId) return;
-        const checkpointScope = getOwnedAgentCheckpointScope(job, userId, tenantId);
-        if (
-          checkpointScope != null &&
-          (ownerWide || conversationIds.includes(checkpointScope.threadId))
-        ) {
+        for (const checkpointScope of getOwnedAgentCheckpointScopes(job, userId, tenantId)) {
+          if (!ownerWide && !deletionTargets.has(checkpointScope.threadId)) {
+            continue;
+          }
           checkpointScopes.set(
             `${checkpointScope.threadId}\0${checkpointScope.checkpointNamespace}`,
             checkpointScope,
