@@ -238,6 +238,8 @@ export interface UserConnectionContext {
   requestBody?: RequestBody;
   requestScopedConnections?: RequestScopedMCPConnectionStore;
   graphTokenResolver?: GraphTokenResolver;
+  /** Live OpenID session credential source for trusted direct bearer and OBO configurations. */
+  upstreamTokenProvider?: UpstreamTokenProvider;
   connectionTimeout?: number;
   /** Cancels the connection's SDK requests when the caller itself is cancelled; previously only
    *  OAuth connections could carry a signal, leaving non-OAuth discovery uncancellable. */
@@ -270,7 +272,6 @@ export interface OAuthConnectionOptions extends UserConnectionContext {
   returnOnOAuth?: boolean;
   oboTokenResolver?: OboTokenResolver;
   oboTrustChecker?: OboTrustChecker;
-  upstreamTokenProvider?: UpstreamTokenProvider;
   oboIdentityContext?: AuthIdentityContext;
 }
 
@@ -280,6 +281,8 @@ export interface UserMCPConnectionOptions extends UserConnectionContext {
   forceNew?: boolean;
   ephemeralConnection?: boolean;
   serverConfig?: ParsedServerConfig;
+  /** Internal one-shot fence for direct bearer rejection during initial tools/list. */
+  directBearerRecoveryAttempted?: boolean;
   flowManager?: FlowStateManager<o.MCPOAuthTokens | null>;
   tokenMethods?: TokenMethods;
   signal?: AbortSignal;
@@ -288,7 +291,6 @@ export interface UserMCPConnectionOptions extends UserConnectionContext {
   returnOnOAuth?: boolean;
   oboTokenResolver?: OboTokenResolver;
   oboTrustChecker?: OboTrustChecker;
-  upstreamTokenProvider?: UpstreamTokenProvider;
   oboIdentityContext?: AuthIdentityContext;
 }
 
