@@ -17,6 +17,7 @@ import {
   DEFAULT_CHECKPOINT_TTL_SECONDS,
   checkpointOwnerNamespacePrefix,
 } from '../stream/checkpoints';
+import { deleteLegacyCheckpoints } from './checkpoints/legacy';
 
 export { DEFAULT_CHECKPOINT_TTL_SECONDS } from '../stream/checkpoints';
 
@@ -1085,6 +1086,7 @@ export async function deleteOwnedAgentCheckpoints(
   if (!db || mongoose.connection.readyState !== 1) {
     throw new Error('Checkpoint database is unavailable');
   }
+  await deleteLegacyCheckpoints(userId, tenantId, conversationIds, resolved);
   const checkpoint_ns = { $regex: `^${checkpointOwnerNamespacePrefix(userId, tenantId)}` };
   const ids = conversationIds == null ? undefined : [...new Set(conversationIds)];
   const batchSize = 256;

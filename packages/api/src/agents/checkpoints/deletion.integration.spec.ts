@@ -11,6 +11,87 @@ const cfg = {
   checkpointWritesCollectionName: 'cleanup_writes',
 };
 
+async function seedLegacy(user = 'owner', tenantId = 'tenant') {
+  const db = mongoose.connection.db!;
+  await db.collection('conversations').insertOne({ conversationId: 'legacy', user, tenantId });
+  for (const name of ['cleanup_cp', 'cleanup_writes']) {
+    await db.collection(name).insertMany(
+      ['', '1700000000000', '1700000000000|nested', 'event-actor/old'].map((checkpoint_ns) => ({
+        thread_id: 'legacy',
+        checkpoint_ns,
+      })),
+    );
+  }
+}
+
+test.each([
+  ['single', ['legacy']],
+  ['account', undefined],
+] as const)('%s removes legacy rows before ownership evidence disappears', async (_kind, ids) => {
+  await seedLegacy();
+  const foreign = createCheckpointNamespace('other', 'tenant');
+  for (const name of ['cleanup_cp', 'cleanup_writes']) {
+    await mongoose.connection.db!.collection(name).insertOne({
+      thread_id: 'legacy',
+      checkpoint_ns: foreign,
+    });
+  }
+  await deleteOwnedAgentCheckpoints('owner', 'tenant', ids, cfg);
+  await mongoose.connection.db!.collection('conversations').deleteMany({});
+  await deleteOwnedAgentCheckpoints('owner', 'tenant', ids, cfg);
+  for (const name of ['cleanup_cp', 'cleanup_writes']) {
+    const rows = await mongoose.connection.db!.collection(name).find().toArray();
+    expect(rows.map((row) => row.checkpoint_ns)).toEqual([foreign]);
+  }
+});
+
+test.each([
+  ['other', 'tenant'],
+  ['owner', 'other-tenant'],
+])('legacy collisions with %s/%s fail without deleting another scope', async (user, tenantId) => {
+  await seedLegacy();
+  await mongoose.connection.db!.collection('conversations').insertOne({
+    conversationId: 'legacy',
+    user,
+    tenantId,
+  });
+  await expect(deleteOwnedAgentCheckpoints('owner', 'tenant', ['legacy'], cfg)).rejects.toThrow(
+    'ownership is ambiguous',
+  );
+  for (const name of ['cleanup_cp', 'cleanup_writes']) {
+    expect(await mongoose.connection.db!.collection(name).countDocuments()).toBe(4);
+  }
+});
+
+test('legacy cleanup does not treat a requested ID as ownership evidence', async () => {
+  await seedLegacy('other');
+  await deleteOwnedAgentCheckpoints('owner', 'tenant', ['legacy'], cfg);
+  for (const name of ['cleanup_cp', 'cleanup_writes']) {
+    expect(await mongoose.connection.db!.collection(name).countDocuments()).toBe(4);
+  }
+});
+
+test('legacy cleanup retries a write-collection failure while ownership remains', async () => {
+  await seedLegacy();
+  const original = mongoose.mongo.Collection.prototype.deleteMany;
+  jest.spyOn(mongoose.mongo.Collection.prototype, 'deleteMany').mockImplementation(async function (
+    this: mongoose.mongo.Collection,
+    ...args
+  ) {
+    if (this.collectionName === 'cleanup_writes') throw new Error('writes unavailable');
+    return original.apply(this, args);
+  });
+  await expect(deleteOwnedAgentCheckpoints('owner', 'tenant', ['legacy'], cfg)).rejects.toThrow(
+    'writes unavailable',
+  );
+  expect(await mongoose.connection.db!.collection('conversations').countDocuments()).toBe(1);
+  jest.restoreAllMocks();
+  await deleteOwnedAgentCheckpoints('owner', 'tenant', ['legacy'], cfg);
+  for (const name of ['cleanup_cp', 'cleanup_writes']) {
+    expect(await mongoose.connection.db!.collection(name).countDocuments()).toBe(0);
+  }
+});
+
 beforeAll(async () => {
   server = await MongoMemoryServer.create();
   await mongoose.connect(server.getUri());
@@ -99,13 +180,21 @@ test('thousands of conversation targets use bounded cleanup commands', async () 
   const ids = Array.from({ length: 1100 }, (_, i) => `thread-${i}`);
   const intent = await openCheckpointDeletion('owner', undefined, 'root', cfg);
   await intent.remember(ids);
+  await mongoose.connection
+    .db!.collection('conversations')
+    .insertMany(ids.map((conversationId) => ({ conversationId, user: 'owner' })));
+  await mongoose.connection
+    .db!.collection('cleanup_cp')
+    .insertMany(ids.map((thread_id) => ({ thread_id, checkpoint_ns: '1700000000000' })));
   const ns = createCheckpointNamespace('owner');
   await mongoose.connection
     .db!.collection('cleanup_cp')
     .insertMany(ids.map((thread_id) => ({ thread_id, checkpoint_ns: ns })));
   const spy = jest.spyOn(mongoose.mongo.Collection.prototype, 'deleteMany');
   await deleteOwnedAgentCheckpoints('owner', undefined, ids, cfg);
-  expect(spy.mock.calls.every(([filter]) => filter?.thread_id.$in.length <= 256)).toBe(true);
+  expect(
+    spy.mock.calls.every(([filter]) => (filter?._id ?? filter?.thread_id).$in.length <= 256),
+  ).toBe(true);
   expect(await mongoose.connection.db!.collection('cleanup_cp').countDocuments()).toBe(0);
   await intent.acknowledge();
   expect(
