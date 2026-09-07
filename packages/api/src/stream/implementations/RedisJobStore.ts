@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import { logger } from '@librechat/data-schemas';
 import { createContentAggregator } from '@librechat/agents';
 import { ContentTypes, getRunStepDurationMs } from 'librechat-data-provider';
@@ -7,7 +6,6 @@ import type { Agents } from 'librechat-data-provider';
 import type { Redis, Cluster } from 'ioredis';
 import type {
   SerializableJobData,
-  RetainedCheckpointScope,
   CreatedJobData,
   ReplacedGeneration,
   SteerQueueItem,
@@ -50,6 +48,7 @@ import {
 } from '~/stream/internal/coalescing';
 import { instrumentIORedisClient, RedisUseCases } from '~/cache/redisTelemetry';
 import { RecoveredSteerPayloadMismatchError } from '~/stream/SteerRecovery';
+import { createCheckpointNamespace } from '~/stream/checkpoints';
 
 const CLIENT_REQUEST_ID_PATTERN = /^[A-Za-z0-9:_-]{1,128}$/;
 
@@ -619,6 +618,16 @@ const JOB_UPDATE_LUA =
   'end ' +
   'return 1';
 
+/** Owner membership must outlive every paused job and must never shorten a peer's TTL. */
+const OWNER_MEMBERSHIP_RECONCILE_LUA =
+  'local created = redis.call("EXISTS", KEYS[1]) == 0 ' +
+  'redis.call("SADD", KEYS[1], ARGV[1]) ' +
+  'local seconds = tonumber(ARGV[2]) ' +
+  'local current = redis.call("TTL", KEYS[1]) ' +
+  'if seconds > 0 and ((created and current == -1) or (current >= 0 and current < seconds)) then ' +
+  'redis.call("EXPIRE", KEYS[1], seconds) end ' +
+  'return 1';
+
 /** Single-winner recovery outcome for one generation-scoped overflow. */
 const SETTLE_EARLY_BUFFER_RECOVERY_LUA =
   'if redis.call("HGET", KEYS[1], "createdAt") ~= ARGV[1] then return 0 end ' +
@@ -659,28 +668,6 @@ const HAS_ACTIVE_SUBSCRIBER_LUA =
   'if redis.call("HGET", KEYS[1], "createdAt") ~= ARGV[1] then return 0 end ' +
   'redis.call("ZREMRANGEBYSCORE", KEYS[2], "-inf", ARGV[2]) ' +
   'if redis.call("ZCARD", KEYS[2]) > 0 then return 1 end return 0';
-
-/** Reconciles the two owner-slot indexes together. Receipt registration is in
- * the same Redis Cluster slot as active membership, while global status sets
- * remain separately repairable derived state. Shared-key TTLs only grow. */
-const OWNER_MEMBERSHIP_RECONCILE_LUA =
-  'local function extendTtl(key, seconds, created) ' +
-  'if seconds <= 0 then return end ' +
-  'local current = redis.call("TTL", key) ' +
-  'if (created and current == -1) or (current >= 0 and current < seconds) then ' +
-  'redis.call("EXPIRE", key, seconds) end end ' +
-  'if ARGV[2] == "1" then local userKeyCreated = redis.call("EXISTS", KEYS[1]) == 0 ' +
-  'redis.call("SADD", KEYS[1], ARGV[1]) ' +
-  'extendTtl(KEYS[1], tonumber(ARGV[3]), userKeyCreated) ' +
-  'else redis.call("SREM", KEYS[1], ARGV[1]) end ' +
-  'local now = tonumber(ARGV[6]) ' +
-  'redis.call("ZREMRANGEBYSCORE", KEYS[2], "-inf", now) ' +
-  'if ARGV[4] ~= "" then local expiry = tonumber(ARGV[5]) ' +
-  'local receiptKeyCreated = redis.call("EXISTS", KEYS[2]) == 0 ' +
-  'local existing = redis.call("ZSCORE", KEYS[2], ARGV[4]) ' +
-  'if not existing or tonumber(existing) < expiry then redis.call("ZADD", KEYS[2], expiry, ARGV[4]) end ' +
-  'extendTtl(KEYS[2], math.ceil((expiry - now) / 1000), receiptKeyCreated) end ' +
-  'return 1';
 
 /** Exact provider-segment completion fence. A paused segment finishing after a
  * resume cannot mark the resumed provider drained because its opaque id differs. */
@@ -1717,11 +1704,6 @@ const KEYS = {
   /** User's active jobs set, tenant-qualified when tenantId is available */
   userJobs: (userId: string, tenantId?: string) =>
     tenantId ? `stream:user:{${tenantId}:${userId}}:jobs` : `stream:user:{${userId}}:jobs`,
-  /** Exact-owner checkpoint cleanup receipts (sorted by saver expiry). */
-  checkpointScopes: (userId: string, tenantId?: string) =>
-    tenantId
-      ? `stream:user:{${tenantId}:${userId}}:checkpoint-scopes`
-      : `stream:user:{${userId}}:checkpoint-scopes`,
   /** Idempotency claim for a start-generation request: stream:idem:{userId:clientRequestId} */
   idempotency: (key: string) => `stream:idem:${key}`,
 };
@@ -2051,7 +2033,7 @@ export class RedisJobStore implements IJobStoreV2 {
       createdAt: Date.now(),
       generationProtocolVersion,
       ...(generationProtocolVersion === 2 && {
-        checkpointNamespace: randomUUID(),
+        checkpointNamespace: createCheckpointNamespace(userId, tenantId),
       }),
       ...(conversationId !== undefined && { conversationId }),
       ...(idempotencyClientRequestId !== undefined && {
@@ -2561,38 +2543,20 @@ export class RedisJobStore implements IJobStoreV2 {
     }
   }
 
-  private checkpointScopeReceipt(job: SerializableJobData | null): {
-    member: string;
-    expiresAt: number;
-  } | null {
-    if (job?.generationProtocolVersion !== 2 || !job.conversationId || !job.checkpointNamespace) {
-      return null;
-    }
-    const ttlSeconds =
-      job.status === 'requires_action'
-        ? this.pauseTtlSeconds(job.pendingAction)
-        : this.ttl.requiresAction + GENERATION_EPOCH_GRACE_TTL_S;
-    return {
-      member: JSON.stringify([job.conversationId, job.checkpointNamespace]),
-      expiresAt: Date.now() + ttlSeconds * 1000,
-    };
-  }
-
   private async applyMembershipSnapshot(
     streamId: string,
     job: SerializableJobData | null,
     observedUserKeys: Set<string>,
   ): Promise<SerializableJobData | null> {
     const statusKey = job ? this.statusSetKey(job.status) : null;
-    const ownerUserKey = job ? KEYS.userJobs(job.userId, job.tenantId) : null;
-    const activeUserMembership =
-      job != null && (statusKey != null || job.providerDrained === false);
-    const checkpointReceipt = this.checkpointScopeReceipt(job);
+    const activeUserKey =
+      job && (statusKey != null || job.providerDrained === false)
+        ? KEYS.userJobs(job.userId, job.tenantId)
+        : null;
     const ownerMembershipTtl =
       this.ttl.userJobsSet > 0 && job?.status === 'requires_action'
         ? Math.max(this.ttl.userJobsSet, this.pauseTtlSeconds(job.pendingAction))
         : this.ttl.userJobsSet;
-    const now = Date.now();
     const terminalMember = job == null ? null : terminalHostActionMember(streamId, job.createdAt);
     const terminalHostActionIndex =
       job != null && isDetachedAgentEventCompletionJob(job)
@@ -2634,23 +2598,18 @@ export class RedisJobStore implements IJobStoreV2 {
       // Terminal host-action membership follows the durable hash field, not status, so
       // an aborted approval-expiry job stays enumerable for hook retry until acked.
       for (const userJobsKey of observedUserKeys) {
-        if (userJobsKey !== ownerUserKey) {
+        if (userJobsKey !== activeUserKey) {
           operations.push(this.redis.srem(userJobsKey, streamId));
         }
       }
-      if (ownerUserKey && job) {
+      if (activeUserKey) {
         operations.push(
           this.redis.eval(
             OWNER_MEMBERSHIP_RECONCILE_LUA,
-            2,
-            ownerUserKey,
-            KEYS.checkpointScopes(job.userId, job.tenantId),
+            1,
+            activeUserKey,
             streamId,
-            activeUserMembership ? '1' : '0',
             String(ownerMembershipTtl),
-            checkpointReceipt?.member ?? '',
-            String(checkpointReceipt?.expiresAt ?? 0),
-            String(now),
           ),
         );
       }
@@ -2681,22 +2640,17 @@ export class RedisJobStore implements IJobStoreV2 {
       pipeline.srem(KEYS.detachedAgentEventTerminalHostActionJobsV1, streamId);
     }
     for (const userJobsKey of observedUserKeys) {
-      if (userJobsKey !== ownerUserKey) {
+      if (userJobsKey !== activeUserKey) {
         pipeline.srem(userJobsKey, streamId);
       }
     }
-    if (ownerUserKey && job) {
+    if (activeUserKey) {
       pipeline.eval(
         OWNER_MEMBERSHIP_RECONCILE_LUA,
-        2,
-        ownerUserKey,
-        KEYS.checkpointScopes(job.userId, job.tenantId),
+        1,
+        activeUserKey,
         streamId,
-        activeUserMembership ? '1' : '0',
         String(ownerMembershipTtl),
-        checkpointReceipt?.member ?? '',
-        String(checkpointReceipt?.expiresAt ?? 0),
-        String(now),
       );
     }
     // Keep the verification read in this network flush. Redis executes it
@@ -2948,12 +2902,6 @@ export class RedisJobStore implements IJobStoreV2 {
     const currentJob = await this.reconcileJobMembership(streamId, {
       previousJob: terminalJob,
     });
-    if (
-      currentJob === undefined &&
-      (to === 'requires_action' || terminalJob?.generationProtocolVersion === 2)
-    ) {
-      throw new Error('Generation checkpoint receipt could not be registered');
-    }
     if (terminal) {
       this.clearLocalStateUnlessActive(
         streamId,
@@ -3631,51 +3579,6 @@ export class RedisJobStore implements IJobStoreV2 {
       const job = jobs[index];
       return job?.userId === userId && (job.tenantId == null || job.tenantId === tenantId);
     });
-  }
-
-  async getRetainedCheckpointScopesByUser(
-    userId: string,
-    tenantId?: string,
-  ): Promise<RetainedCheckpointScope[]> {
-    const key = KEYS.checkpointScopes(userId, tenantId);
-    const now = Date.now();
-    await this.redis.zremrangebyscore(key, '-inf', now);
-    const members = await this.redis.zrangebyscore(key, now + 1, '+inf');
-    return members.map((member) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(member);
-      } catch {
-        throw new Error('Invalid retained checkpoint scope');
-      }
-      if (
-        !Array.isArray(parsed) ||
-        parsed.length !== 2 ||
-        typeof parsed[0] !== 'string' ||
-        parsed[0].length === 0 ||
-        typeof parsed[1] !== 'string' ||
-        parsed[1].length === 0
-      ) {
-        throw new Error('Invalid retained checkpoint scope');
-      }
-      return { threadId: parsed[0], checkpointNamespace: parsed[1] };
-    });
-  }
-
-  async acknowledgeCheckpointScopes(
-    userId: string,
-    tenantId: string | undefined,
-    scopes: readonly RetainedCheckpointScope[],
-  ): Promise<void> {
-    if (scopes.length === 0) {
-      return;
-    }
-    await this.redis.zrem(
-      KEYS.checkpointScopes(userId, tenantId),
-      ...scopes.map(({ threadId, checkpointNamespace }) =>
-        JSON.stringify([threadId, checkpointNamespace]),
-      ),
-    );
   }
 
   private async getJobIdsByUser(

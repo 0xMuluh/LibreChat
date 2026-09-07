@@ -2157,14 +2157,24 @@ describe('Conversation Operations', () => {
       );
     });
 
+    it('allows a single-conversation cleanup retry after topology and messages are gone', async () => {
+      const result = await deleteConvos(
+        'user123',
+        { conversationId: 'already-absent' },
+        { allowEmpty: true },
+      );
+      expect(result.deletedCount).toBe(0);
+      expect(result.conversationIds).toEqual(['already-absent']);
+    });
+
     it('supports an idempotent empty recovery sweep without hiding storage failures', async () => {
       await expect(
         deleteConvos('user123', { conversationId: 'already-absent' }, { allowEmpty: true }),
       ).resolves.toEqual({
         acknowledged: true,
         deletedCount: 0,
-        messages: { acknowledged: true, deletedCount: 0 },
-        conversationIds: [],
+        messages: { deletedCount: 0 },
+        conversationIds: ['already-absent'],
       });
 
       await expect(
@@ -2261,7 +2271,7 @@ describe('Conversation Operations', () => {
       expect(tag?.count).toBe(1);
     });
 
-    it('should clamp tag counts at zero and never go negative', async () => {
+    it('preserves signed tag decrements until delayed increments arrive', async () => {
       await ConversationTag.create({ user: 'user123', tag: 'work', count: 0, position: 1 });
       const convoId = uuidv4();
       await Conversation.create({
@@ -2274,7 +2284,7 @@ describe('Conversation Operations', () => {
       await deleteConvos('user123', { conversationId: convoId });
 
       const tag = await ConversationTag.findOne({ user: 'user123', tag: 'work' }).lean();
-      expect(tag?.count).toBe(0);
+      expect(tag?.count).toBe(-1);
     });
 
     it('should not touch tags belonging to another user', async () => {

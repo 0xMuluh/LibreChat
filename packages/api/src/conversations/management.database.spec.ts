@@ -437,6 +437,7 @@ describe('conversation management handlers with Mongo persistence', () => {
       OWNER,
       'active-generation',
       TENANT_A,
+      undefined,
     );
     expect(deleteConversations).toHaveBeenCalledTimes(1);
   });

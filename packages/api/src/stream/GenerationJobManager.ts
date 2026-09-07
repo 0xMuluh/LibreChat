@@ -20,7 +20,6 @@ import type {
 import type { StandardGraph } from '@librechat/agents';
 import type {
   SerializableJobData,
-  RetainedCheckpointScope,
   CreatedJobData,
   IEventTransport,
   UsageMetadata,
@@ -9307,32 +9306,6 @@ class GenerationJobManagerClass {
       return this.getCleanupBlockingJobIdsForUser(userId, tenantId);
     }
     return this.jobStore.getRetainedJobIdsByUser(userId, tenantId);
-  }
-
-  async getRetainedCheckpointScopesForUser(
-    userId: string,
-    tenantId?: string,
-  ): Promise<RetainedCheckpointScope[]> {
-    if (this.jobStore.getRetainedCheckpointScopesByUser == null) {
-      return [];
-    }
-    const scopes = await this.jobStore.getRetainedCheckpointScopesByUser(userId, tenantId);
-    const unique = new Map<string, RetainedCheckpointScope>();
-    for (const scope of scopes) {
-      if (!scope.threadId || !scope.checkpointNamespace) {
-        throw new Error('Invalid retained checkpoint scope');
-      }
-      unique.set(`${scope.threadId}\u0000${scope.checkpointNamespace}`, scope);
-    }
-    return [...unique.values()];
-  }
-
-  async acknowledgeCheckpointScopesForUser(
-    userId: string,
-    tenantId: string | undefined,
-    scopes: readonly RetainedCheckpointScope[],
-  ): Promise<void> {
-    await this.jobStore.acknowledgeCheckpointScopes?.(userId, tenantId, scopes);
   }
 
   /** Resolves every cleanup-blocking run attached to any target conversation.

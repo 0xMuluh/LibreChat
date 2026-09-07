@@ -1658,42 +1658,6 @@ describe('RedisJobStore Integration Tests', () => {
       await store.destroy();
     });
 
-    test('retains terminal checkpoint receipts until cleanup acknowledges them', async () => {
-      if (!ioredisClient) {
-        return;
-      }
-
-      const { RedisJobStore } = await import('../implementations/RedisJobStore');
-      const store = new RedisJobStore(ioredisClient, { completedTtl: 1, requiresActionTtl: 60 });
-      await store.initialize();
-
-      const suffix = `${process.pid}-${Date.now()}`;
-      const streamId = `checkpoint-terminal-${suffix}`;
-      const userId = `checkpoint-user-${suffix}`;
-      const tenantId = 'tenant-a';
-      const predecessor = await store.createJob(streamId, userId, streamId, tenantId);
-      const job = await store.createJob(streamId, userId, streamId, tenantId);
-      await store.transitionStatus(streamId, {
-        from: 'running',
-        to: 'complete',
-        expectCreatedAt: job.createdAt,
-      });
-      await ioredisClient.del(`stream:{${streamId}}:job`);
-
-      const scopes = [
-        { threadId: streamId, checkpointNamespace: predecessor.checkpointNamespace! },
-        { threadId: streamId, checkpointNamespace: job.checkpointNamespace! },
-      ];
-      const retained = await store.getRetainedCheckpointScopesByUser(userId, tenantId);
-      expect(retained).toHaveLength(2);
-      expect(retained).toEqual(expect.arrayContaining(scopes));
-      await store.acknowledgeCheckpointScopes(userId, tenantId, scopes);
-      await store.acknowledgeCheckpointScopes(userId, tenantId, scopes);
-      await expect(store.getRetainedCheckpointScopesByUser(userId, tenantId)).resolves.toEqual([]);
-
-      await store.destroy();
-    });
-
     test('does not shorten a shared owner index for a longer paused job', async () => {
       if (!ioredisClient) {
         return;

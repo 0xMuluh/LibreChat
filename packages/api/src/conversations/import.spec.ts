@@ -290,6 +290,32 @@ describe('createConversationImportOperation', () => {
     expect(deps.getImporter).not.toHaveBeenCalled();
   });
 
+  it('strips source retention and attachment ownership before importer execution', async () => {
+    const { deps, importer } = createDependencies(
+      JSON.stringify({
+        ...baseExport,
+        messages: [
+          {
+            ...baseExport.messages[0],
+            isTemporary: true,
+            expiredAt: '2020-01-01T00:00:00.000Z',
+            attachments: [{ file_id: 'file-a', user: 'source-user', tenantId: 'source-tenant' }],
+          },
+        ],
+      }),
+    );
+    await createConversationImportOperation(deps)({
+      filepath: '/tmp/source-policy.json',
+      requestUserId: 'destination-user',
+      format: 'librechat',
+    });
+    expect(importer.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        messages: [{ ...baseExport.messages[0], attachments: [{ file_id: 'file-a' }] }],
+      }),
+    );
+  });
+
   it('strips exported file ownership before canonical file resolution', async () => {
     const data = {
       ...baseExport,

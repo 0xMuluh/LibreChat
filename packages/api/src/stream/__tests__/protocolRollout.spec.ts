@@ -54,30 +54,11 @@ describe('generation protocol rollout storage', () => {
 
       expect(second.createdAt).toBeGreaterThan(first.createdAt);
       expect(first.checkpointNamespace).not.toBe(second.checkpointNamespace);
-      expect(first.checkpointNamespace).toMatch(/^[0-9a-f-]{36}$/);
-      expect(second.checkpointNamespace).toMatch(/^[0-9a-f-]{36}$/);
+      expect(first.checkpointNamespace).toMatch(/^lcg:v2:[0-9a-f]{64}:[0-9a-f-]{36}$/);
+      expect(second.checkpointNamespace).toMatch(/^lcg:v2:[0-9a-f]{64}:[0-9a-f-]{36}$/);
     } finally {
       now.mockRestore();
     }
-  });
-
-  test('retains replacement checkpoint scopes until cleanup acknowledges them', async () => {
-    const store = new InMemoryJobStore();
-    const first = await store.createJob('scope-stream', 'user-1', 'conversation-1', 'tenant-1');
-    const second = await store.createJob('scope-stream', 'user-1', 'conversation-1', 'tenant-1');
-    await store.deleteJob(second.streamId, second.createdAt);
-
-    const retained = await store.getRetainedCheckpointScopesByUser('user-1', 'tenant-1');
-    expect(retained).toEqual([
-      { threadId: 'conversation-1', checkpointNamespace: first.checkpointNamespace },
-      { threadId: 'conversation-1', checkpointNamespace: second.checkpointNamespace },
-    ]);
-
-    await store.acknowledgeCheckpointScopes('user-1', 'tenant-1', [retained[0]]);
-    await store.acknowledgeCheckpointScopes('user-1', 'tenant-1', [retained[0]]);
-    await expect(store.getRetainedCheckpointScopesByUser('user-1', 'tenant-1')).resolves.toEqual([
-      retained[1],
-    ]);
   });
 
   test('v1 steering stays receiptless and uses the legacy destructive drain', async () => {

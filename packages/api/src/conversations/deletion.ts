@@ -2,13 +2,13 @@ import type { ConversationMethods, MessageMethods, ToolCallMethods } from '@libr
 import type { TCheckpointerConfig } from 'librechat-data-provider';
 import type { logger as Logger } from '@librechat/data-schemas';
 import type {
-  AgentCheckpointScope,
-  deleteAgentCheckpointScopes as deleteCheckpointScopes,
-} from '../agents/checkpointer';
+  CheckpointDeletion,
+  openCheckpointDeletion as openDeletion,
+} from '../agents/checkpoints/deletion';
 import type { GenerationJobManager as GenerationManager } from '../stream/GenerationJobManager';
 import type { deleteConvoSharedLinksWithCleanup as deleteLinks } from '../shared-links/service';
+import type { deleteOwnedAgentCheckpoints as deleteCheckpoints } from '../agents/checkpointer';
 import type { SubagentThreadTaskStore } from '../agents/subagentThreads';
-import { getOwnedAgentCheckpointScope } from '../agents/checkpointer';
 
 type ConversationFilter = Parameters<ConversationMethods['deleteConvos']>[1];
 type DeletionResult = Awaited<ReturnType<ConversationMethods['deleteConvos']>>;
@@ -20,6 +20,7 @@ export interface ConversationDeletionService {
     userId: string,
     conversationId: string,
     tenantId?: string,
+    checkpointer?: TCheckpointerConfig,
   ) => Promise<boolean>;
   deleteConversations: (
     userId: string,
@@ -51,7 +52,8 @@ export interface ConversationDeletionDeps {
     'planCancellationForConversations' | 'cancelPlan' | 'withOwnerDeletionFence'
   >;
   GenerationJobManager: typeof GenerationManager;
-  deleteAgentCheckpointScopes: typeof deleteCheckpointScopes;
+  deleteOwnedAgentCheckpoints: typeof deleteCheckpoints;
+  openCheckpointDeletion: typeof openDeletion;
   deleteConvoSharedLinksWithCleanup: typeof deleteLinks;
   isStopConfirmed: (result: Awaited<ReturnType<typeof GenerationManager.abortJob>>) => boolean;
   logger: typeof Logger;
@@ -60,7 +62,8 @@ export function createConversationDeletionService({
   db,
   subagentThreadTaskStore,
   GenerationJobManager,
-  deleteAgentCheckpointScopes,
+  deleteOwnedAgentCheckpoints,
+  openCheckpointDeletion,
   deleteConvoSharedLinksWithCleanup,
   isStopConfirmed,
   logger,
@@ -70,15 +73,6 @@ export function createConversationDeletionService({
   const GENERATION_PERSISTENCE_DRAIN_TIMEOUT_MS = 45_000;
   const GENERATION_PERSISTENCE_DRAIN_POLL_MS = 100;
   const GENERATION_LOOKUP_ATTEMPTS = 3;
-
-  function addCheckpointScopes(
-    target: Map<string, AgentCheckpointScope>,
-    scopes: readonly AgentCheckpointScope[],
-  ): void {
-    for (const scope of scopes) {
-      target.set(`${scope.threadId}\0${scope.checkpointNamespace}`, scope);
-    }
-  }
 
   async function readGenerationForDeletion(conversationId: string) {
     let lastError;
@@ -126,18 +120,8 @@ export function createConversationDeletionService({
     ownerWide = false,
   ) {
     const drainErrors = [];
-    const checkpointScopes = new Map<string, AgentCheckpointScope>();
-    const deletionTargets = new Set(conversationIds);
     let conversationRunIds;
     try {
-      const retainedScopes = await GenerationJobManager.getRetainedCheckpointScopesForUser(
-        userId,
-        tenantId,
-      );
-      addCheckpointScopes(
-        checkpointScopes,
-        retainedScopes.filter((scope) => ownerWide || deletionTargets.has(scope.threadId)),
-      );
       conversationRunIds = ownerWide
         ? await GenerationJobManager.getCleanupBlockingJobIdsForUser(userId, tenantId)
         : await GenerationJobManager.getCleanupBlockingJobIdsForConversations(
@@ -167,16 +151,6 @@ export function createConversationDeletionService({
         }
         const jobTenantId = job.metadata.tenantId;
         if (jobTenantId != null && jobTenantId !== tenantId) return;
-        const checkpointScope = getOwnedAgentCheckpointScope(job, userId, tenantId);
-        if (
-          checkpointScope != null &&
-          (ownerWide || deletionTargets.has(checkpointScope.threadId))
-        ) {
-          checkpointScopes.set(
-            `${checkpointScope.threadId}\0${checkpointScope.checkpointNamespace}`,
-            checkpointScope,
-          );
-        }
         const needsDrain =
           job.status === 'running' ||
           job.status === 'requires_action' ||
@@ -219,18 +193,6 @@ export function createConversationDeletionService({
     if (drainErrors.length > 0) {
       throw new Error('One or more deleted child generations could not be confirmed drained.');
     }
-    return [...checkpointScopes.values()];
-  }
-
-  async function deleteAndAcknowledgeCheckpointScopes(
-    userId: string,
-    tenantId: string | undefined,
-    scopes: AgentCheckpointScope[],
-    checkpointer?: TCheckpointerConfig,
-  ): Promise<void> {
-    if (scopes.length === 0) return;
-    await deleteAgentCheckpointScopes(scopes, checkpointer);
-    await GenerationJobManager.acknowledgeCheckpointScopesForUser(userId, tenantId, scopes);
   }
 
   /** Repeats generation discovery after the conversation wave is gone, then always
@@ -241,20 +203,22 @@ export function createConversationDeletionService({
     userId: string,
     conversationIds: string[],
     leaseTaskIds: string[] = [],
-    tenantId?: string,
+    tenantId: string | undefined,
+    deletion: CheckpointDeletion | undefined,
+    checkpointer?: TCheckpointerConfig,
   ) {
-    const checkpointScopes = await confirmAgentGenerationsDrained(
-      userId,
-      conversationIds,
-      leaseTaskIds,
-      tenantId,
-    );
+    await confirmAgentGenerationsDrained(userId, conversationIds, leaseTaskIds, tenantId);
     await db.deleteConvos(
       userId,
       { conversationId: { $in: conversationIds } },
       {
         allowEmpty: true,
         tenantId: tenantId ?? null,
+        beforeDelete: async (ids) => {
+          await deletion?.remember(ids);
+          await confirmAgentGenerationsDrained(userId, ids, [], tenantId);
+          await deleteOwnedAgentCheckpoints(userId, tenantId, ids, checkpointer);
+        },
       },
     );
     await db.deleteMessages({
@@ -262,7 +226,6 @@ export function createConversationDeletionService({
       conversationId: { $in: conversationIds },
       ...(tenantId == null ? { tenantId: { $exists: false } } : { tenantId }),
     });
-    return checkpointScopes;
   }
 
   /** Orders every owner-scoped agent execution against a delete-all persistence
@@ -273,15 +236,8 @@ export function createConversationDeletionService({
     tenantId: string | undefined,
     deletion: () => Promise<DeletionResult>,
     recoverPersistence: () => Promise<DeletionResult>,
-    checkpointer?: TCheckpointerConfig,
   ) {
-    const checkpointScopes = new Map<string, AgentCheckpointScope>();
-    const drainRemoteRuns = async () => {
-      addCheckpointScopes(
-        checkpointScopes,
-        await confirmAgentGenerationsDrained(userId, [], [], tenantId, true),
-      );
-    };
+    const drainRemoteRuns = () => confirmAgentGenerationsDrained(userId, [], [], tenantId, true);
     let recoveryConversationIds: string[] = [];
     const result = await subagentThreadTaskStore.withOwnerDeletionFence(
       userId,
@@ -298,14 +254,6 @@ export function createConversationDeletionService({
         recoveryConversationIds = recovery.conversationIds ?? [];
       },
     );
-    if (checkpointScopes.size > 0) {
-      await deleteAndAcknowledgeCheckpointScopes(
-        userId,
-        tenantId,
-        [...checkpointScopes.values()],
-        checkpointer,
-      );
-    }
     return { result, recoveryConversationIds };
   }
 
@@ -315,34 +263,32 @@ export function createConversationDeletionService({
     tenantId: string | undefined,
     checkpointer: TCheckpointerConfig | undefined,
   ) {
-    const checkpointScopes = new Map<string, AgentCheckpointScope>();
+    const deletion = await openCheckpointDeletion(userId, tenantId, undefined, checkpointer);
     const result = await db.deleteConvos(userId, filter, {
       allowEmpty: true,
       tenantId: tenantId ?? null,
-      beforeDelete: async (conversationIds) => {
-        addCheckpointScopes(
-          checkpointScopes,
-          await confirmAgentGenerationsDrained(userId, conversationIds, [], tenantId),
-        );
+      beforeDelete: async (ids) => {
+        await deletion.remember(ids);
+        await confirmAgentGenerationsDrained(userId, ids, [], tenantId);
+        await deleteOwnedAgentCheckpoints(userId, tenantId, ids, checkpointer);
       },
     });
-    /** Consume the deletion receipt before the fallible message sweep. A retry after
-     * conversations are gone cannot reconstruct these checkpoint identities. */
-    if (checkpointScopes.size > 0) {
-      await deleteAndAcknowledgeCheckpointScopes(
-        userId,
-        tenantId,
-        [...checkpointScopes.values()],
-        checkpointer,
-      );
+    const targets = [
+      ...new Set([...deletion.conversationIds(), ...(result.conversationIds ?? [])]),
+    ];
+    if (targets.length > 0) {
+      await drainDeletedAgentGenerations(userId, targets, [], tenantId, deletion, checkpointer);
     }
-    /** Always runs, including an empty conversation retry, so an interrupted writer
-     * that persisted messages first cannot make its cleanup permanently unreachable. */
+    await deleteOwnedAgentCheckpoints(userId, tenantId, undefined, checkpointer);
     await db.deleteMessages({
       user: userId,
       ...(tenantId == null ? { tenantId: { $exists: false } } : { tenantId }),
     });
-    return result;
+    await deletion.acknowledge();
+    return {
+      ...result,
+      conversationIds: [...new Set([...targets, ...deletion.conversationIds()])],
+    };
   }
 
   async function deleteConversations(
@@ -353,26 +299,30 @@ export function createConversationDeletionService({
     options?: { allowMissingRoot?: boolean },
   ) {
     let cancellationPlan;
+    let checkpointDeletion: CheckpointDeletion | undefined;
     let dbResponse;
     let recoveryConversationIds: string[] = [];
-    const checkpointScopes = new Map<string, AgentCheckpointScope>();
     if (filter.conversationId) {
-      /** Resolve the targets while the conversations still exist: the second pass
-       * runs after their rows are gone and can only reach registered owners. */
+      checkpointDeletion = await openCheckpointDeletion(
+        userId,
+        tenantId,
+        filter.conversationId,
+        checkpointer,
+      );
       cancellationPlan = await subagentThreadTaskStore.planCancellationForConversations(
         userId,
-        [filter.conversationId],
+        [...new Set([filter.conversationId, ...checkpointDeletion.conversationIds()])],
         tenantId,
       );
       await subagentThreadTaskStore.cancelPlan(cancellationPlan);
       dbResponse = await db.deleteConvos(userId, filter, {
         tenantId: tenantId ?? null,
-        allowEmpty: options?.allowMissingRoot === true,
-        beforeDelete: async (conversationIds) => {
-          addCheckpointScopes(
-            checkpointScopes,
-            await confirmAgentGenerationsDrained(userId, conversationIds, [], tenantId),
-          );
+        allowEmpty:
+          options?.allowMissingRoot === true || checkpointDeletion.conversationIds().length > 0,
+        beforeDelete: async (ids) => {
+          await checkpointDeletion?.remember(ids);
+          await confirmAgentGenerationsDrained(userId, ids, [], tenantId);
+          await deleteOwnedAgentCheckpoints(userId, tenantId, ids, checkpointer);
         },
       });
     } else {
@@ -383,18 +333,18 @@ export function createConversationDeletionService({
         tenantId,
         () => deleteOwnerConversationPersistence(userId, filter, tenantId, checkpointer),
         () => deleteOwnerConversationPersistence(userId, filter, tenantId, checkpointer),
-        checkpointer,
       );
       dbResponse = fencedDeletion.result;
       recoveryConversationIds = fencedDeletion.recoveryConversationIds;
     }
-    const deletedConversationIds = [
+    let deletedConversationIds = [
       ...new Set([
         ...(dbResponse.conversationIds ?? (filter.conversationId ? [filter.conversationId] : [])),
         ...(options?.allowMissingRoot === true && typeof filter.conversationId === 'string'
           ? [filter.conversationId]
           : []),
         ...recoveryConversationIds,
+        ...(checkpointDeletion?.conversationIds() ?? []),
       ]),
     ];
     /** Root deletion closes new child admission. Replay the plan to catch a task
@@ -405,40 +355,34 @@ export function createConversationDeletionService({
        * stop a child admitted after the first one. It cannot fail the request — the
        * deletion already committed — so it retries briefly before giving up. */
       await retryPostDeleteCancellation(cancellationPlan, deletedConversationIds);
-      addCheckpointScopes(
-        checkpointScopes,
-        await drainDeletedAgentGenerations(
-          userId,
-          deletedConversationIds,
-          cancellationPlan.leases
-            .filter(
-              (lease) =>
-                deletedConversationIds.includes(lease.parentConversationId) ||
-                deletedConversationIds.includes(lease.conversationId),
-            )
-            .map((lease) => lease.taskId),
-          tenantId,
-        ),
+      await drainDeletedAgentGenerations(
+        userId,
+        deletedConversationIds,
+        cancellationPlan.leases
+          .filter(
+            (lease) =>
+              deletedConversationIds.includes(lease.parentConversationId) ||
+              deletedConversationIds.includes(lease.conversationId),
+          )
+          .map((lease) => lease.taskId),
+        tenantId,
+        checkpointDeletion,
+        checkpointer,
       );
     } else if (deletedConversationIds.length > 0) {
-      /** Owner-wide deletion drains lease-backed tasks before the cascade, but a
-       * requires_action event actor has intentionally released its lease. Its durable
-       * generation is still addressable by the deleted conversation id and must be
-       * terminalized before its checkpoint is pruned. */
-      addCheckpointScopes(
-        checkpointScopes,
-        await drainDeletedAgentGenerations(userId, deletedConversationIds, [], tenantId),
-      );
-    }
-    /** Legacy generations have no owner-bound namespace and remain for TTL cleanup. */
-    if (checkpointScopes.size > 0) {
-      await deleteAndAcknowledgeCheckpointScopes(
+      await drainDeletedAgentGenerations(
         userId,
+        deletedConversationIds,
+        [],
         tenantId,
-        [...checkpointScopes.values()],
+        checkpointDeletion,
         checkpointer,
       );
     }
+    deletedConversationIds = [
+      ...new Set([...deletedConversationIds, ...(checkpointDeletion?.conversationIds() ?? [])]),
+    ];
+    await deleteOwnedAgentCheckpoints(userId, tenantId, deletedConversationIds, checkpointer);
     if (filter.conversationId) {
       await Promise.all(
         deletedConversationIds.map((id) => db.deleteToolCalls(userId, id, tenantId ?? null)),
@@ -449,21 +393,18 @@ export function createConversationDeletionService({
         ),
       );
     }
-    return dbResponse;
+    await checkpointDeletion?.acknowledge();
+    return { ...dbResponse, conversationIds: deletedConversationIds };
   }
 
   async function canRecoverAgentConversationDeletion(
     userId: string,
     conversationId: string,
     tenantId?: string,
+    checkpointer?: TCheckpointerConfig,
   ): Promise<boolean> {
-    const retainedScopes = await GenerationJobManager.getRetainedCheckpointScopesForUser(
-      userId,
-      tenantId,
-    );
-    if (retainedScopes.some((scope) => scope.threadId === conversationId)) {
-      return true;
-    }
+    const deletion = await openCheckpointDeletion(userId, tenantId, conversationId, checkpointer);
+    if (deletion.conversationIds().length > 0) return true;
 
     const cancellationPlan = await subagentThreadTaskStore.planCancellationForConversations(
       userId,

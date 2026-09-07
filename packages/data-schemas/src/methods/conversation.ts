@@ -3058,15 +3058,7 @@ export function createConversationMethods(
             { limit: 1 },
           ),
         ]);
-        if (descendants.length === 0 && rootMessages.length === 0) {
-          if (options?.allowEmpty === true) {
-            return {
-              acknowledged: true,
-              deletedCount: 0,
-              messages: { acknowledged: true, deletedCount: 0 },
-              conversationIds: [],
-            };
-          }
+        if (descendants.length === 0 && rootMessages.length === 0 && options?.allowEmpty !== true) {
           throw new Error('Conversation not found or already deleted.');
         }
         conversations = descendants;

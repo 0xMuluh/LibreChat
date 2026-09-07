@@ -91,7 +91,8 @@ const COERCED_NUMBER_OPTION_FIELDS = [
   'fileTokenLimit',
 ] as const;
 
-const UNSAFE_MESSAGE_FIELDS = new Set(['isTemporary', 'expiredAt', 'contextMeta']);
+const SOURCE_RETENTION_FIELDS = ['isTemporary', 'expiredAt'] as const;
+const UNSAFE_MESSAGE_FIELDS = new Set(['contextMeta']);
 const MESSAGE_FIELDS = new Set([
   ...Object.keys(tMessageSchema.shape).filter((field) => !UNSAFE_MESSAGE_FIELDS.has(field)),
   'children',
@@ -100,6 +101,7 @@ const MESSAGE_FIELDS = new Set([
   'depth',
   'siblingIndex',
   'attachments',
+  ...SOURCE_RETENTION_FIELDS,
   ...SOURCE_PROVENANCE_FIELDS,
 ]);
 
@@ -339,6 +341,7 @@ function assertMessage(
     throw new ConversationImportError(`Field "${location}" must be a message object`);
   }
   assertAllowedFields(value, MESSAGE_FIELDS, location);
+  for (const field of SOURCE_RETENTION_FIELDS) delete value[field];
   const parsedMessage = tMessageSchema.safeParse(value);
   if (!parsedMessage.success) {
     throw new ConversationImportError(`Field "${location}" is not a valid message`, {
@@ -384,7 +387,7 @@ function assertMessage(
     stripOwnershipFields(value.files, depth + 1, budget);
   }
   if (value.attachments != null) {
-    assertNoOwnershipFields(value.attachments, `${location}.attachments`, depth + 1, budget);
+    stripOwnershipFields(value.attachments, depth + 1, budget);
   }
 
   if (value.children == null) return;

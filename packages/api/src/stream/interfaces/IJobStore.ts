@@ -374,11 +374,6 @@ export interface SerializableJobData {
   steersClosed?: boolean;
 }
 
-export interface RetainedCheckpointScope {
-  threadId: string;
-  checkpointNamespace: string;
-}
-
 /** Exact active hash replaced by one atomic job creation. Built-in stores keep
  * this as non-enumerable transaction metadata; Redis also retains a private
  * receipt in the replacement hash so a committed create with a lost reply can
@@ -963,18 +958,6 @@ export interface IJobStore {
    * stale paused generation that account deletion must erase before its worker
    * finalizes it. Optional custom stores fall back to cleanup-blocking jobs. */
   getRetainedJobIdsByUser?(userId: string, tenantId?: string): Promise<string[]>;
-  /** Enumerates exact-owner v2 checkpoint identities independently of the
-   * shorter-lived generation job hash. */
-  getRetainedCheckpointScopesByUser?(
-    userId: string,
-    tenantId?: string,
-  ): Promise<RetainedCheckpointScope[]>;
-  /** Removes only receipts whose saver deletion completed successfully. */
-  acknowledgeCheckpointScopes?(
-    userId: string,
-    tenantId: string | undefined,
-    scopes: readonly RetainedCheckpointScope[],
-  ): Promise<void>;
   setGraph(streamId: string, graph: StandardGraph, expectedCreatedAt?: number): void;
   setContentParts(
     streamId: string,

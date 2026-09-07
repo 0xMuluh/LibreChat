@@ -1,10 +1,8 @@
-import { randomUUID } from 'crypto';
 import { logger } from '@librechat/data-schemas';
 import type { StandardGraph } from '@librechat/agents';
 import type { Agents } from 'librechat-data-provider';
 import type {
   SerializableJobData,
-  RetainedCheckpointScope,
   CreatedJobData,
   ReplacedGeneration,
   SteerArmOutcome,
@@ -45,6 +43,7 @@ import {
   recoveredSteerPayloadMatches,
   RecoveredSteerPayloadMismatchError,
 } from '~/stream/SteerRecovery';
+import { createCheckpointNamespace } from '~/stream/checkpoints';
 import { toPendingSteer } from '~/stream/SteeringLifecycle';
 
 /** Recovery window for parked steers (mirrors Redis's completed-job TTL). */
@@ -154,9 +153,6 @@ export class InMemoryJobStore implements IJobStoreV2 {
 
   /** Maps userId -> Set of streamIds (conversationIds) for active jobs */
   private userJobMap = new Map<string, Set<string>>();
-  /** Exact owner checkpoint identities outlive individual job records until
-   * destructive cleanup confirms their saver rows are gone. */
-  private checkpointScopesByOwner = new Map<string, Map<string, RetainedCheckpointScope>>();
 
   /**
    * Maps streamId -> last generation-activity timestamp. Refreshed via
@@ -540,7 +536,7 @@ export class InMemoryJobStore implements IJobStoreV2 {
       createdAt,
       generationProtocolVersion: initialMetadata.generationProtocolVersion === 1 ? 1 : 2,
       ...(initialMetadata.generationProtocolVersion !== 1 && {
-        checkpointNamespace: randomUUID(),
+        checkpointNamespace: createCheckpointNamespace(userId, tenantId),
       }),
       ...(conversationId !== undefined && { conversationId }),
       ...(idempotencyClientRequestId !== undefined && {
@@ -630,18 +626,6 @@ export class InMemoryJobStore implements IJobStoreV2 {
       this.userJobMap.set(userKey, userJobs);
     }
     userJobs.add(streamId);
-    if (job.generationProtocolVersion === 2 && job.conversationId && job.checkpointNamespace) {
-      let ownerScopes = this.checkpointScopesByOwner.get(userKey);
-      if (ownerScopes == null) {
-        ownerScopes = new Map();
-        this.checkpointScopesByOwner.set(userKey, ownerScopes);
-      }
-      const scope = {
-        threadId: job.conversationId,
-        checkpointNamespace: job.checkpointNamespace,
-      };
-      ownerScopes.set(`${scope.threadId}\u0000${scope.checkpointNamespace}`, scope);
-    }
 
     const createdJob: CreatedJobData = previousJob == null ? job : { ...job };
     if (previousJob != null) {
@@ -1360,7 +1344,6 @@ export class InMemoryJobStore implements IJobStoreV2 {
     this.jobs.clear();
     this.contentState.clear();
     this.userJobMap.clear();
-    this.checkpointScopesByOwner.clear();
     this.steerQueues.clear();
     this.claimedSteers.clear();
     this.closedSteerQueues.clear();
@@ -1392,32 +1375,6 @@ export class InMemoryJobStore implements IJobStoreV2 {
       const job = this.jobs.get(streamId);
       return job?.userId === userId && (job.tenantId == null || job.tenantId === tenantId);
     });
-  }
-
-  async getRetainedCheckpointScopesByUser(
-    userId: string,
-    tenantId?: string,
-  ): Promise<RetainedCheckpointScope[]> {
-    const ownerKey = tenantId ? `${tenantId}:${userId}` : userId;
-    return [...(this.checkpointScopesByOwner.get(ownerKey)?.values() ?? [])];
-  }
-
-  async acknowledgeCheckpointScopes(
-    userId: string,
-    tenantId: string | undefined,
-    scopes: readonly RetainedCheckpointScope[],
-  ): Promise<void> {
-    const ownerKey = tenantId ? `${tenantId}:${userId}` : userId;
-    const retained = this.checkpointScopesByOwner.get(ownerKey);
-    if (retained == null) {
-      return;
-    }
-    for (const scope of scopes) {
-      retained.delete(`${scope.threadId}\u0000${scope.checkpointNamespace}`);
-    }
-    if (retained.size === 0) {
-      this.checkpointScopesByOwner.delete(ownerKey);
-    }
   }
 
   private getJobIdsByUser(

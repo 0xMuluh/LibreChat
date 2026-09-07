@@ -19,22 +19,8 @@ function optionalTenantFilter<T>(tenantId?: string | null): FilterQuery<T> {
   return (tenantId === undefined ? {} : { tenantId }) as FilterQuery<T>;
 }
 
-/**
- * Atomically decrements tag counts for a user. Each entry in `tags` counts as a
- * single decrement, so callers must dedupe tags per conversation before flattening
- * to avoid double-decrementing a conversation's duplicate tag entries. Counts are
- * clamped at zero to tolerate any pre-existing drift.
- *
- * Each tag emits three ops in one ordered bulkWrite instead of a
- * `$max`/`$subtract` aggregation-pipeline update (which Amazon DocumentDB
- * rejects): normalize a null/missing count to zero, apply the `$inc`, then
- * clamp a negative result back to zero. The clamp keys on `count < 0` rather
- * than `count < amount` so it composes with concurrent decrements of the same
- * tag: increments commute and every interleaved call ends with its own clamp,
- * so the count still converges on `max(0, ...)` exactly as the serialized
- * pipeline did. The only trade-off is a transiently negative count between an
- * op pair, which readers already tolerate.
- */
+/** Applies signed decrements so deletion commutes with delayed metadata updates.
+ * Callers deduplicate tags per conversation. Only public reads clamp counts. */
 export async function decrementTagCounts(
   mongoose: typeof import('mongoose'),
   user: string,
@@ -71,12 +57,7 @@ export async function decrementTagCounts(
         updateOne: {
           filter: { user, tag, ...tenantFilter },
           update: { $inc: { count: -amount } },
-        },
-      },
-      {
-        updateOne: {
-          filter: { user, tag, count: { $lt: 0 }, ...tenantFilter },
-          update: { $set: { count: 0 } },
+          upsert: true,
         },
       },
     ]);

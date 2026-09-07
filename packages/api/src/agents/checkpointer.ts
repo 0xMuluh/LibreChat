@@ -13,7 +13,12 @@ import type { BaseMessage } from '@librechat/agents/langchain/messages';
 import type { TCheckpointerConfig } from 'librechat-data-provider';
 import type { IndexBuildOptions } from '@librechat/data-schemas';
 import type { RunnableConfig } from '@langchain/core/runnables';
-import type { GenerationJob } from '../types/stream';
+import {
+  DEFAULT_CHECKPOINT_TTL_SECONDS,
+  checkpointOwnerNamespacePrefix,
+} from '../stream/checkpoints';
+
+export { DEFAULT_CHECKPOINT_TTL_SECONDS } from '../stream/checkpoints';
 
 /**
  * LangGraph reserves `checkpoint_ns` for nested graph namespaces and forcibly
@@ -543,9 +548,6 @@ function sweepStale<T>(map: Map<string, T>, timeOf: (value: T) => number): void 
   }
 }
 
-/** Default approval window and checkpoint TTL: 24h. */
-export const DEFAULT_CHECKPOINT_TTL_SECONDS = 86400;
-
 const DEFAULT_CHECKPOINT_COLLECTION = 'agent_checkpoints';
 const DEFAULT_CHECKPOINT_WRITES_COLLECTION = 'agent_checkpoint_writes';
 
@@ -572,34 +574,6 @@ export interface AgentCheckpointGeneration {
    * legacy generation's nested LangGraph namespaces during deletion. */
   checkpointNamespace?: string;
   checkpointIds: string[];
-}
-
-export interface AgentCheckpointScope {
-  threadId: string;
-  checkpointNamespace: string;
-}
-
-export function getOwnedAgentCheckpointScope(
-  job: Pick<GenerationJob, 'metadata'> | null | undefined,
-  userId: string,
-  tenantId?: string,
-): AgentCheckpointScope | undefined {
-  const metadata = job?.metadata;
-  if (
-    metadata?.userId !== userId ||
-    (metadata.tenantId ?? undefined) !== (tenantId ?? undefined) ||
-    metadata.generationProtocolVersion !== 2 ||
-    typeof metadata.conversationId !== 'string' ||
-    metadata.conversationId.length === 0 ||
-    typeof metadata.checkpointNamespace !== 'string' ||
-    metadata.checkpointNamespace.length === 0
-  ) {
-    return undefined;
-  }
-  return {
-    threadId: metadata.conversationId,
-    checkpointNamespace: metadata.checkpointNamespace,
-  };
 }
 
 /**
@@ -908,6 +882,20 @@ async function buildMongoSaver(
         errors,
       );
     }
+    await Promise.all(
+      [resolved.checkpointCollectionName, resolved.checkpointWritesCollectionName].map(
+        async (name) => {
+          try {
+            await buildIndexWithRetry(
+              () => mongoose.connection.db!.collection(name).createIndex({ checkpoint_ns: 1 }),
+              `${name}.checkpoint_ns`,
+            );
+          } catch (error) {
+            logger.warn('[checkpointer] Owner cleanup index unavailable:', error);
+          }
+        },
+      ),
+    );
     logger.info('[checkpointer] Durable Mongo checkpointer ready for agent continuation');
     return saver;
   } catch (err) {
@@ -1079,45 +1067,36 @@ export async function deleteAgentCheckpoint(
   }
 }
 
-export async function deleteAgentCheckpointScopes(
-  scopes: readonly AgentCheckpointScope[],
+/** Delete durable rows by authenticated ownership, independently of job/receipt lifetimes. */
+export async function deleteOwnedAgentCheckpoints(
+  userId: string,
+  tenantId: string | undefined,
+  conversationIds: readonly string[] | undefined,
   cfg?: TCheckpointerConfig,
 ): Promise<void> {
-  const exactScopes = new Map<string, AgentCheckpointScope>();
-  for (const scope of scopes) {
-    if (scope.threadId.length === 0 || scope.checkpointNamespace.length === 0) {
-      continue;
-    }
-    exactScopes.set(`${scope.threadId}\u0000${scope.checkpointNamespace}`, scope);
-  }
-  if (exactScopes.size === 0) {
-    return;
-  }
-  const saver = await getAgentCheckpointer(cfg);
-  if (!saver) {
-    return;
+  if (!userId) {
+    throw new Error('Checkpoint cleanup requires an owner');
   }
   const resolved = resolveCheckpointerConfig(cfg);
-  try {
-    const db = mongoose.connection.db;
-    if (!db) {
-      return;
-    }
+  if (resolved.type === 'memory' || conversationIds?.length === 0) {
+    return;
+  }
+  const db = mongoose.connection.db;
+  if (!db || mongoose.connection.readyState !== 1) {
+    throw new Error('Checkpoint database is unavailable');
+  }
+  const checkpoint_ns = { $regex: `^${checkpointOwnerNamespacePrefix(userId, tenantId)}` };
+  const ids = conversationIds == null ? undefined : [...new Set(conversationIds)];
+  const batchSize = 256;
+  for (let offset = 0; offset < (ids?.length ?? 1); offset += batchSize) {
     const filter = {
-      $or: [...exactScopes.values()].map(({ threadId, checkpointNamespace }) => ({
-        thread_id: threadId,
-        checkpoint_ns: generationNamespaceFilter(checkpointNamespace),
-      })),
+      checkpoint_ns,
+      ...(ids && { thread_id: { $in: ids.slice(offset, offset + batchSize) } }),
     };
     await Promise.all([
       db.collection(resolved.checkpointCollectionName).deleteMany(filter),
       db.collection(resolved.checkpointWritesCollectionName).deleteMany(filter),
     ]);
-  } catch (err) {
-    logger.warn(
-      `[checkpointer] Failed to delete ${exactScopes.size} checkpoint generation scope(s):`,
-      err,
-    );
   }
 }
 

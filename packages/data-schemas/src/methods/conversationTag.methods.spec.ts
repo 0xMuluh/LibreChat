@@ -174,6 +174,16 @@ describe('decrementTagCounts', () => {
   const readCount = async (tag: string, user: string = userId) =>
     (await ConversationTag.findOne({ user, tag }).lean())?.count;
 
+  it('preserves a delayed metadata increment across deletion of another tagged conversation', async () => {
+    await ConversationTag.create({ tag: 'red', user: userId, position: 1, count: 1 });
+    await reconcileConversationTagCounts(userId, ['red'], ['blue']);
+    await decrementTagCounts(mongoose, userId, ['red']);
+    expect(await readCount('red')).toBe(-1);
+    await reconcileConversationTagCounts(userId, [], ['red']);
+    expect(await readCount('red')).toBe(0);
+    expect(await readCount('blue')).toBe(1);
+  });
+
   it('decrements once per tag occurrence', async () => {
     await ConversationTag.create({ tag: 'work', user: userId, position: 1, count: 5 });
 
@@ -190,28 +200,28 @@ describe('decrementTagCounts', () => {
     expect(await readCount('work')).toBe(0);
   });
 
-  it('clamps at zero when the decrement exceeds the current count', async () => {
+  it('retains signed deltas when decrements precede increments', async () => {
     await ConversationTag.create({ tag: 'work', user: userId, position: 1, count: 1 });
 
     await decrementTagCounts(mongoose, userId, ['work', 'work', 'work']);
 
-    expect(await readCount('work')).toBe(0);
+    expect(await readCount('work')).toBe(-2);
   });
 
-  it('leaves a zero count at zero', async () => {
+  it('retains a decrement of a zero count', async () => {
     await ConversationTag.create({ tag: 'empty', user: userId, position: 1, count: 0 });
 
     await decrementTagCounts(mongoose, userId, ['empty']);
 
-    expect(await readCount('empty')).toBe(0);
+    expect(await readCount('empty')).toBe(-1);
   });
 
-  it('clamps pre-existing negative drift to zero', async () => {
+  it('preserves an existing negative delta', async () => {
     await ConversationTag.create({ tag: 'drift', user: userId, position: 1, count: -3 });
 
     await decrementTagCounts(mongoose, userId, ['drift']);
 
-    expect(await readCount('drift')).toBe(0);
+    expect(await readCount('drift')).toBe(-4);
   });
 
   it('treats a missing count as zero', async () => {
@@ -219,10 +229,10 @@ describe('decrementTagCounts', () => {
 
     await decrementTagCounts(mongoose, userId, ['legacy']);
 
-    expect(await readCount('legacy')).toBe(0);
+    expect(await readCount('legacy')).toBe(-1);
   });
 
-  it('converges to zero under concurrent decrements exceeding the count', async () => {
+  it('combines concurrent decrements without discarding negative deltas', async () => {
     await ConversationTag.create({ tag: 'race', user: userId, position: 1, count: 3 });
 
     await Promise.all([
@@ -230,7 +240,7 @@ describe('decrementTagCounts', () => {
       decrementTagCounts(mongoose, userId, ['race', 'race']),
     ]);
 
-    expect(await readCount('race')).toBe(0);
+    expect(await readCount('race')).toBe(-1);
   });
 
   it("leaves other users' tags untouched", async () => {

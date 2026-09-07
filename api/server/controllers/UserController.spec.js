@@ -4,7 +4,7 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const mockGetActiveJobIdsForUser = jest.fn().mockResolvedValue([]);
 const mockGetAgentJob = jest.fn().mockResolvedValue(null);
 const mockAbortJob = jest.fn().mockResolvedValue({ success: true });
-const mockDeleteAgentCheckpointScopes = jest.fn().mockResolvedValue(undefined);
+const mockDeleteOwnedAgentCheckpoints = jest.fn().mockResolvedValue(undefined);
 const mockDeleteAgentCheckpoints = jest.fn(async (threadIds = []) => {
   const filter = { thread_id: { $in: threadIds } };
   await Promise.all([
@@ -107,7 +107,7 @@ jest.mock('@librechat/api', () => ({
     abortJob: (...args) => mockAbortJob(...args),
   },
   deleteAgentCheckpoints: (...args) => mockDeleteAgentCheckpoints(...args),
-  deleteAgentCheckpointScopes: (...args) => mockDeleteAgentCheckpointScopes(...args),
+  deleteOwnedAgentCheckpoints: (...args) => mockDeleteOwnedAgentCheckpoints(...args),
 }));
 
 jest.mock('~/server/services/Agents/triggers', () => ({
@@ -285,7 +285,7 @@ describe('verifyEmailController', () => {
     mockGetActiveJobIdsForUser.mockResolvedValue([]);
     mockGetAgentJob.mockResolvedValue(null);
     mockAbortJob.mockResolvedValue({ success: true });
-    mockDeleteAgentCheckpointScopes.mockResolvedValue(undefined);
+    mockDeleteOwnedAgentCheckpoints.mockResolvedValue(undefined);
   });
 
   it('returns the generic verification error message from service failures', async () => {
@@ -559,12 +559,19 @@ describe('deleteUserController', () => {
   it('prunes only account checkpoint receipts bound to the deleted user and tenant', async () => {
     const userId = new mongoose.Types.ObjectId();
     const userIdString = userId.toString();
+    const ownedNamespace = `lcg:v2:${require('crypto')
+      .createHash('sha256')
+      .update(JSON.stringify(['tenant-1', userIdString]))
+      .digest('hex')}:00000000-0000-4000-8000-000000000001`;
+    const foreignUserNamespace = 'lcg:v1:00000000-0000-4000-8000-000000000002';
+    const foreignTenantNamespace = 'lcg:v1:00000000-0000-4000-8000-000000000003';
+    const missingTenantNamespace = 'lcg:v1:00000000-0000-4000-8000-000000000004';
     const checkpointDocuments = [
-      'owned-generation',
-      'owned-generation|subgraph',
-      'foreign-user-generation',
-      'foreign-tenant-generation',
-      'legacy-tenant-generation',
+      ownedNamespace,
+      `${ownedNamespace}|subgraph`,
+      foreignUserNamespace,
+      foreignTenantNamespace,
+      missingTenantNamespace,
       '',
     ].map((checkpointNamespace) => ({
       thread_id: 'collision-id',
@@ -574,8 +581,8 @@ describe('deleteUserController', () => {
     await mongoose.connection.db
       .collection('agent_checkpoint_writes')
       .insertMany(checkpointDocuments);
-    mockDeleteAgentCheckpointScopes.mockImplementationOnce((...args) =>
-      jest.requireActual('@librechat/api').deleteAgentCheckpointScopes(...args),
+    mockDeleteOwnedAgentCheckpoints.mockImplementationOnce((...args) =>
+      jest.requireActual('@librechat/api').deleteOwnedAgentCheckpoints(...args),
     );
     deleteConvos.mockResolvedValueOnce({ deletedCount: 1, conversationIds: ['collision-id'] });
     mockGetActiveJobIdsForUser.mockResolvedValueOnce([
@@ -591,21 +598,21 @@ describe('deleteUserController', () => {
           userId: userIdString,
           tenantId: 'tenant-1',
           conversationId: 'collision-id',
-          checkpointNamespace: 'owned-generation',
+          checkpointNamespace: ownedNamespace,
           generationProtocolVersion: 2,
         },
         'foreign-user-run': {
           userId: 'foreign-user',
           tenantId: 'tenant-1',
           conversationId: 'collision-id',
-          checkpointNamespace: 'foreign-user-generation',
+          checkpointNamespace: foreignUserNamespace,
           generationProtocolVersion: 2,
         },
         'foreign-tenant-run': {
           userId: userIdString,
           tenantId: 'foreign-tenant',
           conversationId: 'collision-id',
-          checkpointNamespace: 'foreign-tenant-generation',
+          checkpointNamespace: foreignTenantNamespace,
           generationProtocolVersion: 2,
         },
         'legacy-run': {
@@ -618,7 +625,7 @@ describe('deleteUserController', () => {
         'legacy-tenant-run': {
           userId: userIdString,
           conversationId: 'collision-id',
-          checkpointNamespace: 'legacy-tenant-generation',
+          checkpointNamespace: missingTenantNamespace,
           generationProtocolVersion: 2,
         },
       }[streamId];
@@ -646,17 +653,19 @@ describe('deleteUserController', () => {
         .toArray(),
     ).toEqual([
       { checkpoint_ns: '' },
-      { checkpoint_ns: 'foreign-tenant-generation' },
-      { checkpoint_ns: 'foreign-user-generation' },
-      { checkpoint_ns: 'legacy-tenant-generation' },
+      { checkpoint_ns: foreignUserNamespace },
+      { checkpoint_ns: foreignTenantNamespace },
+      { checkpoint_ns: missingTenantNamespace },
     ]);
     expect(mockAbortJob.mock.calls.map(([streamId]) => streamId)).toEqual([
       'owned-run',
       'legacy-tenant-run',
       'legacy-run',
     ]);
-    expect(mockDeleteAgentCheckpointScopes).toHaveBeenCalledWith(
-      [{ threadId: 'collision-id', checkpointNamespace: 'owned-generation' }],
+    expect(mockDeleteOwnedAgentCheckpoints).toHaveBeenCalledWith(
+      userIdString,
+      'tenant-1',
+      undefined,
       undefined,
     );
   });
@@ -690,7 +699,7 @@ describe('deleteUserController', () => {
     });
     expect(mockRes.status).toHaveBeenCalledWith(500);
     expect(deleteMessages).not.toHaveBeenCalled();
-    expect(mockDeleteAgentCheckpointScopes).not.toHaveBeenCalled();
+    expect(mockDeleteOwnedAgentCheckpoints).not.toHaveBeenCalled();
   });
 
   it('fails closed and releases deletion fences when a provider cannot confirm drain', async () => {
@@ -840,15 +849,14 @@ describe('deleteUserController', () => {
     expect(group.memberIds).toEqual(['other']);
   });
 
-  it('should still succeed when deleteConvos throws', async () => {
+  it('fails closed when conversation deletion fails', async () => {
     const userId = new mongoose.Types.ObjectId();
     deleteConvos.mockRejectedValueOnce(new Error('no convos'));
 
     const req = { user: { id: userId.toString(), _id: userId, email: 'convos@test.com' } };
     await deleteUserController(req, mockRes);
 
-    expect(mockRes.status).toHaveBeenCalledWith(200);
-    expect(mockRes.send).toHaveBeenCalledWith({ message: 'User deleted' });
+    expect(mockRes.status).toHaveBeenCalledWith(500);
   });
 
   it('should return 500 when a critical operation fails', async () => {
