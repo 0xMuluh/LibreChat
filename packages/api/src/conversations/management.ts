@@ -21,8 +21,8 @@ import {
   projectConversationList,
   projectConversationMessage,
 } from './schema';
-import { updateConversationMetadata } from './metadata';
 import { isContentFilterError } from '../middleware/contentFilter';
+import { updateConversationMetadata } from './metadata';
 
 type DeleteConversations = (
   userId: string,
