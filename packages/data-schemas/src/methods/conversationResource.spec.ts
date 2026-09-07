@@ -71,8 +71,12 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await Conversation.deleteMany({});
-  await Message.deleteMany({});
+  await Promise.all([
+    Conversation.deleteMany({}),
+    Message.deleteMany({}),
+    mongoose.models.ToolCall.deleteMany({}),
+    mongoose.models.SharedLink.deleteMany({}),
+  ]);
 });
 
 describe('conversation resource methods', () => {
@@ -523,5 +527,50 @@ describe('conversation resource methods', () => {
     ).toBe(4);
     expect(foreign).toBeNull();
     expect(hiddenRoots).toEqual([null, null, null]);
+  });
+
+  it('authorizes retry only for dependent deletion remnants in the exact owner and tenant scope', async () => {
+    const owner = new mongoose.Types.ObjectId().toString();
+    const conversationId = 'dependent-cleanup-retry';
+    await asTenant(TENANT_A, async () => {
+      await mongoose.models.ToolCall.create({
+        user: owner,
+        conversationId,
+        messageId: 'message-a',
+        toolId: 'tool-a',
+      });
+    });
+    await asTenant(TENANT_B, async () => {
+      await mongoose.models.SharedLink.create({
+        user: owner,
+        conversationId,
+        shareId: 'foreign-tenant-share',
+      });
+    });
+
+    await expect(
+      runAsSystem(() =>
+        methods.canRecoverConversationResourceDeletion(owner, TENANT_A, conversationId),
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      runAsSystem(() =>
+        methods.canRecoverConversationResourceDeletion(owner, TENANT_B, conversationId),
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      runAsSystem(() =>
+        methods.canRecoverConversationResourceDeletion(
+          new mongoose.Types.ObjectId().toString(),
+          TENANT_A,
+          conversationId,
+        ),
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      runAsSystem(() =>
+        methods.canRecoverConversationResourceDeletion(owner, undefined, conversationId),
+      ),
+    ).resolves.toBe(false);
   });
 });

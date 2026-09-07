@@ -187,6 +187,48 @@ describe('createConversationImportOperation', () => {
     expect(imported).not.toEqual(data);
   });
 
+  it.each([
+    ['typed message values', { isCreatedByUser: 'true' }],
+    ['created timestamp', { createdAt: 'not-a-date' }],
+    ['updated timestamp', { updatedAt: 'still-not-a-date' }],
+    ['content container', { content: { type: 'text', text: 'invalid container' } }],
+    ['file container', { files: { file_id: 'invalid container' } }],
+    ['tree depth', { depth: -1 }],
+  ])('rejects an invalid %s before importer execution', async (_description, messageChanges) => {
+    const data = {
+      ...baseExport,
+      messages: [{ ...baseExport.messages[0], ...messageChanges }],
+    };
+    const { deps } = createDependencies(JSON.stringify(data));
+
+    await expect(
+      createConversationImportOperation(deps)({
+        filepath: '/tmp/invalid-message.json',
+        requestUserId: 'authenticated-user',
+        format: 'librechat',
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request', statusCode: 400 });
+    expect(deps.getImporter).not.toHaveBeenCalled();
+    expect(deps.unlinkFile).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['top-level title', { title: 42 }],
+    ['top-level branch flag', { branches: 'yes' }],
+    ['conversation option', { options: { ...baseExport.options, model: 42 } }],
+  ])('rejects an invalid %s value before importer execution', async (_description, changes) => {
+    const { deps } = createDependencies(JSON.stringify({ ...baseExport, ...changes }));
+
+    await expect(
+      createConversationImportOperation(deps)({
+        filepath: '/tmp/invalid-conversation.json',
+        requestUserId: 'authenticated-user',
+        format: 'librechat',
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request', statusCode: 400 });
+    expect(deps.getImporter).not.toHaveBeenCalled();
+  });
+
   it('requires bookmark access before importing tags', async () => {
     const taggedExport = {
       ...baseExport,

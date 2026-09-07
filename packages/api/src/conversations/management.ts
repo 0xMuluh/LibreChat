@@ -21,11 +21,7 @@ import {
   projectConversationList,
   projectConversationMessage,
 } from './schema';
-import {
-  updateConversationArchiveMetadata,
-  updateConversationTagsMetadata,
-  updateConversationTitleMetadata,
-} from './metadata';
+import { updateConversationMetadata } from './metadata';
 import { isContentFilterError } from '../middleware/contentFilter';
 
 type DeleteConversations = (
@@ -33,6 +29,7 @@ type DeleteConversations = (
   filter: Parameters<ConversationMethods['deleteConvos']>[1],
   tenantId?: string,
   checkpointer?: TCheckpointerConfig,
+  options?: { allowMissingRoot?: boolean },
 ) => Promise<Awaited<ReturnType<ConversationMethods['deleteConvos']>>>;
 
 export interface ConversationManagementHandlerDeps {
@@ -42,6 +39,7 @@ export interface ConversationManagementHandlerDeps {
   listConversationMessageResources: ConversationResourceMethods['listConversationMessageResources'];
   saveConvo: ConversationMethods['saveConvo'];
   updateTagsForConversation: ConversationTagMethods['updateTagsForConversation'];
+  reconcileConversationTagCounts: ConversationTagMethods['reconcileConversationTagCounts'];
   deleteConversations: DeleteConversations;
 }
 
@@ -193,34 +191,15 @@ export function createConversationManagementHandlers(deps: ConversationManagemen
       const existing = await deps.getConversationResource(owner, conversationTenantId, id);
       if (existing == null) throw new ConversationManagementError('not_found');
 
-      if (input.title != null) {
-        await updateConversationTitleMetadata(deps, {
-          userId: owner,
-          tenantId: conversationTenantId,
-          conversationId: id,
-          title: input.title,
-          filters: req.config?.filters,
-          interfaceConfig: req.config?.interfaceConfig,
-        });
-      }
-      if (input.tags != null) {
-        await updateConversationTagsMetadata(deps, {
-          userId: owner,
-          tenantId: conversationTenantId,
-          conversationId: id,
-          tags: input.tags,
-          interfaceConfig: req.config?.interfaceConfig,
-        });
-      }
-      if (input.isArchived != null) {
-        await updateConversationArchiveMetadata(deps, {
-          userId: owner,
-          tenantId: conversationTenantId,
-          conversationId: id,
-          isArchived: input.isArchived,
-          interfaceConfig: req.config?.interfaceConfig,
-        });
-      }
+      await updateConversationMetadata(deps, {
+        userId: owner,
+        tenantId: conversationTenantId,
+        conversationId: id,
+        previousTags: existing.tags ?? [],
+        ...input,
+        filters: req.config?.filters,
+        interfaceConfig: req.config?.interfaceConfig,
+      });
 
       const updated = await deps.getConversationResource(owner, conversationTenantId, id);
       if (updated == null) throw new ConversationManagementError('not_found');
@@ -236,8 +215,9 @@ export function createConversationManagementHandlers(deps: ConversationManagemen
       const conversationTenantId = tenantId(req);
       const id = resourceId(req);
       const existing = await deps.getConversationResource(owner, conversationTenantId, id);
+      const allowMissingRoot = existing == null;
       if (
-        existing == null &&
+        allowMissingRoot &&
         !(await deps.canRecoverConversationResourceDeletion(owner, conversationTenantId, id))
       ) {
         throw new ConversationManagementError('not_found');
@@ -253,6 +233,7 @@ export function createConversationManagementHandlers(deps: ConversationManagemen
         },
         conversationTenantId,
         checkpointer,
+        { allowMissingRoot },
       );
       return res.status(200).json({ id, deleted: true });
     } catch (error) {

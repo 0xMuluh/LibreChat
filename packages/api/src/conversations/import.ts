@@ -310,6 +310,37 @@ function assertMessage(
     throw new ConversationImportError(`Field "${location}" must be a message object`);
   }
   assertAllowedFields(value, MESSAGE_FIELDS, location);
+  const parsedMessage = tMessageSchema.safeParse(value);
+  if (!parsedMessage.success) {
+    throw new ConversationImportError(`Field "${location}" is not a valid message`, {
+      cause: parsedMessage.error,
+    });
+  }
+  for (const field of ['createdAt', 'updatedAt', 'clientTimestamp'] as const) {
+    const timestamp = value[field];
+    if (
+      timestamp !== undefined &&
+      (typeof timestamp !== 'string' || !Number.isFinite(Date.parse(timestamp)))
+    ) {
+      throw new ConversationImportError(`Field "${location}.${field}" must be a valid date`);
+    }
+  }
+  for (const field of ['content', 'files', 'attachments'] as const) {
+    if (value[field] !== undefined && !Array.isArray(value[field])) {
+      throw new ConversationImportError(`Field "${location}.${field}" must be an array`);
+    }
+  }
+  for (const field of ['depth', 'siblingIndex'] as const) {
+    const ordinal = value[field];
+    if (
+      ordinal !== undefined &&
+      (typeof ordinal !== 'number' || !Number.isInteger(ordinal) || ordinal < 0)
+    ) {
+      throw new ConversationImportError(
+        `Field "${location}.${field}" must be a non-negative integer`,
+      );
+    }
+  }
   for (const field of SOURCE_PROVENANCE_FIELDS) {
     delete value[field];
   }
@@ -360,12 +391,28 @@ export function prepareLibreChatConversationImport(
   if (typeof value.conversationId !== 'string' || value.conversationId.length === 0) {
     throw new ConversationImportError('A LibreChat conversationId is required');
   }
+  for (const field of ['endpoint', 'title', 'exportAt'] as const) {
+    if (value[field] !== undefined && typeof value[field] !== 'string') {
+      throw new ConversationImportError(`Field "conversation.${field}" must be a string`);
+    }
+  }
+  for (const field of ['branches', 'recursive'] as const) {
+    if (value[field] !== undefined && typeof value[field] !== 'boolean') {
+      throw new ConversationImportError(`Field "conversation.${field}" must be a boolean`);
+    }
+  }
 
   if (value.options != null) {
     if (!isJsonObject(value.options)) {
       throw new ConversationImportError('Field "conversation.options" must be an object');
     }
     assertAllowedFields(value.options, OPTION_FIELDS, 'conversation.options');
+    const parsedOptions = tPresetSchema.safeParse(value.options);
+    if (!parsedOptions.success) {
+      throw new ConversationImportError('Field "conversation.options" is not valid', {
+        cause: parsedOptions.error,
+      });
+    }
     if (value.options.tags !== undefined && !allowTags) {
       throw new ConversationImportError('Importing conversation tags requires bookmark access', {
         code: 'permission_denied',

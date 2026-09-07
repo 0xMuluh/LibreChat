@@ -2081,6 +2081,15 @@ describe('Conversation Operations', () => {
 
     it('supports an idempotent empty recovery sweep without hiding storage failures', async () => {
       await expect(
+        deleteConvos('user123', { conversationId: 'already-absent' }, { allowEmpty: true }),
+      ).resolves.toEqual({
+        acknowledged: true,
+        deletedCount: 0,
+        messages: { acknowledged: true, deletedCount: 0 },
+        conversationIds: [],
+      });
+
+      await expect(
         deleteConvos(
           'user123',
           { conversationId: { $in: ['already-absent'] } },

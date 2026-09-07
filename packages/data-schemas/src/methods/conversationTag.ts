@@ -174,6 +174,12 @@ export function createConversationTagMethods(mongoose: typeof import('mongoose')
     tags: string[],
     tenantId?: string | null,
   ) => Promise<string[]>;
+  reconcileConversationTagCounts: (
+    user: string,
+    previousTags: string[],
+    nextTags: string[],
+    tenantId?: string | null,
+  ) => Promise<void>;
 } {
   /**
    * Retrieves all conversation tags for a user.
@@ -486,6 +492,48 @@ export function createConversationTagMethods(mongoose: typeof import('mongoose')
     }
   }
 
+  /** Applies the derived tag-count side effects after another operation has already
+   * committed the conversation's tags atomically with its other metadata. */
+  async function reconcileConversationTagCounts(
+    user: string,
+    previousTags: string[],
+    nextTags: string[],
+    tenantId?: string | null,
+  ): Promise<void> {
+    const ConversationTag = mongoose.models.ConversationTag as Model<IConversationTag>;
+    const tenantFilter = optionalTenantFilter<IConversationTag>(tenantId);
+    const oldTags = new Set(previousTags);
+    const newTags = new Set(nextTags);
+    const bulkOps: Array<{
+      updateOne: {
+        filter: FilterQuery<IConversationTag>;
+        update: Record<string, unknown>;
+        upsert?: boolean;
+      };
+    }> = [];
+
+    for (const tag of [...newTags].filter((value) => !oldTags.has(value))) {
+      bulkOps.push({
+        updateOne: {
+          filter: { user, tag, ...tenantFilter },
+          update: { $inc: { count: 1 } },
+          upsert: true,
+        },
+      });
+    }
+    for (const tag of [...oldTags].filter((value) => !newTags.has(value))) {
+      bulkOps.push({
+        updateOne: {
+          filter: { user, tag, ...tenantFilter },
+          update: { $inc: { count: -1 } },
+        },
+      });
+    }
+    if (bulkOps.length > 0) {
+      await tenantSafeBulkWrite(ConversationTag, bulkOps);
+    }
+  }
+
   /**
    * Increments tag counts for existing tags only.
    */
@@ -541,6 +589,7 @@ export function createConversationTagMethods(mongoose: typeof import('mongoose')
     deleteConversationTags,
     bulkIncrementTagCounts,
     updateTagsForConversation,
+    reconcileConversationTagCounts,
   };
 }
 

@@ -1,3 +1,4 @@
+import { logger } from '@librechat/data-schemas';
 import type {
   AppConfig,
   ConversationMethods,
@@ -13,6 +14,7 @@ const MAX_CONVERSATION_TITLE_LENGTH = 1024;
 export interface ConversationMetadataDependencies {
   saveConvo: ConversationMethods['saveConvo'];
   updateTagsForConversation: ConversationTagMethods['updateTagsForConversation'];
+  reconcileConversationTagCounts: ConversationTagMethods['reconcileConversationTagCounts'];
 }
 
 interface ConversationMetadataScope {
@@ -35,6 +37,14 @@ export interface ConversationArchiveUpdate extends ConversationMetadataScope {
 
 export interface ConversationTagsUpdate extends ConversationMetadataScope {
   tags: string[];
+}
+
+export interface ConversationMetadataUpdate extends ConversationMetadataScope {
+  previousTags: string[];
+  title?: string;
+  tags?: string[];
+  isArchived?: boolean;
+  filters?: FiltersConfig;
 }
 
 export function normalizeConversationTitle(title: string): string {
@@ -95,4 +105,45 @@ export async function updateConversationTagsMetadata(
     input.tags,
     input.tenantId ?? null,
   );
+}
+
+export async function updateConversationMetadata(
+  deps: Pick<ConversationMetadataDependencies, 'saveConvo' | 'reconcileConversationTagCounts'>,
+  input: ConversationMetadataUpdate,
+): ReturnType<ConversationMethods['saveConvo']> {
+  const update: { title?: string; tags?: string[]; isArchived?: boolean } = {};
+  if (input.title != null) {
+    const title = normalizeConversationTitle(input.title);
+    const finding = inspectContent(extractConversationTitleContent({ title }), {
+      filters: input.filters,
+    });
+    if (finding != null) throw new ContentFilterError(finding);
+    update.title = title;
+  }
+  if (input.tags != null) update.tags = input.tags;
+  if (input.isArchived != null) update.isArchived = input.isArchived;
+
+  const conversation = await deps.saveConvo(
+    { userId: input.userId, interfaceConfig: input.interfaceConfig },
+    { conversationId: input.conversationId, ...update },
+    {
+      context: `conversation metadata update ${input.conversationId}`,
+      preserveUpdatedAt: input.title == null && input.tags == null,
+      noUpsert: true,
+      tenantId: input.tenantId ?? null,
+    },
+  );
+  if (conversation != null && input.tags != null) {
+    try {
+      await deps.reconcileConversationTagCounts(
+        input.userId,
+        input.previousTags,
+        input.tags,
+        input.tenantId ?? null,
+      );
+    } catch (error) {
+      logger.error('[conversationMetadata] Failed to reconcile tag counts', error);
+    }
+  }
+  return conversation;
 }

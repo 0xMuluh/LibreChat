@@ -41,6 +41,7 @@ const handlers = createConversationManagementHandlers({
   listConversationMessageResources: db.listConversationMessageResources,
   saveConvo: db.saveConvo,
   updateTagsForConversation: db.updateTagsForConversation,
+  reconcileConversationTagCounts: db.reconcileConversationTagCounts,
   deleteConversations,
 });
 const importHandler = createConversationImportHandler({

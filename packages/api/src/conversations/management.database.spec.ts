@@ -49,7 +49,14 @@ function asTenant<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
   return tenantStorage.run({ tenantId }, fn);
 }
 
-function createApp(): express.Express {
+function createApp(
+  overrides: {
+    canRecoverConversationResourceDeletion?: typeof methods.canRecoverConversationResourceDeletion;
+    deleteConversations?: Parameters<
+      typeof createConversationManagementHandlers
+    >[0]['deleteConversations'];
+  } = {},
+): express.Express {
   const app = express();
   app.use(express.json());
   app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -66,15 +73,20 @@ function createApp(): express.Express {
     listConversationMessageResources: methods.listConversationMessageResources,
     saveConvo: methods.saveConvo,
     updateTagsForConversation: methods.updateTagsForConversation,
-    canRecoverConversationResourceDeletion: async () => false,
-    deleteConversations: async () => {
-      throw new Error('Delete service is outside this handler persistence suite');
-    },
+    reconcileConversationTagCounts: methods.reconcileConversationTagCounts,
+    canRecoverConversationResourceDeletion:
+      overrides.canRecoverConversationResourceDeletion ?? (async () => false),
+    deleteConversations:
+      overrides.deleteConversations ??
+      (async () => {
+        throw new Error('Delete service is outside this handler persistence suite');
+      }),
   });
   app.get('/', expressHandler(handlers.list));
   app.get('/:id/messages', expressHandler(handlers.messages));
   app.get('/:id', expressHandler(handlers.get));
   app.patch('/:id', expressHandler(handlers.update));
+  app.delete('/:id', expressHandler(handlers.remove));
   return app;
 }
 
@@ -298,6 +310,9 @@ describe('conversation management handlers with Mongo persistence', () => {
     const persisted = await asTenant(TENANT_A, () =>
       Conversation.findOne({ user: OWNER, conversationId: 'patchable' }).lean(),
     );
+    const tag = await asTenant(TENANT_A, () =>
+      mongoose.models.ConversationTag.findOne({ user: OWNER, tag: 'red' }).lean(),
+    );
     const invalid = await request(app)
       .patch('/patchable')
       .send({ title: 'nope', tenantId: TENANT_B });
@@ -309,7 +324,37 @@ describe('conversation management handlers with Mongo persistence', () => {
     expect(updated.status).toBe(200);
     expect(updated.body).toMatchObject({ title: 'after', tags: ['red'], isArchived: true });
     expect(persisted).toMatchObject({ title: 'after', tags: ['red'], isArchived: true });
+    expect(tag).toMatchObject({ count: 1, tenantId: TENANT_A });
     expect(invalid.status).toBe(400);
     expect(foreign.status).toBe(404);
+  });
+
+  it('permits an owner-scoped dependent-cleanup retry while unknown identifiers remain 404', async () => {
+    const deleteConversations = jest.fn().mockResolvedValue({
+      acknowledged: true,
+      deletedCount: 0,
+      messages: { acknowledged: true, deletedCount: 0 },
+      conversationIds: [],
+    });
+    const canRecoverConversationResourceDeletion = jest.fn(
+      async (_owner: string, _tenantId: string | undefined, conversationId: string) =>
+        conversationId === 'recoverable',
+    );
+    const app = createApp({ deleteConversations, canRecoverConversationResourceDeletion });
+
+    const recovered = await request(app).delete('/recoverable');
+    const unknown = await request(app).delete('/unknown');
+
+    expect(recovered.status).toBe(200);
+    expect(recovered.body).toEqual({ id: 'recoverable', deleted: true });
+    expect(deleteConversations).toHaveBeenCalledWith(
+      OWNER,
+      { conversationId: 'recoverable', tenantId: TENANT_A },
+      TENANT_A,
+      undefined,
+      { allowMissingRoot: true },
+    );
+    expect(unknown.status).toBe(404);
+    expect(deleteConversations).toHaveBeenCalledTimes(1);
   });
 });

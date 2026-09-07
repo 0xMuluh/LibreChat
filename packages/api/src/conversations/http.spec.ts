@@ -171,4 +171,46 @@ describe('conversation management import HTTP handler', () => {
     expect(result.status).toBe(201);
     expect(importer).toHaveBeenCalledTimes(1);
   });
+
+  it('returns invalid_request before importer execution for malformed message values', async () => {
+    const getImporter = jest.fn();
+    const importConversations = createConversationImportOperation({
+      statFile: jest.fn().mockResolvedValue({ size: 256 }),
+      readFile: jest.fn().mockResolvedValue(
+        JSON.stringify({
+          conversationId: 'source-conversation',
+          options: { endpoint: 'openAI' },
+          messages: [
+            {
+              messageId: 'message-a',
+              conversationId: 'source-conversation',
+              parentMessageId: null,
+              text: 'hello',
+              isCreatedByUser: true,
+              createdAt: 'not-a-date',
+            },
+          ],
+        }),
+      ),
+      unlinkFile: jest.fn().mockResolvedValue(undefined),
+      getImporter,
+      createBuilder: jest.fn(),
+    });
+    const result = await runHandler(
+      {},
+      {
+        importConversations,
+        cleanupUpload: jest.fn().mockResolvedValue(undefined),
+        getRoleByName: jest.fn().mockResolvedValue({
+          permissions: { BOOKMARKS: { USE: true } },
+        }),
+      },
+    );
+
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({
+      error: { code: 'invalid_request', message: 'Invalid request' },
+    });
+    expect(getImporter).not.toHaveBeenCalled();
+  });
 });

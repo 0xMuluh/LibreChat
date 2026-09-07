@@ -56,8 +56,18 @@ export function createConversationResourceMethods(mongoose: typeof import('mongo
     ): Promise<boolean> {
       const Conversation = mongoose.models.Conversation as Model<IConversation>;
       const Message = mongoose.models.Message as Model<IMessage>;
+      const ToolCall = mongoose.models.ToolCall as Model<{
+        user: Types.ObjectId;
+        conversationId: string;
+        tenantId?: string;
+      }>;
+      const SharedLink = mongoose.models.SharedLink as Model<{
+        user?: string;
+        conversationId: string;
+        tenantId?: string;
+      }>;
       const scope = { user, conversationId, ...tenantBoundary<IConversation>(tenantId) };
-      const [root, descendant, message] = await Promise.all([
+      const [root, descendant, message, toolCall, sharedLink] = await Promise.all([
         Conversation.exists(scope),
         Conversation.exists({
           user,
@@ -69,8 +79,13 @@ export function createConversationResourceMethods(mongoose: typeof import('mongo
           conversationId,
           ...tenantBoundary<IMessage>(tenantId),
         }),
+        ToolCall.exists({ user, conversationId, ...tenantBoundary(tenantId) }),
+        SharedLink.exists({ user, conversationId, ...tenantBoundary(tenantId) }),
       ]);
-      return root == null && (descendant != null || message != null);
+      return (
+        root == null &&
+        (descendant != null || message != null || toolCall != null || sharedLink != null)
+      );
     },
 
     async getConversationResource(
