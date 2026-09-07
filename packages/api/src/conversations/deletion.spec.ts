@@ -9,6 +9,7 @@ describe('conversation deletion recovery', () => {
         planCancellationForConversations: jest.fn().mockResolvedValue({ leases: [] }),
       },
       GenerationJobManager: {
+        getRetainedCheckpointScopesForUser: jest.fn().mockResolvedValue([]),
         getCleanupBlockingJobIdsForConversations: jest.fn().mockResolvedValue(['run-a']),
         getJob: jest.fn().mockResolvedValue({
           metadata: {
@@ -30,6 +31,24 @@ describe('conversation deletion recovery', () => {
     await expect(
       service.canRecoverAgentConversationDeletion('owner-a', 'conversation-a', 'tenant-b'),
     ).resolves.toBe(false);
+  });
+
+  it('authorizes a retry from an exact-owner retained checkpoint receipt', async () => {
+    const deps = {
+      subagentThreadTaskStore: {
+        planCancellationForConversations: jest.fn().mockResolvedValue({ leases: [] }),
+      },
+      GenerationJobManager: {
+        getRetainedCheckpointScopesForUser: jest
+          .fn()
+          .mockResolvedValue([{ threadId: 'conversation-a', checkpointNamespace: 'generation-a' }]),
+      },
+    } as unknown as ConversationDeletionDeps;
+    const service = createConversationDeletionService(deps);
+
+    await expect(
+      service.canRecoverAgentConversationDeletion('owner-a', 'conversation-a', 'tenant-a'),
+    ).resolves.toBe(true);
   });
 
   it('reaches final dependent cleanup for an authorized retry with a missing root', async () => {
@@ -54,6 +73,8 @@ describe('conversation deletion recovery', () => {
         withOwnerDeletionFence: jest.fn(),
       },
       GenerationJobManager: {
+        getRetainedCheckpointScopesForUser: jest.fn().mockResolvedValue([]),
+        acknowledgeCheckpointScopesForUser: jest.fn().mockResolvedValue(undefined),
         getCleanupBlockingJobIdsForConversations: jest.fn().mockResolvedValue([]),
         getCleanupBlockingJobIdsForUser: jest.fn().mockResolvedValue([]),
         getJob: jest.fn().mockResolvedValue(null),
