@@ -1108,6 +1108,54 @@ describe('Conversation Operations', () => {
     });
   });
 
+  describe('saveConvo expectedTags', () => {
+    const ctx = { userId: 'metadata-user' };
+    const conversationId = 'metadata-conversation';
+
+    beforeEach(async () => {
+      await Conversation.deleteMany({ user: ctx.userId });
+      await saveConvo(
+        ctx,
+        { conversationId, title: 'original', tags: ['previous'] },
+        { appendMessageIds: [] },
+      );
+    });
+
+    it('applies a metadata update only to the expected committed tag state', async () => {
+      const committed = await saveConvo(
+        ctx,
+        { conversationId, title: 'committed', tags: ['next'] },
+        { noUpsert: true, appendMessageIds: [], expectedTags: ['previous'] },
+      );
+      const stale = await saveConvo(
+        ctx,
+        { conversationId, title: 'stale', tags: ['other'] },
+        { noUpsert: true, appendMessageIds: [], expectedTags: ['previous'] },
+      );
+
+      expect(committed?.tags).toEqual(['next']);
+      expect(stale).toBeNull();
+      await expect(
+        Conversation.findOne({ user: ctx.userId, conversationId }).lean(),
+      ).resolves.toMatchObject({ title: 'committed', tags: ['next'] });
+    });
+
+    it('matches an empty expected state for a legacy conversation without tags', async () => {
+      await Conversation.collection.updateOne(
+        { user: ctx.userId, conversationId },
+        { $unset: { tags: '' } },
+      );
+
+      const result = await saveConvo(
+        ctx,
+        { conversationId, tags: ['next'] },
+        { noUpsert: true, appendMessageIds: [], expectedTags: [] },
+      );
+
+      expect(result?.tags).toEqual(['next']);
+    });
+  });
+
   describe('isTemporary conversation handling', () => {
     it('should save a conversation with expiredAt when isTemporary is true', async () => {
       mockCtx.interfaceConfig = { temporaryChatRetention: 24 };

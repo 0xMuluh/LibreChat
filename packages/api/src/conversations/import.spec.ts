@@ -216,6 +216,12 @@ describe('createConversationImportOperation', () => {
     ['top-level title', { title: 42 }],
     ['top-level branch flag', { branches: 'yes' }],
     ['conversation option', { options: { ...baseExport.options, model: 42 } }],
+    ['non-finite numeric option', { options: { ...baseExport.options, max_tokens: 'bogus' } }],
+    ['recursive flag for a flat collection', { recursive: true, messages: baseExport.messages }],
+    [
+      'recursive flag for a nested collection',
+      { recursive: false, messages: undefined, messagesTree: baseExport.messages },
+    ],
   ])('rejects an invalid %s value before importer execution', async (_description, changes) => {
     const { deps } = createDependencies(JSON.stringify({ ...baseExport, ...changes }));
 
@@ -227,6 +233,30 @@ describe('createConversationImportOperation', () => {
       }),
     ).rejects.toMatchObject({ code: 'invalid_request', statusCode: 400 });
     expect(deps.getImporter).not.toHaveBeenCalled();
+  });
+
+  it('normalizes supported numeric string options before importer execution', async () => {
+    const { deps, importer } = createDependencies(
+      JSON.stringify({
+        ...baseExport,
+        options: { ...baseExport.options, max_tokens: '2048' },
+      }),
+    );
+
+    await createConversationImportOperation(deps)({
+      filepath: '/tmp/numeric-option.json',
+      requestUserId: 'authenticated-user',
+      format: 'librechat',
+    });
+
+    expect(importer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ max_tokens: 2048 }),
+      }),
+      'authenticated-user',
+      expect.any(Function),
+      undefined,
+    );
   });
 
   it('requires bookmark access before importing tags', async () => {

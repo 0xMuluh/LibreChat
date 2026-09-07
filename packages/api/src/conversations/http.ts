@@ -93,7 +93,7 @@ export function createConversationImportHandler({
       }
       if (isConversationImportError(error)) {
         const mapped = mapConversationManagementError(error.code);
-        res.status(mapped.status).json(mapped.body);
+        res.status(error.statusCode).json(mapped.body);
         return;
       }
       logger.error('[conversationManagement] Import failed', error);

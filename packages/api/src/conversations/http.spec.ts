@@ -2,7 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import { Readable } from 'stream';
 import type { ConversationImportHandlerDeps } from './http';
-import { createConversationImportOperation } from './import';
+import { ConversationImportError, createConversationImportOperation } from './import';
 import { createConversationImportHandler } from './http';
 
 jest.mock('@librechat/data-schemas', () => ({
@@ -212,5 +212,24 @@ describe('conversation management import HTTP handler', () => {
       error: { code: 'invalid_request', message: 'Invalid request' },
     });
     expect(getImporter).not.toHaveBeenCalled();
+  });
+
+  it('preserves the import error status while retaining the public error envelope', async () => {
+    const deps = {
+      importConversations: jest
+        .fn()
+        .mockRejectedValue(new ConversationImportError('oversized', { statusCode: 413 })),
+      cleanupUpload: jest.fn().mockResolvedValue(undefined),
+      getRoleByName: jest.fn().mockResolvedValue({
+        permissions: { BOOKMARKS: { USE: true } },
+      }),
+    };
+
+    const result = await runHandler({}, deps);
+
+    expect(result.status).toBe(413);
+    expect(result.body).toEqual({
+      error: { code: 'invalid_request', message: 'Invalid request' },
+    });
   });
 });

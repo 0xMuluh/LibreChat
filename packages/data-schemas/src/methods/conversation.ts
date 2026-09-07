@@ -268,6 +268,8 @@ export interface ConversationMethods {
        *  `$addToSet` and the O(n) read-and-rewrite of the `messages` array is skipped;
        *  every save without this option still rebuilds the array from the database. */
       appendMessageIds?: Types.ObjectId[];
+      /** Applies the update only if the stored tags still equal this snapshot. */
+      expectedTags?: string[];
     },
   ): Promise<IConversation | { message: string } | null>;
   setConvoPinned(
@@ -2136,6 +2138,7 @@ export function createConversationMethods(
       tenantId?: string | null;
       initialAgentId?: string | null;
       appendMessageIds?: Types.ObjectId[];
+      expectedTags?: string[];
     },
   ) {
     try {
@@ -2281,7 +2284,20 @@ export function createConversationMethods(
         return operation;
       };
 
-      const baseFilter = { conversationId, user: userId, ...explicitTenantFilter };
+      const expectedTags = metadata?.expectedTags;
+      let expectedTagsFilter: FilterQuery<IConversation> = {};
+      if (expectedTags != null) {
+        expectedTagsFilter =
+          expectedTags.length === 0
+            ? { $or: [{ tags: [] }, { tags: { $exists: false } }] }
+            : { tags: expectedTags };
+      }
+      const baseFilter = {
+        conversationId,
+        user: userId,
+        ...explicitTenantFilter,
+        ...expectedTagsFilter,
+      };
       const runUpdate = (
         filter: Record<string, unknown>,
         operation: Record<string, unknown>,

@@ -81,6 +81,14 @@ const OPTION_FIELDS = new Set([
   ...Object.keys(tPresetSchema.shape).filter((field) => !UNSAFE_OPTION_FIELDS.has(field)),
   ...SOURCE_PROVENANCE_FIELDS,
 ]);
+const COERCED_NUMBER_OPTION_FIELDS = [
+  'maxOutputTokens',
+  'maxContextTokens',
+  'max_tokens',
+  'thinkingBudget',
+  'maxTokens',
+  'fileTokenLimit',
+] as const;
 
 const UNSAFE_MESSAGE_FIELDS = new Set(['isTemporary', 'expiredAt', 'contextMeta']);
 const MESSAGE_FIELDS = new Set([
@@ -413,6 +421,19 @@ export function prepareLibreChatConversationImport(
         cause: parsedOptions.error,
       });
     }
+    for (const field of COERCED_NUMBER_OPTION_FIELDS) {
+      const parsedNumber = parsedOptions.data[field];
+      if (parsedNumber != null && !Number.isFinite(parsedNumber)) {
+        throw new ConversationImportError(
+          `Field "conversation.options.${field}" must be a finite number`,
+        );
+      }
+      if (parsedNumber === undefined) {
+        delete value.options[field];
+      } else {
+        value.options[field] = parsedNumber;
+      }
+    }
     if (value.options.tags !== undefined && !allowTags) {
       throw new ConversationImportError('Importing conversation tags requires bookmark access', {
         code: 'permission_denied',
@@ -427,6 +448,11 @@ export function prepareLibreChatConversationImport(
   const hasMessagesTree = value.messagesTree !== undefined;
   if (hasMessages === hasMessagesTree) {
     throw new ConversationImportError('Exactly one LibreChat message collection is required');
+  }
+  if ((value.recursive === true) !== hasMessagesTree) {
+    throw new ConversationImportError(
+      'The recursive flag must match the LibreChat message collection shape',
+    );
   }
   assertMessages(
     hasMessages ? value.messages : value.messagesTree,

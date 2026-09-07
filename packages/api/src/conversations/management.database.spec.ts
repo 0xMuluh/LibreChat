@@ -52,6 +52,7 @@ function asTenant<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
 function createApp(
   overrides: {
     canRecoverConversationResourceDeletion?: typeof methods.canRecoverConversationResourceDeletion;
+    saveConvo?: typeof methods.saveConvo;
     deleteConversations?: Parameters<
       typeof createConversationManagementHandlers
     >[0]['deleteConversations'];
@@ -71,7 +72,7 @@ function createApp(
     getConversationResource: methods.getConversationResource,
     listConversationResources: methods.listConversationResources,
     listConversationMessageResources: methods.listConversationMessageResources,
-    saveConvo: methods.saveConvo,
+    saveConvo: overrides.saveConvo ?? methods.saveConvo,
     updateTagsForConversation: methods.updateTagsForConversation,
     reconcileConversationTagCounts: methods.reconcileConversationTagCounts,
     canRecoverConversationResourceDeletion:
@@ -327,6 +328,25 @@ describe('conversation management handlers with Mongo persistence', () => {
     expect(tag).toMatchObject({ count: 1, tenantId: TENANT_A });
     expect(invalid.status).toBe(400);
     expect(foreign.status).toBe(404);
+  });
+
+  it('returns 500 without tag side effects when saveConvo reports its error sentinel', async () => {
+    await seedConversation(TENANT_A, { conversationId: 'failed-patch', user: OWNER });
+    const saveConvo = jest.fn().mockResolvedValue({ message: 'Error saving conversation' });
+    const app = createApp({ saveConvo });
+
+    const response = await request(app)
+      .patch('/failed-patch')
+      .send({ tags: ['red'] });
+    const tag = await asTenant(TENANT_A, () =>
+      mongoose.models.ConversationTag.findOne({ user: OWNER, tag: 'red' }).lean(),
+    );
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({
+      error: { code: 'internal_error', message: 'Internal server error' },
+    });
+    expect(tag).toBeNull();
   });
 
   it('permits an owner-scoped dependent-cleanup retry while unknown identifiers remain 404', async () => {

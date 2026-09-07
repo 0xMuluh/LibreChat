@@ -191,7 +191,7 @@ export function createConversationManagementHandlers(deps: ConversationManagemen
       const existing = await deps.getConversationResource(owner, conversationTenantId, id);
       if (existing == null) throw new ConversationManagementError('not_found');
 
-      await updateConversationMetadata(deps, {
+      const saved = await updateConversationMetadata(deps, {
         userId: owner,
         tenantId: conversationTenantId,
         conversationId: id,
@@ -200,6 +200,7 @@ export function createConversationManagementHandlers(deps: ConversationManagemen
         filters: req.config?.filters,
         interfaceConfig: req.config?.interfaceConfig,
       });
+      if (saved == null) throw new ConversationManagementError('not_found');
 
       const updated = await deps.getConversationResource(owner, conversationTenantId, id);
       if (updated == null) throw new ConversationManagementError('not_found');
