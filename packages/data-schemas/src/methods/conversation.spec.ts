@@ -285,11 +285,9 @@ describe('Conversation Operations', () => {
         endpoint: EModelEndpoint.openAI,
         chatProjectId,
       });
-      const updateOneSpy = jest
-        .spyOn(ChatProject, 'findOneAndUpdate')
-        .mockReturnValueOnce({
-          lean: () => Promise.reject(new Error('project stats unavailable')),
-        } as ReturnType<typeof ChatProject.findOneAndUpdate>);
+      const updateOneSpy = jest.spyOn(ChatProject, 'findOneAndUpdate').mockReturnValueOnce({
+        lean: () => Promise.reject(new Error('project stats unavailable')),
+      } as unknown as ReturnType<typeof ChatProject.findOneAndUpdate>);
 
       try {
         const result = await saveConvo(

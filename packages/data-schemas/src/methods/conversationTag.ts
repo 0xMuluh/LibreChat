@@ -201,7 +201,8 @@ export function createConversationTagMethods(mongoose: typeof import('mongoose')
   > {
     try {
       const ConversationTag = mongoose.models.ConversationTag as Model<IConversationTag>;
-      return await ConversationTag.find({ user }).sort({ position: 1 }).lean();
+      const tags = await ConversationTag.find({ user }).sort({ position: 1 }).lean();
+      return tags.map((tag) => ({ ...tag, count: Math.max(0, tag.count ?? 0) }));
     } catch (error) {
       logger.error('[getConversationTags] Error getting conversation tags', error);
       throw new Error('Error getting conversation tags');

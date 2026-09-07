@@ -4,6 +4,8 @@ const generationJobManager = {
   abortJob: jest.fn().mockResolvedValue({ success: true }),
   getCleanupBlockingJobIdsForUser: jest.fn().mockResolvedValue([]),
   getCleanupBlockingJobIdsForConversations: jest.fn().mockResolvedValue([]),
+  getRetainedCheckpointScopesForUser: jest.fn().mockResolvedValue([]),
+  acknowledgeCheckpointScopesForUser: jest.fn().mockResolvedValue(),
 };
 const subagentActivityHandlerInputs = [];
 const moderatedTexts = [];

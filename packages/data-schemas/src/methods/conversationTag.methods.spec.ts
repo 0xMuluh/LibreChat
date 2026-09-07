@@ -16,6 +16,7 @@ let mongoServer: InstanceType<typeof MongoMemoryServer>;
 let ConversationTag: mongoose.Model<IConversationTag>;
 let Conversation: mongoose.Model<IConversation>;
 let deleteConversationTag: ReturnType<typeof createConversationTagMethods>['deleteConversationTag'];
+let getConversationTags: ReturnType<typeof createConversationTagMethods>['getConversationTags'];
 let reconcileConversationTagCounts: ReturnType<
   typeof createConversationTagMethods
 >['reconcileConversationTagCounts'];
@@ -34,6 +35,7 @@ beforeAll(async () => {
   // Create methods from factory
   const methods = createConversationTagMethods(mongoose);
   deleteConversationTag = methods.deleteConversationTag;
+  getConversationTags = methods.getConversationTags;
   reconcileConversationTagCounts = methods.reconcileConversationTagCounts;
 
   await mongoose.connect(mongoUri);
@@ -147,6 +149,14 @@ describe('reconcileConversationTagCounts', () => {
 
   it('commutes when a later transition reconciles before its predecessor', async () => {
     await reconcileConversationTagCounts(userId, ['red'], ['blue']);
+
+    await expect(getConversationTags(userId)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tag: 'red', count: 0 }),
+        expect.objectContaining({ tag: 'blue', count: 1 }),
+      ]),
+    );
+
     await reconcileConversationTagCounts(userId, [], ['red']);
 
     await expect(

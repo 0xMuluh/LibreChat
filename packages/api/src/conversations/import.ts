@@ -6,8 +6,8 @@ import {
   CONTENT_TRAVERSAL_MAX_DEPTH,
   CONTENT_TRAVERSAL_MAX_NODES,
 } from '~/protection/adapters/nested';
+import { MAX_CONVERSATION_MANAGEMENT_TITLE_LENGTH } from './schema';
 import { resolveImportMaxFileSize } from '~/utils/import';
-import { MAX_TITLE_LENGTH } from './schema';
 
 type JsonPrimitive = boolean | number | string | null;
 type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -429,9 +429,12 @@ export function prepareLibreChatConversationImport(
       throw new ConversationImportError(`Field "conversation.${field}" must be a string`);
     }
   }
-  if (typeof value.title === 'string' && value.title.length > MAX_TITLE_LENGTH) {
+  if (
+    typeof value.title === 'string' &&
+    value.title.length > MAX_CONVERSATION_MANAGEMENT_TITLE_LENGTH
+  ) {
     throw new ConversationImportError(
-      `Field "conversation.title" cannot exceed ${MAX_TITLE_LENGTH} characters`,
+      `Field "conversation.title" cannot exceed ${MAX_CONVERSATION_MANAGEMENT_TITLE_LENGTH} characters`,
     );
   }
   for (const field of ['branches', 'recursive'] as const) {
