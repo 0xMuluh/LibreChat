@@ -26,6 +26,9 @@ const {
   getServerCustomUserVars,
   hasCustomUserVars,
   requiresEphemeralUserConnection,
+  MCPAuthenticationRejectedError,
+  MCPAuthenticationRefreshError,
+  OpenIDReauthRequiredError,
 } = require('@librechat/api');
 const {
   createMCPServerController,
@@ -799,7 +802,7 @@ router.post(
   requireJwtAuth,
   checkMCPUsePermissions,
   setOAuthSession,
-  async (req, res) => {
+  async (req, res, next) => {
     try {
       const { serverName } = req.params;
       const user = createSafeUser(req.user);
@@ -896,6 +899,13 @@ router.post(
         connectionDeferred,
       });
     } catch (error) {
+      if (
+        error instanceof MCPAuthenticationRejectedError ||
+        error instanceof MCPAuthenticationRefreshError ||
+        error instanceof OpenIDReauthRequiredError
+      ) {
+        return next(error);
+      }
       logger.error('[MCP Reinitialize] Unexpected error', error);
       res.status(500).json({ error: 'Internal server error' });
     }

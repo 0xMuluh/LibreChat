@@ -22,8 +22,12 @@ import {
   ReauthenticationRequiredError,
   resolveOboToken,
 } from '~/mcp/oauth';
+import {
+  isDirectOpenIDBearerRecoveryEnabled,
+  resolveDirectOpenIDBearerConfig,
+  usesDirectOpenIDBearerRecovery,
+} from './openid';
 import { createDeadlineAbortSignal, isClientRejectionMessage, isOAuthServer } from './utils';
-import { resolveDirectOpenIDBearerConfig, usesDirectOpenIDBearerRecovery } from './openid';
 import { isOAuthAuthenticationError, MCPAuthenticationRejectedError } from './errors';
 import { PENDING_STALE_MS, normalizeExpiresAt } from '~/flow/manager';
 import { preProcessGraphTokens } from '~/utils/graph';
@@ -36,6 +40,7 @@ export interface ToolDiscoveryResult {
   connection: MCPConnection | null;
   oauthRequired: boolean;
   oauthUrl: string | null;
+  authenticationError?: unknown;
 }
 
 type OAuthRequiredEvent = {
@@ -119,8 +124,34 @@ export class MCPConnectionFactory {
     basic: t.BasicConnectionOptions,
     oauth?: t.OAuthConnectionOptions | t.UserConnectionContext,
   ): Promise<MCPConnection> {
-    const factory = new this(await this.prepareBasicConnectionOptions(basic, oauth), oauth);
-    return factory.createConnection();
+    const create = async (candidate: t.BasicConnectionOptions): Promise<MCPConnection> => {
+      const factory = new this(await this.prepareBasicConnectionOptions(candidate, oauth), oauth);
+      return factory.createConnection();
+    };
+    if (!usesDirectOpenIDBearerRecovery(basic.serverConfig)) {
+      return create(basic);
+    }
+
+    try {
+      return await create(basic);
+    } catch (error) {
+      if (!isOAuthAuthenticationError(error) || this.isRequestCancelled(oauth)) {
+        throw error;
+      }
+      const refreshedConfig = await resolveDirectOpenIDBearerConfig({
+        config: basic.serverConfig,
+        upstreamTokenProvider: oauth?.upstreamTokenProvider,
+        forceRefresh: true,
+      });
+      try {
+        return await create({ ...basic, serverConfig: refreshedConfig });
+      } catch (refreshedError) {
+        if (isOAuthAuthenticationError(refreshedError)) {
+          throw new MCPAuthenticationRejectedError(basic.serverName, false, refreshedError);
+        }
+        throw refreshedError;
+      }
+    }
   }
 
   static attachRequestOAuthHandler(
@@ -143,10 +174,7 @@ export class MCPConnectionFactory {
   ): Promise<ToolDiscoveryResult> {
     /** Checked before credential preparation begins: a spent budget or an already-cancelled
      *  caller must not start Graph preprocessing or token resolution it cannot cancel. */
-    if (
-      (options?.deadlineMs != null && Date.now() >= options.deadlineMs) ||
-      options?.signal?.aborted === true
-    ) {
+    if (this.isRequestCancelled(options)) {
       logger.debug('[MCP] [Discovery] Cancelled or out of budget before discovery began');
       return { tools: null, connection: null, oauthRequired: false, oauthUrl: null };
     }
@@ -169,6 +197,9 @@ export class MCPConnectionFactory {
     if (initial.connection) {
       await initial.connection.dispose().catch(() => undefined);
     }
+    if (this.isRequestCancelled(options)) {
+      return { tools: null, connection: null, oauthRequired: false, oauthUrl: null };
+    }
     const refreshedConfig = await resolveDirectOpenIDBearerConfig({
       config: basic.serverConfig,
       upstreamTokenProvider: options?.upstreamTokenProvider,
@@ -182,14 +213,21 @@ export class MCPConnectionFactory {
       throw new MCPAuthenticationRejectedError(
         basic.serverName,
         false,
-        refreshed.connection?.getLastToolListAuthenticationError(),
+        refreshed.authenticationError,
       );
     }
     return refreshed;
   }
 
   private static hasDiscoveryAuthenticationRejection(result: ToolDiscoveryResult): boolean {
-    return result.oauthRequired || result.connection?.getLastToolListAuthenticationError() != null;
+    return result.oauthRequired || result.authenticationError != null;
+  }
+
+  private static isRequestCancelled(options?: t.UserConnectionContext): boolean {
+    return (
+      options?.signal?.aborted === true ||
+      (options?.deadlineMs != null && Date.now() >= options.deadlineMs)
+    );
   }
 
   /**
@@ -293,6 +331,9 @@ export class MCPConnectionFactory {
             connection,
             oauthRequired: false,
             oauthUrl: null,
+            ...(snapshot.authenticationError != null && {
+              authenticationError: snapshot.authenticationError,
+            }),
           };
         }
       } catch {
@@ -1571,7 +1612,10 @@ export class MCPConnectionFactory {
           throw error;
         }
 
-        if (this.useOAuth && isOAuthAuthenticationError(error)) {
+        if (
+          (this.useOAuth || isDirectOpenIDBearerRecoveryEnabled(this.serverConfig)) &&
+          isOAuthAuthenticationError(error)
+        ) {
           logger.info(`${this.logPrefix} OAuth required, stopping connection attempts`);
           throw error;
         }

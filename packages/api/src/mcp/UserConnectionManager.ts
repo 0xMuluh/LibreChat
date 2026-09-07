@@ -735,8 +735,8 @@ export abstract class UserConnectionManager {
       }
 
       if (!ephemeralConnection) {
-        await connection.refreshToolList();
-        const toolListAuthenticationError = connection.getLastToolListAuthenticationError?.();
+        const toolListSnapshot = await connection.refreshToolList();
+        const toolListAuthenticationError = toolListSnapshot?.authenticationError;
         if (
           toolListAuthenticationError &&
           usesDirectOpenIDBearerRecovery(config) &&
