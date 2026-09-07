@@ -14,13 +14,6 @@ const moderateText = jest.fn((req, _res, next) => {
 const messageIpLimiter = jest.fn((_req, _res, next) => next());
 const messageUserLimiter = jest.fn((_req, _res, next) => next());
 const checkpointRows = [];
-const deleteAgentCheckpoints = jest.fn(async (threadIds = []) => {
-  for (let index = checkpointRows.length - 1; index >= 0; index -= 1) {
-    if (threadIds.includes(checkpointRows[index].threadId)) {
-      checkpointRows.splice(index, 1);
-    }
-  }
-});
 const deleteAgentCheckpointScopes = jest.fn(async (scopes = []) => {
   for (let index = checkpointRows.length - 1; index >= 0; index -= 1) {
     const row = checkpointRows[index];
@@ -40,6 +33,18 @@ function resetCheckpointRows(rows = []) {
   checkpointRows.splice(0, checkpointRows.length, ...rows);
 }
 
+function loadConversationApi() {
+  const previous = process.env.FORCED_IN_MEMORY_CACHE_NAMESPACES;
+  process.env.FORCED_IN_MEMORY_CACHE_NAMESPACES = 'GEN_TITLE';
+  try {
+    return jest.requireActual('@librechat/api');
+  } finally {
+    if (previous !== undefined) {
+      process.env.FORCED_IN_MEMORY_CACHE_NAMESPACES = previous;
+    }
+  }
+}
+
 module.exports = {
   archiveAllHandler,
   generationJobManager,
@@ -51,7 +56,10 @@ module.exports = {
   checkpointRows,
   resetCheckpointRows,
 
-  agents: () => ({ sleep: jest.fn() }),
+  agents: () => ({
+    ...jest.requireActual('@librechat/agents'),
+    sleep: jest.fn(),
+  }),
 
   api: (overrides = {}) => ({
     /** Mirrors the real helper so query-flag parsing (`isArchived`, `pinned`) is exercised. */
@@ -124,24 +132,6 @@ module.exports = {
       () => (_req, res) => res.status(200).json({ threads: [] }),
     ),
     GenerationJobManager: generationJobManager,
-    getOwnedAgentCheckpointScope: jest.fn((job, userId, tenantId) => {
-      const metadata = job?.metadata;
-      if (
-        metadata?.userId !== userId ||
-        (metadata.tenantId ?? undefined) !== (tenantId ?? undefined) ||
-        metadata.generationProtocolVersion !== 2 ||
-        typeof metadata.conversationId !== 'string' ||
-        metadata.conversationId.length === 0 ||
-        typeof metadata.checkpointNamespace !== 'string' ||
-        metadata.checkpointNamespace.length === 0
-      ) {
-        return undefined;
-      }
-      return {
-        threadId: metadata.conversationId,
-        checkpointNamespace: metadata.checkpointNamespace,
-      };
-    }),
     isStopConfirmed: jest.fn(
       (result) => result?.success === true || result?.failureReason === 'already_settled',
     ),
@@ -151,13 +141,16 @@ module.exports = {
     }),
     deleteConvoSharedLinksWithCleanup: jest.fn(),
     deleteAllSharedLinksWithCleanup: jest.fn(),
-    deleteAgentCheckpoints,
     deleteAgentCheckpointScopes,
     isConversationImportError: jest.fn((error) => error?.name === 'ConversationImportError'),
+    createConversationDeletionService: loadConversationApi().createConversationDeletionService,
+    updateConversationArchiveMetadata: loadConversationApi().updateConversationArchiveMetadata,
+    updateConversationTitleMetadata: loadConversationApi().updateConversationTitleMetadata,
     ...overrides,
   }),
 
   dataSchemas: () => ({
+    ...jest.requireActual('@librechat/data-schemas'),
     logger: {
       debug: jest.fn(),
       info: jest.fn(),
@@ -173,6 +166,7 @@ module.exports = {
   }),
 
   dataProvider: (overrides = {}) => ({
+    ...jest.requireActual('librechat-data-provider'),
     CacheKeys: { GEN_TITLE: 'GEN_TITLE' },
     EModelEndpoint: {
       azureAssistants: 'azureAssistants',

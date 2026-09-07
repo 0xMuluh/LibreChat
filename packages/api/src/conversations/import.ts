@@ -1,6 +1,148 @@
 import { BSON, ObjectId } from 'mongodb';
-
+import { tMessageSchema, tPresetSchema } from 'librechat-data-provider';
+import type { AppConfig } from '@librechat/data-schemas';
 import type { Document } from 'mongodb';
+import {
+  CONTENT_TRAVERSAL_MAX_DEPTH,
+  CONTENT_TRAVERSAL_MAX_NODES,
+} from '~/protection/adapters/nested';
+import { resolveImportMaxFileSize } from '~/utils/import';
+
+type JsonPrimitive = boolean | number | string | null;
+type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+
+interface JsonObject {
+  [key: string]: JsonValue;
+}
+
+interface ImportFileInfo {
+  size: number;
+}
+
+export type ConversationImportFormat = 'any' | 'librechat';
+
+export interface ConversationImportJob {
+  filepath: string;
+  requestUserId: string;
+  userRole?: string;
+  interfaceConfig?: AppConfig['interfaceConfig'];
+  filters?: AppConfig['filters'];
+  legacyPii?: NonNullable<AppConfig['messageFilter']>['pii'];
+  format?: ConversationImportFormat;
+  allowTags?: boolean;
+}
+
+export type ConversationImporter<TBuilder> = (
+  jsonData: JsonValue,
+  requestUserId: string,
+  builderFactory: (requestUserId: string) => TBuilder,
+  userRole?: string,
+) => Promise<void>;
+
+export interface ConversationImportDependencies<TBuilder> {
+  statFile: (filepath: string) => Promise<ImportFileInfo>;
+  readFile: (filepath: string, encoding: 'utf8') => Promise<string>;
+  unlinkFile: (filepath: string) => Promise<void>;
+  getImporter: (jsonData: JsonValue) => ConversationImporter<TBuilder>;
+  createBuilder: (
+    requestUserId: string,
+    interfaceConfig?: AppConfig['interfaceConfig'],
+    filters?: AppConfig['filters'],
+    legacyPii?: NonNullable<AppConfig['messageFilter']>['pii'],
+  ) => TBuilder;
+  maxFileSize?: number;
+  onCleanupError?: (error: Error, filepath: string, requestUserId: string) => void;
+}
+
+const TOP_LEVEL_FIELDS = new Set([
+  'conversationId',
+  'endpoint',
+  'title',
+  'exportAt',
+  'branches',
+  'recursive',
+  'options',
+  'messages',
+  'messagesTree',
+]);
+
+const UNSAFE_OPTION_FIELDS = new Set([
+  'messages',
+  'chatProjectId',
+  'subagentThread',
+  'expiredAt',
+  'isTemporary',
+  'parentMessageId',
+  'presetOverride',
+]);
+
+const SOURCE_PROVENANCE_FIELDS = ['_id', '__v', 'user', 'tenantId'] as const;
+const OPTION_FIELDS = new Set([
+  ...Object.keys(tPresetSchema.shape).filter((field) => !UNSAFE_OPTION_FIELDS.has(field)),
+  ...SOURCE_PROVENANCE_FIELDS,
+]);
+
+const UNSAFE_MESSAGE_FIELDS = new Set(['isTemporary', 'expiredAt', 'contextMeta']);
+const MESSAGE_FIELDS = new Set([
+  ...Object.keys(tMessageSchema.shape).filter((field) => !UNSAFE_MESSAGE_FIELDS.has(field)),
+  'children',
+  'content',
+  'files',
+  'depth',
+  'siblingIndex',
+  'attachments',
+  ...SOURCE_PROVENANCE_FIELDS,
+]);
+
+const OWNERSHIP_FIELDS = new Set([
+  'user',
+  'userid',
+  'owner',
+  'ownerid',
+  'tenant',
+  'tenantid',
+  'principal',
+  'principalid',
+  'createdby',
+  'updatedby',
+]);
+
+export class ConversationImportError extends Error {
+  readonly code: 'invalid_request' | 'permission_denied';
+  readonly statusCode: number;
+  readonly body: { error: 'invalid_request' | 'permission_denied'; message: string };
+
+  constructor(message: string, statusCode: number, options?: ErrorOptions);
+
+  constructor(
+    message: string,
+    options?: ErrorOptions & {
+      code?: 'invalid_request' | 'permission_denied';
+      statusCode?: number;
+    },
+  );
+
+  constructor(
+    message: string,
+    statusCodeOrOptions:
+      | number
+      | (ErrorOptions & {
+          code?: 'invalid_request' | 'permission_denied';
+          statusCode?: number;
+        }) = {},
+    legacyOptions?: ErrorOptions,
+  ) {
+    const options =
+      typeof statusCodeOrOptions === 'number'
+        ? { ...legacyOptions, statusCode: statusCodeOrOptions }
+        : statusCodeOrOptions;
+    super(message, options);
+    this.name = 'ConversationImportError';
+    this.code = options?.code ?? 'invalid_request';
+    this.statusCode = options?.statusCode ?? (this.code === 'permission_denied' ? 403 : 400);
+    this.body = { error: this.code, message };
+  }
+}
 
 export const MAX_CONVERSATION_IMPORT_BSON_BYTES: number = 16 * 1024 * 1024;
 export const CONVERSATION_IMPORT_BSON_HEADROOM_BYTES: number = 64 * 1024;
@@ -23,33 +165,15 @@ export interface ConversationImportWriteOperations {
   onCleanupError?: (error: Error, resource: 'messages' | 'conversations') => void;
 }
 
-export class ConversationImportError extends Error {
-  readonly code = 'invalid_request';
-  readonly statusCode: number;
-  readonly body: { error: 'invalid_request'; message: string };
-
-  constructor(message: string, statusCode: number, options?: ErrorOptions) {
-    super(message, options);
-    this.name = 'ConversationImportError';
-    this.statusCode = statusCode;
-    this.body = { error: 'invalid_request', message };
-  }
-}
-
 function importWriteError(
   message: string,
   statusCode: number,
   cause?: unknown,
 ): ConversationImportError {
-  return new ConversationImportError(
-    message,
+  return new ConversationImportError(message, {
     statusCode,
-    cause === undefined ? undefined : { cause },
-  );
-}
-
-export function isConversationImportError(error: unknown): error is ConversationImportError {
-  return error instanceof ConversationImportError;
+    ...(cause === undefined ? {} : { cause }),
+  });
 }
 
 export function assertConversationImportWriteSize(batch: ConversationImportWriteBatch): void {
@@ -119,4 +243,210 @@ export async function executeConversationImportWrites(
       error instanceof Error ? error : new Error('Failed to update imported tag counts'),
     );
   }
+}
+
+export function isConversationImportError(error: unknown): error is ConversationImportError {
+  return error instanceof ConversationImportError;
+}
+
+function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function assertAllowedFields(value: JsonObject, allowed: Set<string>, location: string): void {
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      throw new ConversationImportError(`Field "${location}.${key}" cannot be imported`);
+    }
+  }
+}
+
+function normalizedFieldName(value: string): string {
+  return value.replaceAll('_', '').replaceAll('-', '').toLowerCase();
+}
+
+interface TraversalBudget {
+  nodes: number;
+}
+
+function reserveTraversalNode(depth: number, budget: TraversalBudget): void {
+  budget.nodes++;
+  if (depth > CONTENT_TRAVERSAL_MAX_DEPTH || budget.nodes > CONTENT_TRAVERSAL_MAX_NODES) {
+    throw new ConversationImportError('The uploaded conversation structure exceeds import limits');
+  }
+}
+
+function assertNoOwnershipFields(
+  value: JsonValue,
+  location: string,
+  depth: number,
+  budget: TraversalBudget,
+): void {
+  reserveTraversalNode(depth, budget);
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index++) {
+      assertNoOwnershipFields(value[index], `${location}[${index}]`, depth + 1, budget);
+    }
+    return;
+  }
+  if (!isJsonObject(value)) return;
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === '_id' || key === '__v' || OWNERSHIP_FIELDS.has(normalizedFieldName(key))) {
+      throw new ConversationImportError(`Field "${location}.${key}" cannot be imported`);
+    }
+    assertNoOwnershipFields(nested, `${location}.${key}`, depth + 1, budget);
+  }
+}
+
+function assertMessage(
+  value: JsonValue,
+  location: string,
+  depth: number,
+  budget: TraversalBudget,
+): void {
+  reserveTraversalNode(depth, budget);
+  if (!isJsonObject(value)) {
+    throw new ConversationImportError(`Field "${location}" must be a message object`);
+  }
+  assertAllowedFields(value, MESSAGE_FIELDS, location);
+  for (const field of SOURCE_PROVENANCE_FIELDS) {
+    delete value[field];
+  }
+
+  if (value.metadata != null) {
+    assertNoOwnershipFields(value.metadata, `${location}.metadata`, depth + 1, budget);
+  }
+  if (value.feedback != null) {
+    assertNoOwnershipFields(value.feedback, `${location}.feedback`, depth + 1, budget);
+  }
+  if (value.files != null) {
+    assertNoOwnershipFields(value.files, `${location}.files`, depth + 1, budget);
+  }
+  if (value.attachments != null) {
+    assertNoOwnershipFields(value.attachments, `${location}.attachments`, depth + 1, budget);
+  }
+
+  if (value.children == null) return;
+  if (!Array.isArray(value.children)) {
+    throw new ConversationImportError(`Field "${location}.children" must be an array`);
+  }
+  for (let index = 0; index < value.children.length; index++) {
+    assertMessage(value.children[index], `${location}.children[${index}]`, depth + 1, budget);
+  }
+}
+
+function assertMessages(
+  value: JsonValue | undefined,
+  location: string,
+  budget: TraversalBudget,
+): void {
+  if (!Array.isArray(value)) {
+    throw new ConversationImportError(`Field "${location}" must be an array`);
+  }
+  for (let index = 0; index < value.length; index++) {
+    assertMessage(value[index], `${location}[${index}]`, 1, budget);
+  }
+}
+
+export function prepareLibreChatConversationImport(
+  value: JsonValue,
+  allowTags = false,
+): JsonObject {
+  if (!isJsonObject(value)) {
+    throw new ConversationImportError('The uploaded file is not a LibreChat conversation export');
+  }
+  assertAllowedFields(value, TOP_LEVEL_FIELDS, 'conversation');
+  if (typeof value.conversationId !== 'string' || value.conversationId.length === 0) {
+    throw new ConversationImportError('A LibreChat conversationId is required');
+  }
+
+  if (value.options != null) {
+    if (!isJsonObject(value.options)) {
+      throw new ConversationImportError('Field "conversation.options" must be an object');
+    }
+    assertAllowedFields(value.options, OPTION_FIELDS, 'conversation.options');
+    if (value.options.tags !== undefined && !allowTags) {
+      throw new ConversationImportError('Importing conversation tags requires bookmark access', {
+        code: 'permission_denied',
+      });
+    }
+    for (const field of [...SOURCE_PROVENANCE_FIELDS, 'conversationId'] as const) {
+      delete value.options[field];
+    }
+  }
+
+  const hasMessages = value.messages !== undefined;
+  const hasMessagesTree = value.messagesTree !== undefined;
+  if (hasMessages === hasMessagesTree) {
+    throw new ConversationImportError('Exactly one LibreChat message collection is required');
+  }
+  assertMessages(
+    hasMessages ? value.messages : value.messagesTree,
+    hasMessages ? 'conversation.messages' : 'conversation.messagesTree',
+    { nodes: 0 },
+  );
+  return value;
+}
+
+function parseJson(fileData: string, strict: boolean): JsonValue {
+  try {
+    return JSON.parse(fileData) as JsonValue;
+  } catch (error) {
+    if (!strict) throw error;
+    throw new ConversationImportError('The uploaded file is not valid JSON', { cause: error });
+  }
+}
+
+export function createConversationImportOperation<TBuilder>(
+  deps: ConversationImportDependencies<TBuilder>,
+): (job: ConversationImportJob) => Promise<void> {
+  return async function importConversation(job: ConversationImportJob): Promise<void> {
+    const strict = job.format === 'librechat';
+    try {
+      const fileInfo = await deps.statFile(job.filepath);
+      const maxFileSize = deps.maxFileSize ?? resolveImportMaxFileSize();
+      if (fileInfo.size > maxFileSize) {
+        const message = `File size is ${fileInfo.size} bytes. It exceeds the maximum limit of ${maxFileSize} bytes.`;
+        if (strict) throw new ConversationImportError(message);
+        throw new Error(message);
+      }
+
+      const jsonData = parseJson(await deps.readFile(job.filepath, 'utf8'), strict);
+      const importData = strict
+        ? prepareLibreChatConversationImport(jsonData, job.allowTags === true)
+        : jsonData;
+
+      let importer: ConversationImporter<TBuilder>;
+      try {
+        importer = deps.getImporter(importData);
+      } catch (error) {
+        if (!strict) throw error;
+        throw new ConversationImportError(
+          'The uploaded file is not a LibreChat conversation export',
+          {
+            cause: error,
+          },
+        );
+      }
+
+      await importer(
+        importData,
+        job.requestUserId,
+        (requestUserId) =>
+          deps.createBuilder(requestUserId, job.interfaceConfig, job.filters, job.legacyPii),
+        job.userRole,
+      );
+    } finally {
+      try {
+        await deps.unlinkFile(job.filepath);
+      } catch (error) {
+        deps.onCleanupError?.(
+          error instanceof Error ? error : new Error('Failed to remove import file'),
+          job.filepath,
+          job.requestUserId,
+        );
+      }
+    }
+  };
 }

@@ -1,6 +1,6 @@
 const express = require('express');
 const { logger } = require('@librechat/data-schemas');
-const { generateCheckAccess } = require('@librechat/api');
+const { generateCheckAccess, updateConversationTagsMetadata } = require('@librechat/api');
 const { PermissionTypes, Permissions } = require('librechat-data-provider');
 const {
   updateTagsForConversation,
@@ -109,10 +109,14 @@ router.delete('/:tag', async (req, res) => {
  */
 router.put('/convo/:conversationId', async (req, res) => {
   try {
-    const conversationTags = await updateTagsForConversation(
-      req.user.id,
-      req.params.conversationId,
-      req.body.tags,
+    const conversationTags = await updateConversationTagsMetadata(
+      { updateTagsForConversation },
+      {
+        userId: req.user.id,
+        tenantId: req.user.tenantId,
+        conversationId: req.params.conversationId,
+        tags: req.body.tags,
+      },
     );
     res.status(200).json(conversationTags);
   } catch (error) {

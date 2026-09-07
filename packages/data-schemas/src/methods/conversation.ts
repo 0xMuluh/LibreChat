@@ -203,6 +203,7 @@ async function refreshChatProjectStatsInBatches(
   mongoose: typeof import('mongoose'),
   user: string,
   projectIds: Iterable<string>,
+  tenantId?: string | null,
 ): Promise<void> {
   let pending = [...projectIds];
   for (let pass = 0; pass < PROJECT_STATS_REFRESH_MAX_PASSES && pending.length > 0; pass++) {
@@ -210,7 +211,9 @@ async function refreshChatProjectStatsInBatches(
     for (let index = 0; index < pending.length; index += PROJECT_STATS_REFRESH_CONCURRENCY) {
       const batch = pending.slice(index, index + PROJECT_STATS_REFRESH_CONCURRENCY);
       const results = await Promise.allSettled(
-        batch.map((projectId) => refreshChatProjectStatsForUser(mongoose, user, projectId)),
+        batch.map((projectId) =>
+          refreshChatProjectStatsForUser(mongoose, user, projectId, tenantId),
+        ),
       );
       for (let resultIndex = 0; resultIndex < results.length; resultIndex++) {
         const result = results[resultIndex];
@@ -257,6 +260,8 @@ export interface ConversationMethods {
       noUpsert?: boolean;
       createdAtOnInsert?: Date;
       preserveUpdatedAt?: boolean;
+      /** Explicit resource API boundary. `null` means no persisted tenant field. */
+      tenantId?: string | null;
       /** Same-tenant persisted agent already resolved by the request layer. */
       initialAgentId?: string | null;
       /** `_id`s of messages this save just wrote. When present, they are appended with
@@ -479,6 +484,8 @@ export interface ConversationMethods {
     options?: {
       beforeDelete?: (conversationIds: string[]) => Promise<void>;
       allowEmpty?: boolean;
+      /** Explicit API boundary. `null` means legacy records with no tenant field. */
+      tenantId?: string | null;
     },
   ): Promise<DeleteResult & { messages: DeleteResult; conversationIds: string[] }>;
   archiveAllConvos(user: string): Promise<{ archivedCount: number }>;
@@ -2126,6 +2133,7 @@ export function createConversationMethods(
       noUpsert?: boolean;
       createdAtOnInsert?: Date;
       preserveUpdatedAt?: boolean;
+      tenantId?: string | null;
       initialAgentId?: string | null;
       appendMessageIds?: Types.ObjectId[];
     },
@@ -2133,6 +2141,14 @@ export function createConversationMethods(
     try {
       const Conversation = mongoose.models.Conversation as Model<IConversation>;
       const { getMessages } = getMessageMethods();
+      const hasExplicitTenant = Object.prototype.hasOwnProperty.call(metadata ?? {}, 'tenantId');
+      let explicitTenantFilter: FilterQuery<IConversation> = {};
+      if (hasExplicitTenant) {
+        explicitTenantFilter =
+          metadata?.tenantId == null
+            ? { tenantId: { $exists: false } }
+            : { tenantId: metadata.tenantId };
+      }
 
       if (metadata?.context) {
         logger.debug(`[saveConvo] ${metadata.context}`);
@@ -2142,7 +2158,10 @@ export function createConversationMethods(
       const update: Record<string, unknown> = { ...convo, user: userId };
       delete update.initial_agent_id;
       if (appendMessageIds == null) {
-        update.messages = await getMessages({ conversationId, user: userId }, '_id');
+        update.messages = await getMessages(
+          { conversationId, user: userId, ...explicitTenantFilter },
+          '_id',
+        );
       } else {
         delete update.messages;
       }
@@ -2158,6 +2177,7 @@ export function createConversationMethods(
           const project = await ChatProject.exists({
             _id: new mongoose.Types.ObjectId(chatProjectId),
             user: userId,
+            ...explicitTenantFilter,
           });
           isValidChatProject = project != null;
         }
@@ -2174,7 +2194,7 @@ export function createConversationMethods(
       let previousChatProjectId: string | null = null;
       if (mayChangeProjectMembership) {
         const existing = await Conversation.findOne(
-          { conversationId, user: userId },
+          { conversationId, user: userId, ...explicitTenantFilter },
           'chatProjectId',
         ).lean<{ chatProjectId?: string | null } | null>();
         previousChatProjectId = existing?.chatProjectId ?? null;
@@ -2261,7 +2281,7 @@ export function createConversationMethods(
         return operation;
       };
 
-      const baseFilter = { conversationId, user: userId };
+      const baseFilter = { conversationId, user: userId, ...explicitTenantFilter };
       const runUpdate = (
         filter: Record<string, unknown>,
         operation: Record<string, unknown>,
@@ -2368,7 +2388,12 @@ export function createConversationMethods(
        * the incremental path only ever touches the project it now belongs to.
        */
       if (projectMembershipChanged && previousChatProjectId) {
-        await refreshChatProjectStatsForUser(mongoose, userId, previousChatProjectId);
+        await refreshChatProjectStatsForUser(
+          mongoose,
+          userId,
+          previousChatProjectId,
+          hasExplicitTenant ? (metadata?.tenantId ?? null) : undefined,
+        );
       }
 
       if (conversation.chatProjectId) {
@@ -2403,13 +2428,20 @@ export function createConversationMethods(
           isConversationHidden;
 
         if (shouldRefreshProjectStats) {
-          await refreshChatProjectStatsForUser(mongoose, userId, conversation.chatProjectId);
+          await refreshChatProjectStatsForUser(
+            mongoose,
+            userId,
+            conversation.chatProjectId,
+            hasExplicitTenant ? (metadata?.tenantId ?? null) : undefined,
+          );
         } else {
           await updateChatProjectLastConversationForUser(
             mongoose,
             userId,
             conversation.chatProjectId,
             conversation,
+            false,
+            hasExplicitTenant ? (metadata?.tenantId ?? null) : undefined,
           );
         }
       }
@@ -2945,12 +2977,21 @@ export function createConversationMethods(
       /** Idempotent destructive-recovery mode. An empty selection is success, while
        * query, cascade, reconciliation, and deletion failures still propagate. */
       allowEmpty?: boolean;
+      tenantId?: string | null;
     },
   ) {
     try {
       const Conversation = mongoose.models.Conversation as Model<IConversation>;
       const { deleteMessages, getMessages } = getMessageMethods();
-      const userFilter = { ...filter, user };
+      const hasExplicitTenant = Object.prototype.hasOwnProperty.call(options ?? {}, 'tenantId');
+      let explicitTenantFilter: FilterQuery<IConversation> = {};
+      if (hasExplicitTenant) {
+        explicitTenantFilter =
+          options?.tenantId == null
+            ? { tenantId: { $exists: false } }
+            : { tenantId: options.tenantId };
+      }
+      const userFilter = { ...filter, user, ...explicitTenantFilter };
       type DeletionConversation = Pick<
         IConversation,
         'conversationId' | 'tenantId' | 'chatProjectId' | 'tags'
@@ -2982,12 +3023,17 @@ export function createConversationMethods(
           retryCascadeOperation(() =>
             Conversation.find({
               user,
+              ...explicitTenantFilter,
               'subagentThread.rootConversationId': filter.conversationId,
             })
               .select('conversationId tenantId chatProjectId tags')
               .lean<DeletionConversation[]>(),
           ),
-          getMessages({ user, conversationId: filter.conversationId }, '_id', { limit: 1 }),
+          getMessages(
+            { user, conversationId: filter.conversationId, ...explicitTenantFilter },
+            '_id',
+            { limit: 1 },
+          ),
         ]);
         if (descendants.length === 0 && rootMessages.length === 0) {
           throw new Error('Conversation not found or already deleted.');
@@ -3038,7 +3084,12 @@ export function createConversationMethods(
             tagDecrements.push(tag);
           }
         }
-        await decrementTagCounts(mongoose, user, tagDecrements);
+        await decrementTagCounts(
+          mongoose,
+          user,
+          tagDecrements,
+          hasExplicitTenant ? (options?.tenantId ?? null) : undefined,
+        );
 
         const waveProjectIds = new Set(
           wave
@@ -3047,7 +3098,12 @@ export function createConversationMethods(
         );
         if (waveProjectIds.size > 0) {
           try {
-            await refreshChatProjectStatsInBatches(mongoose, user, waveProjectIds);
+            await refreshChatProjectStatsInBatches(
+              mongoose,
+              user,
+              waveProjectIds,
+              hasExplicitTenant ? (options?.tenantId ?? null) : undefined,
+            );
           } catch (error) {
             logger.error('[deleteConvos] Conversations deleted but stats refresh failed', error);
           }
@@ -3067,7 +3123,11 @@ export function createConversationMethods(
           })),
         );
         await options?.beforeDelete?.(waveIds);
-        const result = await Conversation.deleteMany({ user, conversationId: { $in: waveIds } });
+        const result = await Conversation.deleteMany({
+          user,
+          ...explicitTenantFilter,
+          conversationId: { $in: waveIds },
+        });
         acknowledged &&= result.acknowledged;
         deletedCount += result.deletedCount;
         await reconcileDeletedWave(wave, result.deletedCount);
@@ -3078,6 +3138,7 @@ export function createConversationMethods(
         pending = await retryCascadeOperation(() =>
           Conversation.find({
             user,
+            ...explicitTenantFilter,
             'subagentThread.parentConversationId': { $in: waveIds },
           })
             .select('conversationId tenantId chatProjectId tags')
@@ -3093,10 +3154,14 @@ export function createConversationMethods(
       if (recoveryConversationIds.length > 0) {
         await deps?.deleteAgentQueuedTurns?.(
           user,
-          recoveryConversationIds.map((conversationId) => ({
-            conversationId,
-            allTenants: true,
-          })),
+          recoveryConversationIds.map((conversationId) =>
+            hasExplicitTenant
+              ? {
+                  conversationId,
+                  ...(options?.tenantId == null ? {} : { tenantId: options.tenantId }),
+                }
+              : { conversationId, allTenants: true },
+          ),
         );
       }
 
@@ -3113,6 +3178,7 @@ export function createConversationMethods(
         deleteMessagesResult = await deleteMessages({
           conversationId: { $in: conversationIds },
           user,
+          ...explicitTenantFilter,
         });
       } catch (error) {
         logger.error('[deleteConvos] Conversations deleted but message cleanup failed', error);

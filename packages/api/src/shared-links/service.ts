@@ -6,7 +6,7 @@ import {
   AccessRoleIds,
   PermissionBits,
 } from 'librechat-data-provider';
-import type { Model, Types, DeleteResult, UpdateQuery } from 'mongoose';
+import type { FilterQuery, Model, Types, DeleteResult, UpdateQuery } from 'mongoose';
 import type { IAclEntry, ISharedLink } from '@librechat/data-schemas';
 import { AccessControlService } from '~/acl/accessControlService';
 
@@ -297,11 +297,20 @@ export async function deleteSharedLinkWithCleanup(
 export async function deleteConvoSharedLinksWithCleanup(
   user: string,
   conversationId: string,
+  tenantId?: string | null,
 ): Promise<{ message: string; deletedCount: number }> {
   const SharedLink = mongoose.models.SharedLink as Model<ISharedLink>;
-  const links = await SharedLink.find({ user, conversationId }).select('_id').lean();
+  let tenantFilter: FilterQuery<ISharedLink> = {};
+  if (tenantId === null) {
+    tenantFilter = { tenantId: { $exists: false } };
+  } else if (tenantId !== undefined) {
+    tenantFilter = { tenantId };
+  }
+  const links = await SharedLink.find({ user, conversationId, ...tenantFilter })
+    .select('_id')
+    .lean();
   const ids = links.map((l) => l._id);
-  const result = await SharedLink.deleteMany({ user, conversationId });
+  const result = await SharedLink.deleteMany({ user, conversationId, ...tenantFilter });
 
   if (ids.length > 0) {
     cleanupBulkSharedLinkPermissions(ids).catch((err) => {

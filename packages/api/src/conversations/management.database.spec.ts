@@ -1,0 +1,315 @@
+import mongoose from 'mongoose';
+import request from 'supertest';
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import { EModelEndpoint, ContentTypes } from 'librechat-data-provider';
+import express, {
+  type NextFunction,
+  type Request,
+  type RequestHandler,
+  type Response,
+} from 'express';
+import {
+  createMethods,
+  createModels,
+  tenantStorage,
+  type IConversation,
+  type IMessage,
+} from '@librechat/data-schemas';
+import type { ServerRequest } from '~/types';
+import { createConversationManagementHandlers } from './management';
+
+jest.mock('@librechat/data-schemas', () => {
+  const actual = jest.requireActual('@librechat/data-schemas');
+  return {
+    ...actual,
+    logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() },
+  };
+});
+
+const TENANT_A = 'tenant-aaaaaaaaaaaaaaaaaaaa';
+const TENANT_B = 'tenant-bbbbbbbbbbbbbbbbbbbb';
+const OWNER = 'management-owner';
+const FOREIGN = 'management-foreign';
+const SHARED_ID = 'shared-conversation-id';
+
+let mongoServer: MongoMemoryServer;
+let Conversation: mongoose.Model<IConversation>;
+let Message: mongoose.Model<IMessage>;
+let methods: ReturnType<typeof createMethods>;
+
+function expressHandler(
+  handler: (req: ServerRequest, res: Response) => Promise<Response>,
+): RequestHandler {
+  return async (req, res) => {
+    await handler(req as ServerRequest, res);
+  };
+}
+
+function asTenant<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
+  return tenantStorage.run({ tenantId }, fn);
+}
+
+function createApp(): express.Express {
+  const app = express();
+  app.use(express.json());
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    const userId = req.header('x-test-user') ?? OWNER;
+    const tenantId = req.header('x-test-tenant') ?? TENANT_A;
+    tenantStorage.run({ tenantId }, () => {
+      (req as ServerRequest).user = { id: userId, tenantId } as ServerRequest['user'];
+      next();
+    });
+  });
+  const handlers = createConversationManagementHandlers({
+    getConversationResource: methods.getConversationResource,
+    listConversationResources: methods.listConversationResources,
+    listConversationMessageResources: methods.listConversationMessageResources,
+    saveConvo: methods.saveConvo,
+    updateTagsForConversation: methods.updateTagsForConversation,
+    canRecoverConversationResourceDeletion: async () => false,
+    deleteConversations: async () => {
+      throw new Error('Delete service is outside this handler persistence suite');
+    },
+  });
+  app.get('/', expressHandler(handlers.list));
+  app.get('/:id/messages', expressHandler(handlers.messages));
+  app.get('/:id', expressHandler(handlers.get));
+  app.patch('/:id', expressHandler(handlers.update));
+  return app;
+}
+
+async function seedConversation(
+  tenantId: string,
+  values: Partial<IConversation> & Pick<IConversation, 'conversationId' | 'user'>,
+): Promise<void> {
+  await asTenant(tenantId, async () => {
+    await Conversation.create({
+      title: values.conversationId,
+      endpoint: EModelEndpoint.openAI,
+      isTemporary: false,
+      ...values,
+    });
+  });
+}
+
+async function seedMessage(
+  tenantId: string,
+  values: Partial<IMessage> & Pick<IMessage, 'messageId' | 'conversationId' | 'user'>,
+): Promise<void> {
+  await asTenant(tenantId, async () => {
+    await Message.create({ sender: 'assistant', text: values.messageId, ...values });
+  });
+}
+
+beforeAll(async () => {
+  mongoServer = await MongoMemoryServer.create();
+  await mongoose.connect(mongoServer.getUri());
+  createModels(mongoose);
+  Conversation = mongoose.models.Conversation as mongoose.Model<IConversation>;
+  Message = mongoose.models.Message as mongoose.Model<IMessage>;
+  methods = createMethods(mongoose);
+});
+
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongoServer.stop();
+});
+
+beforeEach(async () => {
+  await Promise.all([
+    Conversation.deleteMany({}),
+    Message.deleteMany({}),
+    mongoose.models.ConversationTag.deleteMany({}),
+  ]);
+});
+
+describe('conversation management handlers with Mongo persistence', () => {
+  it('lists ordinary and saved-agent resources while excluding internal and retention-hidden records', async () => {
+    const now = new Date('2026-09-06T10:00:00.000Z');
+    await Promise.all([
+      seedConversation(TENANT_A, {
+        conversationId: 'ordinary',
+        user: OWNER,
+        tags: ['blue'],
+        createdAt: now,
+        updatedAt: now,
+      }),
+      seedConversation(TENANT_A, {
+        conversationId: 'saved-agent',
+        user: OWNER,
+        agent_id: 'agent-a',
+        tags: ['blue'],
+        createdAt: now,
+        updatedAt: now,
+      }),
+      seedConversation(TENANT_A, {
+        conversationId: 'archived',
+        user: OWNER,
+        agent_id: 'agent-a',
+        tags: ['blue'],
+        isArchived: true,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      seedConversation(TENANT_A, {
+        conversationId: 'internal',
+        user: OWNER,
+        createdAt: now,
+        updatedAt: now,
+        subagentThread: {
+          rootConversationId: 'ordinary',
+          parentConversationId: 'ordinary',
+          parentMessageId: 'root',
+          parentToolCallId: 'tool',
+          subagentType: 'agent',
+          subagentKind: 'agent',
+          depth: 1,
+        },
+      }),
+      seedConversation(TENANT_A, {
+        conversationId: 'temporary',
+        user: OWNER,
+        isTemporary: true,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      seedConversation(TENANT_A, {
+        conversationId: 'expired',
+        user: OWNER,
+        expiredAt: new Date('2020-01-01T00:00:00.000Z'),
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ]);
+    const app = createApp();
+
+    const all = await request(app).get('/').query({ agent_id: 'agent-a', tags: 'blue' });
+    const active = await request(app)
+      .get('/')
+      .query({ agent_id: 'agent-a', tags: 'blue', isArchived: 'false' });
+    const archived = await request(app)
+      .get('/')
+      .query({ agent_id: 'agent-a', tags: 'blue', isArchived: 'true' });
+
+    expect(all.status).toBe(200);
+    expect(all.body.data.map((row: { id: string }) => row.id).sort()).toEqual([
+      'archived',
+      'saved-agent',
+    ]);
+    expect(active.status).toBe(200);
+    expect(active.body.data.map((row: { id: string }) => row.id)).toEqual(['saved-agent']);
+    expect(archived.status).toBe(200);
+    expect(archived.body.data.map((row: { id: string }) => row.id)).toEqual(['archived']);
+  });
+
+  it('returns same 404 for foreign and cross-tenant identifiers and strips persistence metadata', async () => {
+    await Promise.all([
+      seedConversation(TENANT_A, { conversationId: SHARED_ID, user: OWNER, title: 'tenant a' }),
+      seedConversation(TENANT_B, { conversationId: SHARED_ID, user: OWNER, title: 'tenant b' }),
+      seedConversation(TENANT_A, { conversationId: 'foreign-id', user: FOREIGN }),
+    ]);
+    const app = createApp();
+
+    const own = await request(app).get(`/${SHARED_ID}`);
+    const crossTenant = await request(app).get(`/${SHARED_ID}`).set('x-test-tenant', TENANT_B);
+    const foreign = await request(app).get('/foreign-id');
+
+    expect(own.status).toBe(200);
+    expect(own.body).toMatchObject({ id: SHARED_ID, title: 'tenant a' });
+    expect(own.body).not.toHaveProperty('_id');
+    expect(own.body).not.toHaveProperty('user');
+    expect(own.body).not.toHaveProperty('tenantId');
+    expect(crossTenant.status).toBe(200);
+    expect(crossTenant.body.title).toBe('tenant b');
+    expect(foreign.status).toBe(404);
+    expect(foreign.body).toEqual({
+      error: { code: 'not_found', message: 'Conversation not found' },
+    });
+  });
+
+  it('paginates equal timestamps and rejects malformed or filter-mismatched cursors as 400', async () => {
+    const stamp = new Date('2026-09-06T11:00:00.000Z');
+    await Promise.all(
+      ['one', 'two', 'three'].map((conversationId) =>
+        seedConversation(TENANT_A, {
+          conversationId,
+          user: OWNER,
+          tags: ['blue'],
+          createdAt: stamp,
+          updatedAt: stamp,
+        }),
+      ),
+    );
+    const app = createApp();
+
+    const first = await request(app).get('/').query({ limit: 2, tags: 'blue' });
+    const second = await request(app)
+      .get('/')
+      .query({ limit: 2, tags: 'blue', cursor: first.body.after });
+    const malformed = await request(app).get('/').query({ cursor: 'not-a-cursor' });
+    const mismatched = await request(app).get('/').query({ tags: 'red', cursor: first.body.after });
+
+    expect(first.status).toBe(200);
+    expect(first.body.has_more).toBe(true);
+    expect(second.status).toBe(200);
+    expect(
+      new Set([...first.body.data, ...second.body.data].map((row: { id: string }) => row.id)).size,
+    ).toBe(3);
+    expect(malformed.status).toBe(400);
+    expect(mismatched.status).toBe(400);
+  });
+
+  it('projects representative message content and rejects foreign message access without exposing private fields', async () => {
+    await Promise.all([
+      seedConversation(TENANT_A, { conversationId: 'messages', user: OWNER }),
+      seedConversation(TENANT_A, { conversationId: 'foreign-messages', user: FOREIGN }),
+      seedMessage(TENANT_A, {
+        messageId: 'message-one',
+        conversationId: 'messages',
+        user: OWNER,
+        content: [{ type: ContentTypes.TEXT, text: 'visible', secret: 'must-not-leak' }],
+      }),
+      seedMessage(TENANT_A, {
+        messageId: 'foreign-message',
+        conversationId: 'foreign-messages',
+        user: FOREIGN,
+      }),
+    ]);
+    const app = createApp();
+
+    const visible = await request(app).get('/messages/messages');
+    const foreign = await request(app).get('/foreign-messages/messages');
+
+    expect(visible.status).toBe(200);
+    expect(visible.body.data[0]).toMatchObject({ id: 'message-one', conversationId: 'messages' });
+    expect(visible.body.data[0].content).toEqual([{ type: ContentTypes.TEXT, text: 'visible' }]);
+    expect(JSON.stringify(visible.body)).not.toContain('must-not-leak');
+    expect(JSON.stringify(visible.body)).not.toContain('tenantId');
+    expect(foreign.status).toBe(404);
+  });
+
+  it('updates title, tags, and archive state through shared services and maps invalid bodies to 400', async () => {
+    await seedConversation(TENANT_A, { conversationId: 'patchable', user: OWNER, title: 'before' });
+    const app = createApp();
+
+    const updated = await request(app)
+      .patch('/patchable')
+      .send({ title: '  after  ', tags: ['red', 'red'], isArchived: true });
+    const persisted = await asTenant(TENANT_A, () =>
+      Conversation.findOne({ user: OWNER, conversationId: 'patchable' }).lean(),
+    );
+    const invalid = await request(app)
+      .patch('/patchable')
+      .send({ title: 'nope', tenantId: TENANT_B });
+    const foreign = await request(app)
+      .patch('/patchable')
+      .set('x-test-user', FOREIGN)
+      .send({ title: 'forged' });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({ title: 'after', tags: ['red'], isArchived: true });
+    expect(persisted).toMatchObject({ title: 'after', tags: ['red'], isArchived: true });
+    expect(invalid.status).toBe(400);
+    expect(foreign.status).toBe(404);
+  });
+});

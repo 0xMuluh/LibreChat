@@ -604,7 +604,10 @@ describe('Convos Routes', () => {
         awaitProviderDrain: true,
       });
       expect(deleteConvos).toHaveBeenCalledTimes(2);
-      expect(deleteMessages).toHaveBeenCalledWith({ user: 'test-user-123' });
+      expect(deleteMessages).toHaveBeenCalledWith({
+        user: 'test-user-123',
+        tenantId: { $exists: false },
+      });
       expect(deleteAgentCheckpointScopes).toHaveBeenCalledWith(
         [{ threadId: 'gap-conversation', checkpointNamespace: 'generation:gap' }],
         undefined,
@@ -632,7 +635,10 @@ describe('Convos Routes', () => {
         expect.objectContaining({ allowEmpty: true }),
       );
       expect(deleteMessages).toHaveBeenCalledTimes(2);
-      expect(deleteMessages).toHaveBeenLastCalledWith({ user: 'test-user-123' });
+      expect(deleteMessages).toHaveBeenLastCalledWith({
+        user: 'test-user-123',
+        tenantId: { $exists: false },
+      });
     });
 
     it('should delete all conversations, tool calls, and shared links for a user', async () => {
@@ -986,10 +992,11 @@ describe('Convos Routes', () => {
         2,
         'test-user-123',
         { conversationId: { $in: ['parent-conversation', 'child-conversation'] } },
-        { allowEmpty: true },
+        { allowEmpty: true, tenantId: null },
       );
       expect(deleteMessages).toHaveBeenCalledWith({
         user: 'test-user-123',
+        tenantId: { $exists: false },
         conversationId: { $in: ['parent-conversation', 'child-conversation'] },
       });
     });
@@ -1100,6 +1107,7 @@ describe('Convos Routes', () => {
         { threadId: 'conversation-1', checkpointNamespace: 'foreign-tenant-generation' },
         { threadId: 'conversation-1', checkpointNamespace: '' },
       ]);
+      expect(deleteAgentCheckpointScopes).toHaveBeenCalledTimes(1);
       const scopedReceipts = deleteAgentCheckpointScopes.mock.calls[0][0];
       expect(
         [...new Set(scopedReceipts.map((scope) => JSON.stringify(scope)))].map((scope) =>
@@ -1191,10 +1199,11 @@ describe('Convos Routes', () => {
         2,
         'test-user-123',
         { conversationId: { $in: ['conversation-1'] } },
-        { allowEmpty: true },
+        { allowEmpty: true, tenantId: null },
       );
       expect(deleteMessages).toHaveBeenCalledWith({
         user: 'test-user-123',
+        tenantId: { $exists: false },
         conversationId: { $in: ['conversation-1'] },
       });
     });
@@ -1348,12 +1357,13 @@ describe('Convos Routes', () => {
       );
 
       /** Verify deleteToolCalls was called */
-      expect(deleteToolCalls).toHaveBeenCalledWith('test-user-123', mockConversationId);
+      expect(deleteToolCalls).toHaveBeenCalledWith('test-user-123', mockConversationId, null);
 
       /** Verify deleteConvoSharedLinksWithCleanup was called */
       expect(deleteConvoSharedLinksWithCleanup).toHaveBeenCalledWith(
         'test-user-123',
         mockConversationId,
+        null,
       );
     });
 
@@ -1395,6 +1405,7 @@ describe('Convos Routes', () => {
       expect(deleteConvoSharedLinksWithCleanup).toHaveBeenCalledWith(
         'test-user-123',
         mockConversationId,
+        null,
       );
     });
 
@@ -1523,6 +1534,7 @@ describe('Convos Routes', () => {
       expect(deleteConvoSharedLinksWithCleanup).toHaveBeenCalledWith(
         'test-user-123',
         mockConversationId,
+        null,
       );
 
       /** Verify it was called after the conversation was deleted */
@@ -1699,9 +1711,10 @@ describe('Convos Routes', () => {
           isArchived: true,
         },
         {
-          context: `POST /api/convos/archive ${mockConversationId}`,
+          context: `conversation archive update ${mockConversationId}`,
           preserveUpdatedAt: true,
           noUpsert: true,
+          tenantId: null,
         },
       );
     });
@@ -1732,9 +1745,10 @@ describe('Convos Routes', () => {
         expect.objectContaining({ userId: 'test-user-123' }),
         { conversationId: mockConversationId, isArchived: false },
         {
-          context: `POST /api/convos/archive ${mockConversationId}`,
+          context: `conversation archive update ${mockConversationId}`,
           preserveUpdatedAt: true,
           noUpsert: true,
+          tenantId: null,
         },
       );
     });
@@ -1764,6 +1778,24 @@ describe('Convos Routes', () => {
         expect.anything(),
         expect.anything(),
         expect.objectContaining({ preserveUpdatedAt: true }),
+      );
+    });
+
+    it('preserves the browser temporary-chat retention hint', async () => {
+      saveConvo.mockResolvedValue({ conversationId: 'temporary', isArchived: true });
+
+      const response = await request(app)
+        .post('/api/convos/archive')
+        .send({
+          isTemporary: true,
+          arg: { conversationId: 'temporary', isArchived: true },
+        });
+
+      expect(response.status).toBe(200);
+      expect(saveConvo).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'test-user-123', isTemporary: true }),
+        expect.anything(),
+        expect.anything(),
       );
     });
 
@@ -1868,6 +1900,37 @@ describe('Convos Routes', () => {
       expect(response.body).toEqual({ archivedCount: 4 });
       expect(archiveAllHandler).toHaveBeenCalledTimes(1);
       expect(archiveAllConvos).toHaveBeenCalledWith('test-user-123');
+    });
+  });
+
+  describe('POST /update', () => {
+    it('uses the shared title operation and preserves the temporary-chat retention hint', async () => {
+      saveConvo.mockResolvedValue({ conversationId: 'temporary', title: 'Trimmed title' });
+
+      const response = await request(app)
+        .post('/api/convos/update')
+        .send({
+          isTemporary: true,
+          arg: { conversationId: 'temporary', title: '  Trimmed title  ' },
+        });
+
+      expect(response.status).toBe(201);
+      expect(saveConvo).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'test-user-123', isTemporary: true }),
+        { conversationId: 'temporary', title: 'Trimmed title' },
+        expect.objectContaining({ noUpsert: true, tenantId: null }),
+      );
+    });
+
+    it('returns not found when deletion wins the title update race', async () => {
+      saveConvo.mockResolvedValue(null);
+
+      const response = await request(app)
+        .post('/api/convos/update')
+        .send({ arg: { conversationId: 'missing', title: 'New title' } });
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: 'Conversation not found' });
     });
   });
 

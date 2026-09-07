@@ -1,11 +1,347 @@
+import { RetentionMode } from 'librechat-data-provider';
+import type { ConversationImportDependencies, ConversationImporter } from './import';
 import {
   MAX_CONVERSATION_IMPORT_BSON_BYTES,
   MAX_CONVERSATION_IMPORT_DOCUMENT_BYTES,
   ConversationImportError,
   assertConversationImportWriteSize,
+  createConversationImportOperation,
   executeConversationImportWrites,
   isConversationImportError,
 } from './import';
+import { CONTENT_TRAVERSAL_MAX_DEPTH } from '~/protection/adapters/nested';
+
+interface TestBuilder {
+  owner: string;
+}
+
+interface RecursiveMetadata {
+  label?: string;
+  nested?: RecursiveMetadata;
+}
+
+const baseExport = {
+  conversationId: 'source-conversation',
+  endpoint: 'openAI',
+  title: 'Imported conversation',
+  exportAt: '12:00:00 GMT+0000',
+  branches: true,
+  recursive: false,
+  options: {
+    endpoint: 'openAI',
+    model: 'gpt-4o',
+  },
+  messages: [
+    {
+      messageId: 'source-message',
+      conversationId: 'source-conversation',
+      parentMessageId: '00000000-0000-0000-0000-000000000000',
+      sender: 'User',
+      text: 'hello',
+      isCreatedByUser: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+  ],
+};
+
+function createDependencies(fileData: string, fileSize = Buffer.byteLength(fileData)) {
+  const importer: jest.MockedFunction<ConversationImporter<TestBuilder>> = jest.fn(
+    async (_jsonData, requestUserId, builderFactory) => {
+      builderFactory(requestUserId);
+    },
+  );
+  const cleanupError = jest.fn();
+  const deps: ConversationImportDependencies<TestBuilder> = {
+    statFile: jest.fn(async () => ({ size: fileSize })),
+    readFile: jest.fn(async () => fileData),
+    unlinkFile: jest.fn(async () => undefined),
+    getImporter: jest.fn(() => importer),
+    createBuilder: jest.fn((owner) => ({ owner })),
+    maxFileSize: 1024 * 1024,
+    onCleanupError: cleanupError,
+  };
+  return { deps, importer, cleanupError };
+}
+
+describe('createConversationImportOperation', () => {
+  it('runs a valid LibreChat export with the authenticated owner and import configuration', async () => {
+    const { deps, importer } = createDependencies(JSON.stringify(baseExport));
+    const operation = createConversationImportOperation(deps);
+    const job = {
+      filepath: '/tmp/conversation.json',
+      requestUserId: 'authenticated-user',
+      userRole: 'USER',
+      interfaceConfig: { retentionMode: RetentionMode.ALL },
+      filters: { messages: { unattributedAssistantContent: 'inspect' as const } },
+    };
+
+    await operation({ ...job, format: 'librechat' });
+
+    expect(deps.createBuilder).toHaveBeenCalledWith(
+      'authenticated-user',
+      job.interfaceConfig,
+      job.filters,
+      undefined,
+    );
+    expect(importer).toHaveBeenCalledWith(
+      baseExport,
+      'authenticated-user',
+      expect.any(Function),
+      'USER',
+    );
+    expect(deps.unlinkFile).toHaveBeenCalledWith('/tmp/conversation.json');
+  });
+
+  it('rejects non-LibreChat formats before choosing an importer', async () => {
+    const { deps } = createDependencies(JSON.stringify([{ mapping: {} }]));
+    const operation = createConversationImportOperation(deps);
+
+    await expect(
+      operation({
+        filepath: '/tmp/chatgpt.json',
+        requestUserId: 'authenticated-user',
+        format: 'librechat',
+      }),
+    ).rejects.toBeInstanceOf(ConversationImportError);
+
+    expect(deps.getImporter).not.toHaveBeenCalled();
+    expect(deps.unlinkFile).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['conversation options', { options: { ...baseExport.options, owner: 'other-user' } }],
+    ['message fields', { messages: [{ ...baseExport.messages[0], ownerId: 'other-user' }] }],
+    [
+      'nested message metadata',
+      {
+        messages: [
+          {
+            ...baseExport.messages[0],
+            metadata: { attribution: { ownerId: 'other-user' } },
+          },
+        ],
+      },
+    ],
+    [
+      'nested message internal metadata',
+      {
+        messages: [
+          {
+            ...baseExport.messages[0],
+            metadata: { source: { _id: '65f1ad8c90523874d2d409ef' } },
+          },
+        ],
+      },
+    ],
+  ])('rejects caller-supplied ownership in %s', async (_location, changes) => {
+    const { deps } = createDependencies(JSON.stringify({ ...baseExport, ...changes }));
+    const operation = createConversationImportOperation(deps);
+
+    await expect(
+      operation({
+        filepath: '/tmp/forged.json',
+        requestUserId: 'authenticated-user',
+        format: 'librechat',
+      }),
+    ).rejects.toBeInstanceOf(ConversationImportError);
+
+    expect(deps.getImporter).not.toHaveBeenCalled();
+    expect(deps.unlinkFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes normal source ownership and storage provenance before importing', async () => {
+    const data = {
+      ...baseExport,
+      options: {
+        ...baseExport.options,
+        _id: '65f1ad8c90523874d2d409e0',
+        __v: 91,
+        conversationId: 'source-conversation',
+        user: 'source-user',
+        tenantId: 'source-tenant',
+      },
+      messages: [
+        {
+          ...baseExport.messages[0],
+          _id: '65f1ad8c90523874d2d409e1',
+          __v: 91,
+          user: 'source-user',
+          tenantId: 'source-tenant',
+        },
+      ],
+    };
+    const { deps, importer } = createDependencies(JSON.stringify(data));
+
+    await createConversationImportOperation(deps)({
+      filepath: '/tmp/source-provenance.json',
+      requestUserId: 'authenticated-user',
+      format: 'librechat',
+    });
+
+    const imported = importer.mock.calls[0][0];
+    expect(imported).toMatchObject({
+      options: baseExport.options,
+      messages: [baseExport.messages[0]],
+    });
+    expect(imported).not.toEqual(data);
+  });
+
+  it('requires bookmark access before importing tags', async () => {
+    const taggedExport = {
+      ...baseExport,
+      options: { ...baseExport.options, tags: ['restricted'] },
+    };
+    const denied = createDependencies(JSON.stringify(taggedExport));
+
+    await expect(
+      createConversationImportOperation(denied.deps)({
+        filepath: '/tmp/tagged.json',
+        requestUserId: 'authenticated-user',
+        format: 'librechat',
+      }),
+    ).rejects.toMatchObject({ code: 'permission_denied' });
+    expect(denied.deps.getImporter).not.toHaveBeenCalled();
+    expect(denied.deps.unlinkFile).toHaveBeenCalledTimes(1);
+
+    const allowed = createDependencies(JSON.stringify(taggedExport));
+    await createConversationImportOperation(allowed.deps)({
+      filepath: '/tmp/tagged.json',
+      requestUserId: 'authenticated-user',
+      format: 'librechat',
+      allowTags: true,
+    });
+    expect(allowed.importer).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps ownership-shaped keys inside user-authored tool arguments opaque', async () => {
+    const data = {
+      ...baseExport,
+      messages: [
+        {
+          ...baseExport.messages[0],
+          content: [
+            {
+              type: 'tool_call',
+              tool_call: {
+                name: 'draft_payload',
+                args: { user: 'example', tenantId: 'example', owner: 'example' },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const { deps, importer } = createDependencies(JSON.stringify(data));
+
+    await createConversationImportOperation(deps)({
+      filepath: '/tmp/tool-args.json',
+      requestUserId: 'authenticated-user',
+      format: 'librechat',
+    });
+
+    expect(importer).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects message metadata beyond the shared traversal depth limit', async () => {
+    let metadata: RecursiveMetadata = { label: 'leaf' };
+    for (let depth = 0; depth <= CONTENT_TRAVERSAL_MAX_DEPTH; depth++) {
+      metadata = { nested: metadata };
+    }
+    const data = {
+      ...baseExport,
+      messages: [{ ...baseExport.messages[0], metadata }],
+    };
+    const { deps } = createDependencies(JSON.stringify(data));
+
+    await expect(
+      createConversationImportOperation(deps)({
+        filepath: '/tmp/deep-metadata.json',
+        requestUserId: 'authenticated-user',
+        format: 'librechat',
+      }),
+    ).rejects.toBeInstanceOf(ConversationImportError);
+
+    expect(deps.getImporter).not.toHaveBeenCalled();
+    expect(deps.unlinkFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates policy rejection and still removes the upload', async () => {
+    const policyError = Object.assign(new Error('blocked'), { code: 'content_filter_block' });
+    const { deps, importer } = createDependencies(JSON.stringify(baseExport));
+    importer.mockRejectedValue(policyError);
+
+    await expect(
+      createConversationImportOperation(deps)({
+        filepath: '/tmp/policy.json',
+        requestUserId: 'authenticated-user',
+        format: 'librechat',
+      }),
+    ).rejects.toBe(policyError);
+
+    expect(deps.unlinkFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('enforces the configured size limit before reading and removes the upload', async () => {
+    const { deps } = createDependencies(JSON.stringify(baseExport), 1025);
+    deps.maxFileSize = 1024;
+
+    await expect(
+      createConversationImportOperation(deps)({
+        filepath: '/tmp/large.json',
+        requestUserId: 'authenticated-user',
+        format: 'librechat',
+      }),
+    ).rejects.toBeInstanceOf(ConversationImportError);
+
+    expect(deps.readFile).not.toHaveBeenCalled();
+    expect(deps.unlinkFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a failed cleanup without replacing the import error', async () => {
+    const { deps, cleanupError } = createDependencies('{');
+    const unlinkError = new Error('unlink failed');
+    jest.mocked(deps.unlinkFile).mockRejectedValue(unlinkError);
+
+    let thrown: object | undefined;
+    try {
+      await createConversationImportOperation(deps)({
+        filepath: '/tmp/invalid.json',
+        requestUserId: 'authenticated-user',
+        format: 'librechat',
+      });
+    } catch (error) {
+      if (error instanceof Error) thrown = error;
+    }
+
+    expect(thrown).toBeDefined();
+    expect(isConversationImportError(thrown!)).toBe(true);
+    expect(cleanupError).toHaveBeenCalledWith(
+      unlinkError,
+      '/tmp/invalid.json',
+      'authenticated-user',
+    );
+  });
+
+  it('retains legacy format selection and legacy error types when strict mode is omitted', async () => {
+    const { deps, importer } = createDependencies(JSON.stringify([{ mapping: {} }]));
+
+    await createConversationImportOperation(deps)({
+      filepath: '/tmp/legacy.json',
+      requestUserId: 'authenticated-user',
+    });
+
+    expect(importer).toHaveBeenCalledTimes(1);
+
+    const invalid = createDependencies('{');
+    await expect(
+      createConversationImportOperation(invalid.deps)({
+        filepath: '/tmp/legacy-invalid.json',
+        requestUserId: 'authenticated-user',
+      }),
+    ).rejects.toBeInstanceOf(SyntaxError);
+  });
+});
 
 describe('conversation import writes', () => {
   it('rejects a document too close to the MongoDB BSON limit before writes begin', () => {
