@@ -133,12 +133,12 @@ export class ConversationImportError extends Error {
 
   constructor(
     message: string,
-    statusCodeOrOptions:
+    statusCodeOrOptions?:
       | number
       | (ErrorOptions & {
           code?: 'invalid_request' | 'permission_denied';
           statusCode?: number;
-        }) = {},
+        }),
     legacyOptions?: ErrorOptions,
   ) {
     const options =

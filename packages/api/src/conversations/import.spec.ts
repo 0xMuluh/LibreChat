@@ -484,6 +484,19 @@ describe('createConversationImportOperation', () => {
 });
 
 describe('conversation import writes', () => {
+  it('preserves both published error constructor forms', () => {
+    const cause = new Error('source failure');
+    const numeric = new ConversationImportError('oversized', 413, { cause });
+    const options = new ConversationImportError('oversized', { statusCode: 413, cause });
+    const defaults = new ConversationImportError('invalid');
+    const denied = new ConversationImportError('denied', { code: 'permission_denied' });
+
+    expect(numeric).toMatchObject({ code: 'invalid_request', statusCode: 413, cause });
+    expect(options).toMatchObject({ code: 'invalid_request', statusCode: 413, cause });
+    expect(defaults).toMatchObject({ code: 'invalid_request', statusCode: 400 });
+    expect(denied).toMatchObject({ code: 'permission_denied', statusCode: 403 });
+  });
+
   it('rejects a document too close to the MongoDB BSON limit before writes begin', () => {
     let thrown: Error | undefined;
     try {
