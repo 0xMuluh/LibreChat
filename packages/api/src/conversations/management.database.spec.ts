@@ -28,8 +28,8 @@ jest.mock('@librechat/data-schemas', () => {
 
 const TENANT_A = 'tenant-aaaaaaaaaaaaaaaaaaaa';
 const TENANT_B = 'tenant-bbbbbbbbbbbbbbbbbbbb';
-const OWNER = 'management-owner';
-const FOREIGN = 'management-foreign';
+const OWNER = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+const FOREIGN = 'bbbbbbbbbbbbbbbbbbbbbbbb';
 const SHARED_ID = 'shared-conversation-id';
 
 let mongoServer: MongoMemoryServer;
@@ -54,7 +54,7 @@ function createApp(
     canRecoverAgentConversationDeletion?: Parameters<
       typeof createConversationManagementHandlers
     >[0]['canRecoverAgentConversationDeletion'];
-    canRecoverConversationResourceDeletion?: typeof methods.canRecoverConversationResourceDeletion;
+    getConversationResourceDeletionState?: typeof methods.getConversationResourceDeletionState;
     saveConvo?: typeof methods.saveConvo;
     deleteConversations?: Parameters<
       typeof createConversationManagementHandlers
@@ -80,8 +80,9 @@ function createApp(
     saveConvo: overrides.saveConvo ?? methods.saveConvo,
     updateTagsForConversation: methods.updateTagsForConversation,
     reconcileConversationTagCounts: methods.reconcileConversationTagCounts,
-    canRecoverConversationResourceDeletion:
-      overrides.canRecoverConversationResourceDeletion ?? (async () => false),
+    getConversationResourceDeletionState:
+      overrides.getConversationResourceDeletionState ??
+      methods.getConversationResourceDeletionState,
     deleteConversations:
       overrides.deleteConversations ??
       (async () => {
@@ -361,11 +362,11 @@ describe('conversation management handlers with Mongo persistence', () => {
       messages: { acknowledged: true, deletedCount: 0 },
       conversationIds: [],
     });
-    const canRecoverConversationResourceDeletion = jest.fn(
+    const getConversationResourceDeletionState = jest.fn(
       async (_owner: string, _tenantId: string | undefined, conversationId: string) =>
-        conversationId === 'recoverable',
+        conversationId === 'recoverable' ? ('recoverable' as const) : ('missing' as const),
     );
-    const app = createApp({ deleteConversations, canRecoverConversationResourceDeletion });
+    const app = createApp({ deleteConversations, getConversationResourceDeletionState });
 
     const recovered = await request(app).delete('/recoverable');
     const unknown = await request(app).delete('/unknown');
@@ -381,6 +382,40 @@ describe('conversation management handlers with Mongo persistence', () => {
     );
     expect(unknown.status).toBe(404);
     expect(deleteConversations).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { isTemporary: true },
+    { expiredAt: new Date('2020-01-01T00:00:00.000Z') },
+    {
+      subagentThread: {
+        rootConversationId: 'root',
+        parentConversationId: 'root',
+        parentMessageId: 'message',
+        parentToolCallId: 'tool',
+        subagentType: 'agent',
+        subagentKind: 'agent' as const,
+        depth: 1,
+      },
+    },
+  ])('does not use generation recovery for an existing excluded root: %j', async (hidden) => {
+    await seedConversation(TENANT_A, {
+      conversationId: 'excluded',
+      user: OWNER,
+      ...hidden,
+    });
+    const deleteConversations = jest.fn();
+    const canRecoverAgentConversationDeletion = jest.fn().mockResolvedValue(true);
+    const app = createApp({ deleteConversations, canRecoverAgentConversationDeletion });
+
+    const response = await request(app).delete('/excluded');
+
+    expect(response.status).toBe(404);
+    expect(canRecoverAgentConversationDeletion).not.toHaveBeenCalled();
+    expect(deleteConversations).not.toHaveBeenCalled();
+    expect(
+      await asTenant(TENANT_A, () => Conversation.exists({ conversationId: 'excluded' })),
+    ).not.toBeNull();
   });
 
   it('permits a generation-only retry after database resources are already gone', async () => {

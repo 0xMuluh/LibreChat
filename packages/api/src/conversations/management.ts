@@ -38,7 +38,7 @@ export interface ConversationManagementHandlerDeps {
     conversationId: string,
     tenantId?: string,
   ) => Promise<boolean>;
-  canRecoverConversationResourceDeletion: ConversationResourceMethods['canRecoverConversationResourceDeletion'];
+  getConversationResourceDeletionState: ConversationResourceMethods['getConversationResourceDeletionState'];
   getConversationResource: ConversationResourceMethods['getConversationResource'];
   listConversationResources: ConversationResourceMethods['listConversationResources'];
   listConversationMessageResources: ConversationResourceMethods['listConversationMessageResources'];
@@ -222,12 +222,19 @@ export function createConversationManagementHandlers(deps: ConversationManagemen
       const id = resourceId(req);
       const existing = await deps.getConversationResource(owner, conversationTenantId, id);
       const allowMissingRoot = existing == null;
-      if (
-        allowMissingRoot &&
-        !(await deps.canRecoverConversationResourceDeletion(owner, conversationTenantId, id)) &&
-        !(await deps.canRecoverAgentConversationDeletion(owner, id, conversationTenantId))
-      ) {
-        throw new ConversationManagementError('not_found');
+      if (allowMissingRoot) {
+        const state = await deps.getConversationResourceDeletionState(
+          owner,
+          conversationTenantId,
+          id,
+        );
+        if (
+          state === 'present' ||
+          (state === 'missing' &&
+            !(await deps.canRecoverAgentConversationDeletion(owner, id, conversationTenantId)))
+        ) {
+          throw new ConversationManagementError('not_found');
+        }
       }
       const checkpointer = req.config?.endpoints?.agents?.checkpointer;
       await deps.deleteConversations(

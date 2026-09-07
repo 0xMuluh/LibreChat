@@ -332,6 +332,7 @@ function assertMessage(
   location: string,
   depth: number,
   budget: TraversalBudget,
+  recursive: boolean,
 ): void {
   reserveTraversalNode(depth, budget);
   if (!isJsonObject(value)) {
@@ -390,13 +391,22 @@ function assertMessage(
   if (!Array.isArray(value.children)) {
     throw new ConversationImportError(`Field "${location}.children" must be an array`);
   }
+  if (value.children.length > 0 && !recursive) {
+    throw new ConversationImportError(`Field "${location}.children" requires recursive import`);
+  }
   if (value.children.length > 0 && !value.text && !value.content) {
     throw new ConversationImportError(
       `Field "${location}" cannot have children when its message body is empty`,
     );
   }
   for (let index = 0; index < value.children.length; index++) {
-    assertMessage(value.children[index], `${location}.children[${index}]`, depth + 1, budget);
+    assertMessage(
+      value.children[index],
+      `${location}.children[${index}]`,
+      depth + 1,
+      budget,
+      recursive,
+    );
   }
 }
 
@@ -404,12 +414,13 @@ function assertMessages(
   value: JsonValue | undefined,
   location: string,
   budget: TraversalBudget,
+  recursive: boolean,
 ): void {
   if (!Array.isArray(value)) {
     throw new ConversationImportError(`Field "${location}" must be an array`);
   }
   for (let index = 0; index < value.length; index++) {
-    assertMessage(value[index], `${location}[${index}]`, 1, budget);
+    assertMessage(value[index], `${location}[${index}]`, 1, budget, recursive);
   }
 }
 
@@ -482,7 +493,7 @@ export function prepareLibreChatConversationImport(
   if (hasMessages === hasMessagesTree) {
     throw new ConversationImportError('Exactly one LibreChat message collection is required');
   }
-  if ((value.recursive === true) !== hasMessagesTree) {
+  if (hasMessagesTree && value.recursive !== true) {
     throw new ConversationImportError(
       'The recursive flag must match the LibreChat message collection shape',
     );
@@ -491,6 +502,7 @@ export function prepareLibreChatConversationImport(
     hasMessages ? value.messages : value.messagesTree,
     hasMessages ? 'conversation.messages' : 'conversation.messagesTree',
     { nodes: 0 },
+    value.recursive === true,
   );
   return value;
 }

@@ -37,7 +37,7 @@ const { canRecoverAgentConversationDeletion, deleteConversations } =
   });
 const handlers = createConversationManagementHandlers({
   canRecoverAgentConversationDeletion,
-  canRecoverConversationResourceDeletion: db.canRecoverConversationResourceDeletion,
+  getConversationResourceDeletionState: db.getConversationResourceDeletionState,
   getConversationResource: db.getConversationResource,
   listConversationResources: db.listConversationResources,
   listConversationMessageResources: db.listConversationMessageResources,

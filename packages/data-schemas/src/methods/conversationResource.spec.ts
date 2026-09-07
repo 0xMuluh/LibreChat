@@ -550,27 +550,27 @@ describe('conversation resource methods', () => {
 
     await expect(
       runAsSystem(() =>
-        methods.canRecoverConversationResourceDeletion(owner, TENANT_A, conversationId),
+        methods.getConversationResourceDeletionState(owner, TENANT_A, conversationId),
       ),
-    ).resolves.toBe(true);
+    ).resolves.toBe('recoverable');
     await expect(
       runAsSystem(() =>
-        methods.canRecoverConversationResourceDeletion(owner, TENANT_B, conversationId),
+        methods.getConversationResourceDeletionState(owner, TENANT_B, conversationId),
       ),
-    ).resolves.toBe(true);
+    ).resolves.toBe('recoverable');
     await expect(
       runAsSystem(() =>
-        methods.canRecoverConversationResourceDeletion(
+        methods.getConversationResourceDeletionState(
           new mongoose.Types.ObjectId().toString(),
           TENANT_A,
           conversationId,
         ),
       ),
-    ).resolves.toBe(false);
+    ).resolves.toBe('missing');
     await expect(
       runAsSystem(() =>
-        methods.canRecoverConversationResourceDeletion(owner, undefined, conversationId),
+        methods.getConversationResourceDeletionState(owner, undefined, conversationId),
       ),
-    ).resolves.toBe(false);
+    ).resolves.toBe('missing');
   });
 });

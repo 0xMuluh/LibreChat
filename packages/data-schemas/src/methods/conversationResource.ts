@@ -49,11 +49,11 @@ export function createConversationResourceMethods(mongoose: typeof import('mongo
   });
 
   return {
-    async canRecoverConversationResourceDeletion(
+    async getConversationResourceDeletionState(
       user: string,
       tenantId: string | undefined,
       conversationId: string,
-    ): Promise<boolean> {
+    ): Promise<'present' | 'recoverable' | 'missing'> {
       const Conversation = mongoose.models.Conversation as Model<IConversation>;
       const Message = mongoose.models.Message as Model<IMessage>;
       const ToolCall = mongoose.models.ToolCall as Model<{
@@ -82,10 +82,10 @@ export function createConversationResourceMethods(mongoose: typeof import('mongo
         ToolCall.exists({ user, conversationId, ...tenantBoundary(tenantId) }),
         SharedLink.exists({ user, conversationId, ...tenantBoundary(tenantId) }),
       ]);
-      return (
-        root == null &&
-        (descendant != null || message != null || toolCall != null || sharedLink != null)
-      );
+      if (root != null) return 'present';
+      return descendant != null || message != null || toolCall != null || sharedLink != null
+        ? 'recoverable'
+        : 'missing';
     },
 
     async getConversationResource(

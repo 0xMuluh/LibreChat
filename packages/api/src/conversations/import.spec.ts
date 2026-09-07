@@ -217,7 +217,13 @@ describe('createConversationImportOperation', () => {
     ['top-level branch flag', { branches: 'yes' }],
     ['conversation option', { options: { ...baseExport.options, model: 42 } }],
     ['non-finite numeric option', { options: { ...baseExport.options, max_tokens: 'bogus' } }],
-    ['recursive flag for a flat collection', { recursive: true, messages: baseExport.messages }],
+    [
+      'non-recursive collection with descendants',
+      {
+        recursive: false,
+        messages: [{ ...baseExport.messages[0], children: baseExport.messages }],
+      },
+    ],
     [
       'recursive flag for a nested collection',
       { recursive: false, messages: undefined, messagesTree: baseExport.messages },

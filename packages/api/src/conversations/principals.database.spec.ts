@@ -135,7 +135,7 @@ function createApp(
   const auth = createConversationManagementAuth({ getAppConfig, remoteAuth, managementAuth });
   const handlers = createConversationManagementHandlers({
     canRecoverAgentConversationDeletion: async () => false,
-    canRecoverConversationResourceDeletion: methods.canRecoverConversationResourceDeletion,
+    getConversationResourceDeletionState: methods.getConversationResourceDeletionState,
     getConversationResource: methods.getConversationResource,
     listConversationResources: methods.listConversationResources,
     listConversationMessageResources: methods.listConversationMessageResources,
