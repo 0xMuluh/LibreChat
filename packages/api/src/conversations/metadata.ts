@@ -9,8 +9,7 @@ import type { FiltersConfig } from 'librechat-data-provider';
 import { extractConversationTitleContent } from '../protection/adapters/submissions';
 import { ContentFilterError } from '../middleware/contentFilter';
 import { inspectContent } from '../protection/runtime';
-
-const MAX_CONVERSATION_TITLE_LENGTH = 1024;
+import { MAX_TITLE_LENGTH } from './schema';
 
 export interface ConversationMetadataDependencies {
   saveConvo: ConversationMethods['saveConvo'];
@@ -62,7 +61,7 @@ function isSaveConvoError(
 }
 
 export function normalizeConversationTitle(title: string): string {
-  return title.trim().slice(0, MAX_CONVERSATION_TITLE_LENGTH);
+  return title.trim().slice(0, MAX_TITLE_LENGTH);
 }
 
 export async function updateConversationTitleMetadata(

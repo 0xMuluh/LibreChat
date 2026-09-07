@@ -2,6 +2,36 @@ import type { ConversationDeletionDeps } from './deletion';
 import { createConversationDeletionService } from './deletion';
 
 describe('conversation deletion recovery', () => {
+  it('authorizes generation-only recovery by exact owner, tenant, and conversation', async () => {
+    const deps = {
+      db: {},
+      subagentThreadTaskStore: {
+        planCancellationForConversations: jest.fn().mockResolvedValue({ leases: [] }),
+      },
+      GenerationJobManager: {
+        getCleanupBlockingJobIdsForConversations: jest.fn().mockResolvedValue(['run-a']),
+        getJob: jest.fn().mockResolvedValue({
+          metadata: {
+            userId: 'owner-a',
+            tenantId: 'tenant-a',
+            conversationId: 'conversation-a',
+          },
+        }),
+      },
+    } as unknown as ConversationDeletionDeps;
+    const service = createConversationDeletionService(deps);
+
+    await expect(
+      service.canRecoverAgentConversationDeletion('owner-a', 'conversation-a', 'tenant-a'),
+    ).resolves.toBe(true);
+    await expect(
+      service.canRecoverAgentConversationDeletion('owner-b', 'conversation-a', 'tenant-a'),
+    ).resolves.toBe(false);
+    await expect(
+      service.canRecoverAgentConversationDeletion('owner-a', 'conversation-a', 'tenant-b'),
+    ).resolves.toBe(false);
+  });
+
   it('reaches final dependent cleanup for an authorized retry with a missing root', async () => {
     const db = {
       deleteConvos: jest.fn().mockResolvedValue({

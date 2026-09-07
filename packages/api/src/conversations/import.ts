@@ -7,6 +7,7 @@ import {
   CONTENT_TRAVERSAL_MAX_NODES,
 } from '~/protection/adapters/nested';
 import { resolveImportMaxFileSize } from '~/utils/import';
+import { MAX_TITLE_LENGTH } from './schema';
 
 type JsonPrimitive = boolean | number | string | null;
 type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -307,6 +308,25 @@ function assertNoOwnershipFields(
   }
 }
 
+function stripOwnershipFields(value: JsonValue, depth: number, budget: TraversalBudget): void {
+  reserveTraversalNode(depth, budget);
+  if (Array.isArray(value)) {
+    for (const nested of value) {
+      stripOwnershipFields(nested, depth + 1, budget);
+    }
+    return;
+  }
+  if (!isJsonObject(value)) return;
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === '_id' || key === '__v' || OWNERSHIP_FIELDS.has(normalizedFieldName(key))) {
+      delete value[key];
+      continue;
+    }
+    stripOwnershipFields(nested, depth + 1, budget);
+  }
+}
+
 function assertMessage(
   value: JsonValue,
   location: string,
@@ -360,7 +380,7 @@ function assertMessage(
     assertNoOwnershipFields(value.feedback, `${location}.feedback`, depth + 1, budget);
   }
   if (value.files != null) {
-    assertNoOwnershipFields(value.files, `${location}.files`, depth + 1, budget);
+    stripOwnershipFields(value.files, depth + 1, budget);
   }
   if (value.attachments != null) {
     assertNoOwnershipFields(value.attachments, `${location}.attachments`, depth + 1, budget);
@@ -369,6 +389,11 @@ function assertMessage(
   if (value.children == null) return;
   if (!Array.isArray(value.children)) {
     throw new ConversationImportError(`Field "${location}.children" must be an array`);
+  }
+  if (value.children.length > 0 && !value.text && !value.content) {
+    throw new ConversationImportError(
+      `Field "${location}" cannot have children when its message body is empty`,
+    );
   }
   for (let index = 0; index < value.children.length; index++) {
     assertMessage(value.children[index], `${location}.children[${index}]`, depth + 1, budget);
@@ -403,6 +428,11 @@ export function prepareLibreChatConversationImport(
     if (value[field] !== undefined && typeof value[field] !== 'string') {
       throw new ConversationImportError(`Field "conversation.${field}" must be a string`);
     }
+  }
+  if (typeof value.title === 'string' && value.title.length > MAX_TITLE_LENGTH) {
+    throw new ConversationImportError(
+      `Field "conversation.title" cannot exceed ${MAX_TITLE_LENGTH} characters`,
+    );
   }
   for (const field of ['branches', 'recursive'] as const) {
     if (value[field] !== undefined && typeof value[field] !== 'boolean') {

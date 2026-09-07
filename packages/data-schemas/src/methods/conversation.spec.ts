@@ -275,6 +275,38 @@ describe('Conversation Operations', () => {
       expect(refreshedProject?.lastConversationId).toBe(firstConversationId);
     });
 
+    it('returns the committed conversation when derived project bookkeeping fails', async () => {
+      const project = await ChatProject.create({ user: mockCtx.userId, name: 'Project Stats' });
+      const conversationId = uuidv4();
+      const chatProjectId = project._id!.toString();
+      await saveConvo(mockCtx, {
+        conversationId,
+        title: 'Before',
+        endpoint: EModelEndpoint.openAI,
+        chatProjectId,
+      });
+      const updateOneSpy = jest
+        .spyOn(ChatProject, 'findOneAndUpdate')
+        .mockReturnValueOnce({
+          lean: () => Promise.reject(new Error('project stats unavailable')),
+        } as ReturnType<typeof ChatProject.findOneAndUpdate>);
+
+      try {
+        const result = await saveConvo(
+          mockCtx,
+          { conversationId, title: 'After' },
+          { noUpsert: true, appendMessageIds: [] },
+        );
+
+        expect(result).toMatchObject({ conversationId, title: 'After', chatProjectId });
+        await expect(Conversation.findOne({ conversationId }).lean()).resolves.toMatchObject({
+          title: 'After',
+        });
+      } finally {
+        updateOneSpy.mockRestore();
+      }
+    });
+
     it('bulkSaveConvos keeps owned project ids and strips orphan ones', async () => {
       const project = await ChatProject.create({
         user: mockCtx.userId,

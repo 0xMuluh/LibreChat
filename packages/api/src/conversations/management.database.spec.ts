@@ -51,6 +51,9 @@ function asTenant<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
 
 function createApp(
   overrides: {
+    canRecoverAgentConversationDeletion?: Parameters<
+      typeof createConversationManagementHandlers
+    >[0]['canRecoverAgentConversationDeletion'];
     canRecoverConversationResourceDeletion?: typeof methods.canRecoverConversationResourceDeletion;
     saveConvo?: typeof methods.saveConvo;
     deleteConversations?: Parameters<
@@ -69,6 +72,8 @@ function createApp(
     });
   });
   const handlers = createConversationManagementHandlers({
+    canRecoverAgentConversationDeletion:
+      overrides.canRecoverAgentConversationDeletion ?? (async () => false),
     getConversationResource: methods.getConversationResource,
     listConversationResources: methods.listConversationResources,
     listConversationMessageResources: methods.listConversationMessageResources,
@@ -375,6 +380,29 @@ describe('conversation management handlers with Mongo persistence', () => {
       { allowMissingRoot: true },
     );
     expect(unknown.status).toBe(404);
+    expect(deleteConversations).toHaveBeenCalledTimes(1);
+  });
+
+  it('permits a generation-only retry after database resources are already gone', async () => {
+    const deleteConversations = jest.fn().mockResolvedValue({
+      acknowledged: true,
+      deletedCount: 0,
+      messages: { acknowledged: true, deletedCount: 0 },
+      conversationIds: [],
+    });
+    const canRecoverAgentConversationDeletion = jest.fn(
+      async (_owner: string, conversationId: string) => conversationId === 'active-generation',
+    );
+    const app = createApp({ deleteConversations, canRecoverAgentConversationDeletion });
+
+    const recovered = await request(app).delete('/active-generation');
+
+    expect(recovered.status).toBe(200);
+    expect(canRecoverAgentConversationDeletion).toHaveBeenCalledWith(
+      OWNER,
+      'active-generation',
+      TENANT_A,
+    );
     expect(deleteConversations).toHaveBeenCalledTimes(1);
   });
 });

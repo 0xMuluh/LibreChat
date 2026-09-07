@@ -16,6 +16,11 @@ type CancellationPlan = Awaited<
   ReturnType<SubagentThreadTaskStore['planCancellationForConversations']>
 >;
 export interface ConversationDeletionService {
+  canRecoverAgentConversationDeletion: (
+    userId: string,
+    conversationId: string,
+    tenantId?: string,
+  ) => Promise<boolean>;
   deleteConversations: (
     userId: string,
     filter: ConversationFilter,
@@ -411,5 +416,48 @@ export function createConversationDeletionService({
     }
     return dbResponse;
   }
-  return { deleteConversations, withAgentOwnerDeletionFence, deleteOwnerConversationPersistence };
+
+  async function canRecoverAgentConversationDeletion(
+    userId: string,
+    conversationId: string,
+    tenantId?: string,
+  ): Promise<boolean> {
+    const cancellationPlan = await subagentThreadTaskStore.planCancellationForConversations(
+      userId,
+      [conversationId],
+      tenantId,
+    );
+    if (
+      cancellationPlan.leases.some(
+        (lease) =>
+          lease.conversationId === conversationId || lease.parentConversationId === conversationId,
+      )
+    ) {
+      return true;
+    }
+
+    const generationIds = await GenerationJobManager.getCleanupBlockingJobIdsForConversations(
+      userId,
+      [conversationId],
+      tenantId,
+    );
+    for (const generationId of generationIds) {
+      const job = await readGenerationForDeletion(generationId);
+      if (
+        job?.metadata.userId === userId &&
+        job.metadata.conversationId === conversationId &&
+        (job.metadata.tenantId == null || job.metadata.tenantId === tenantId)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  return {
+    canRecoverAgentConversationDeletion,
+    deleteConversations,
+    withAgentOwnerDeletionFence,
+    deleteOwnerConversationPersistence,
+  };
 }

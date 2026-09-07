@@ -526,6 +526,10 @@ export function createConversationTagMethods(mongoose: typeof import('mongoose')
         updateOne: {
           filter: { user, tag, ...tenantFilter },
           update: { $inc: { count: -1 } },
+          /** Signed deltas must commute when successful metadata writes reconcile out
+           * of order. Retaining a temporary negative row lets a later increment
+           * cancel it instead of manufacturing a stale positive count. */
+          upsert: true,
         },
       });
     }

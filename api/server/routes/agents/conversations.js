@@ -25,16 +25,18 @@ const db = require('~/models');
 const { preAuthTenantMiddleware, requireConversationManagementAuth } = require('./middleware');
 
 const router = express.Router();
-const { deleteConversations } = createConversationDeletionService({
-  db,
-  subagentThreadTaskStore,
-  GenerationJobManager,
-  deleteAgentCheckpointScopes,
-  deleteConvoSharedLinksWithCleanup,
-  isStopConfirmed,
-  logger,
-});
+const { canRecoverAgentConversationDeletion, deleteConversations } =
+  createConversationDeletionService({
+    db,
+    subagentThreadTaskStore,
+    GenerationJobManager,
+    deleteAgentCheckpointScopes,
+    deleteConvoSharedLinksWithCleanup,
+    isStopConfirmed,
+    logger,
+  });
 const handlers = createConversationManagementHandlers({
+  canRecoverAgentConversationDeletion,
   canRecoverConversationResourceDeletion: db.canRecoverConversationResourceDeletion,
   getConversationResource: db.getConversationResource,
   listConversationResources: db.listConversationResources,

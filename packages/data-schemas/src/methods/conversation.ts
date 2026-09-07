@@ -2378,88 +2378,95 @@ export function createConversationMethods(
         return null;
       }
 
-      if (
-        interfaceConfig?.retentionMode === RetentionMode.ALL &&
-        typeof isTemporary !== 'boolean' &&
-        (conversation.isTemporary == null ||
-          (conversation.isTemporary === false && conversation.$isDefault('isTemporary')))
-      ) {
-        /* This backfill runs after the main write, so it needs the same timestamp
+      try {
+        if (
+          interfaceConfig?.retentionMode === RetentionMode.ALL &&
+          typeof isTemporary !== 'boolean' &&
+          (conversation.isTemporary == null ||
+            (conversation.isTemporary === false && conversation.$isDefault('isTemporary')))
+        ) {
+          /* This backfill runs after the main write, so it needs the same timestamp
            suppression: otherwise the first pin or archive of a legacy chat under
            `RetentionMode.ALL` bumps `updatedAt` here and lands in Today anyway. */
-        await Conversation.updateOne(
-          { _id: conversation._id, isTemporary: { $ne: false } },
-          { $set: { isTemporary: false } },
-          preserveUpdatedAt ? { timestamps: false } : {},
-        );
-        conversation.isTemporary = false;
-      }
+          await Conversation.updateOne(
+            { _id: conversation._id, isTemporary: { $ne: false } },
+            { $set: { isTemporary: false } },
+            preserveUpdatedAt ? { timestamps: false } : {},
+          );
+          conversation.isTemporary = false;
+        }
 
-      const newChatProjectId = conversation.chatProjectId ?? null;
-      const projectMembershipChanged = previousChatProjectId !== newChatProjectId;
+        const newChatProjectId = conversation.chatProjectId ?? null;
+        const projectMembershipChanged = previousChatProjectId !== newChatProjectId;
 
-      /**
-       * A chat that moved between projects (e.g. a stale tab re-submitting an
-       * older project id) must fully recompute the stats of the project it left;
-       * the incremental path only ever touches the project it now belongs to.
-       */
-      if (projectMembershipChanged && previousChatProjectId) {
-        await refreshChatProjectStatsForUser(
-          mongoose,
-          userId,
-          previousChatProjectId,
-          hasExplicitTenant ? (metadata?.tenantId ?? null) : undefined,
-        );
-      }
-
-      if (conversation.chatProjectId) {
-        const isRetentionVisibilityUpdate =
-          typeof update.isTemporary === 'boolean' ||
-          Object.prototype.hasOwnProperty.call(convo, 'expiredAt') ||
-          Object.prototype.hasOwnProperty.call(unsetFields, 'isTemporary') ||
-          Object.prototype.hasOwnProperty.call(unsetFields, 'expiredAt');
         /**
-         * Saving a conversation that is itself archived or retention-hidden (e.g.
-         * renaming or title generation on an archived project chat) must recompute
-         * stats rather than take the incremental fast path, otherwise the project's
-         * lastConversationAt/Id would point at a chat the project workspace hides.
+         * A chat that moved between projects (e.g. a stale tab re-submitting an
+         * older project id) must fully recompute the stats of the project it left;
+         * the incremental path only ever touches the project it now belongs to.
          */
-        const isConversationHidden =
-          conversation.isArchived === true ||
-          conversation.isTemporary === true ||
-          (conversation.expiredAt != null &&
-            new Date(conversation.expiredAt).getTime() <= Date.now());
-        /**
-         * A move into this project (projectMembershipChanged) also needs a full
-         * refresh: the incremental path only bumps the count for brand-new inserts,
-         * so a pre-existing chat joining the project would otherwise be uncounted.
-         */
-        const isNewConversation = conversationResult.lastErrorObject?.updatedExisting === false;
-        const shouldRefreshProjectStats =
-          projectMembershipChanged ||
-          isNewConversation ||
-          typeof update.isArchived === 'boolean' ||
-          Object.prototype.hasOwnProperty.call(unsetFields, 'isArchived') ||
-          isRetentionVisibilityUpdate ||
-          isConversationHidden;
-
-        if (shouldRefreshProjectStats) {
+        if (projectMembershipChanged && previousChatProjectId) {
           await refreshChatProjectStatsForUser(
             mongoose,
             userId,
-            conversation.chatProjectId,
-            hasExplicitTenant ? (metadata?.tenantId ?? null) : undefined,
-          );
-        } else {
-          await updateChatProjectLastConversationForUser(
-            mongoose,
-            userId,
-            conversation.chatProjectId,
-            conversation,
-            false,
+            previousChatProjectId,
             hasExplicitTenant ? (metadata?.tenantId ?? null) : undefined,
           );
         }
+
+        if (conversation.chatProjectId) {
+          const isRetentionVisibilityUpdate =
+            typeof update.isTemporary === 'boolean' ||
+            Object.prototype.hasOwnProperty.call(convo, 'expiredAt') ||
+            Object.prototype.hasOwnProperty.call(unsetFields, 'isTemporary') ||
+            Object.prototype.hasOwnProperty.call(unsetFields, 'expiredAt');
+          /**
+           * Saving a conversation that is itself archived or retention-hidden (e.g.
+           * renaming or title generation on an archived project chat) must recompute
+           * stats rather than take the incremental fast path, otherwise the project's
+           * lastConversationAt/Id would point at a chat the project workspace hides.
+           */
+          const isConversationHidden =
+            conversation.isArchived === true ||
+            conversation.isTemporary === true ||
+            (conversation.expiredAt != null &&
+              new Date(conversation.expiredAt).getTime() <= Date.now());
+          /**
+           * A move into this project (projectMembershipChanged) also needs a full
+           * refresh: the incremental path only bumps the count for brand-new inserts,
+           * so a pre-existing chat joining the project would otherwise be uncounted.
+           */
+          const isNewConversation = conversationResult.lastErrorObject?.updatedExisting === false;
+          const shouldRefreshProjectStats =
+            projectMembershipChanged ||
+            isNewConversation ||
+            typeof update.isArchived === 'boolean' ||
+            Object.prototype.hasOwnProperty.call(unsetFields, 'isArchived') ||
+            isRetentionVisibilityUpdate ||
+            isConversationHidden;
+
+          if (shouldRefreshProjectStats) {
+            await refreshChatProjectStatsForUser(
+              mongoose,
+              userId,
+              conversation.chatProjectId,
+              hasExplicitTenant ? (metadata?.tenantId ?? null) : undefined,
+            );
+          } else {
+            await updateChatProjectLastConversationForUser(
+              mongoose,
+              userId,
+              conversation.chatProjectId,
+              conversation,
+              false,
+              hasExplicitTenant ? (metadata?.tenantId ?? null) : undefined,
+            );
+          }
+        }
+      } catch (error) {
+        /** The conversation mutation has already committed. Project and retention
+         * summaries are derived state, so their failure cannot be represented as a
+         * failed save without making an acknowledged retry ambiguous. */
+        logger.error('[saveConvo] Post-save reconciliation failed', error);
       }
 
       return conversation.toObject();

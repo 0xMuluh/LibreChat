@@ -33,6 +33,11 @@ type DeleteConversations = (
 ) => Promise<Awaited<ReturnType<ConversationMethods['deleteConvos']>>>;
 
 export interface ConversationManagementHandlerDeps {
+  canRecoverAgentConversationDeletion: (
+    userId: string,
+    conversationId: string,
+    tenantId?: string,
+  ) => Promise<boolean>;
   canRecoverConversationResourceDeletion: ConversationResourceMethods['canRecoverConversationResourceDeletion'];
   getConversationResource: ConversationResourceMethods['getConversationResource'];
   listConversationResources: ConversationResourceMethods['listConversationResources'];
@@ -219,7 +224,8 @@ export function createConversationManagementHandlers(deps: ConversationManagemen
       const allowMissingRoot = existing == null;
       if (
         allowMissingRoot &&
-        !(await deps.canRecoverConversationResourceDeletion(owner, conversationTenantId, id))
+        !(await deps.canRecoverConversationResourceDeletion(owner, conversationTenantId, id)) &&
+        !(await deps.canRecoverAgentConversationDeletion(owner, id, conversationTenantId))
       ) {
         throw new ConversationManagementError('not_found');
       }

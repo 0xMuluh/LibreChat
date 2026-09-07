@@ -16,6 +16,9 @@ let mongoServer: InstanceType<typeof MongoMemoryServer>;
 let ConversationTag: mongoose.Model<IConversationTag>;
 let Conversation: mongoose.Model<IConversation>;
 let deleteConversationTag: ReturnType<typeof createConversationTagMethods>['deleteConversationTag'];
+let reconcileConversationTagCounts: ReturnType<
+  typeof createConversationTagMethods
+>['reconcileConversationTagCounts'];
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
@@ -31,6 +34,7 @@ beforeAll(async () => {
   // Create methods from factory
   const methods = createConversationTagMethods(mongoose);
   deleteConversationTag = methods.deleteConversationTag;
+  reconcileConversationTagCounts = methods.reconcileConversationTagCounts;
 
   await mongoose.connect(mongoUri);
 });
@@ -135,6 +139,22 @@ describe('ConversationTag model - $pullAll operations', () => {
       const updated = await Conversation.findById(conv._id).lean();
       expect(updated?.tags).toEqual(['other']);
     });
+  });
+});
+
+describe('reconcileConversationTagCounts', () => {
+  const userId = new mongoose.Types.ObjectId().toString();
+
+  it('commutes when a later transition reconciles before its predecessor', async () => {
+    await reconcileConversationTagCounts(userId, ['red'], ['blue']);
+    await reconcileConversationTagCounts(userId, [], ['red']);
+
+    await expect(
+      ConversationTag.findOne({ user: userId, tag: 'red' }).lean(),
+    ).resolves.toMatchObject({ count: 0 });
+    await expect(
+      ConversationTag.findOne({ user: userId, tag: 'blue' }).lean(),
+    ).resolves.toMatchObject({ count: 1 });
   });
 });
 

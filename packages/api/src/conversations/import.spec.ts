@@ -259,6 +259,74 @@ describe('createConversationImportOperation', () => {
     );
   });
 
+  it('rejects an empty recursive parent whose descendants would be skipped', async () => {
+    const data = {
+      ...baseExport,
+      recursive: true,
+      messages: undefined,
+      messagesTree: [
+        {
+          ...baseExport.messages[0],
+          text: '',
+          children: [{ ...baseExport.messages[0], messageId: 'child-message' }],
+        },
+      ],
+    };
+    const { deps } = createDependencies(JSON.stringify(data));
+
+    await expect(
+      createConversationImportOperation(deps)({
+        filepath: '/tmp/empty-recursive-parent.json',
+        requestUserId: 'authenticated-user',
+        format: 'librechat',
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request', statusCode: 400 });
+    expect(deps.getImporter).not.toHaveBeenCalled();
+  });
+
+  it('strips exported file ownership before canonical file resolution', async () => {
+    const data = {
+      ...baseExport,
+      messages: [
+        {
+          ...baseExport.messages[0],
+          files: [
+            {
+              file_id: 'owner-file-1',
+              user: 'source-owner',
+              tenantId: 'source-tenant',
+              metadata: { ownerId: 'source-owner' },
+            },
+          ],
+        },
+      ],
+    };
+    const { deps, importer } = createDependencies(JSON.stringify(data));
+
+    await createConversationImportOperation(deps)({
+      filepath: '/tmp/exported-file.json',
+      requestUserId: 'authenticated-user',
+      format: 'librechat',
+    });
+
+    expect(importer.mock.calls[0][0]).toMatchObject({
+      messages: [{ files: [{ file_id: 'owner-file-1', metadata: {} }] }],
+    });
+  });
+
+  it('rejects an imported title beyond the management title limit', async () => {
+    const { deps } = createDependencies(JSON.stringify({ ...baseExport, title: 'x'.repeat(1025) }));
+
+    await expect(
+      createConversationImportOperation(deps)({
+        filepath: '/tmp/oversized-title.json',
+        requestUserId: 'authenticated-user',
+        format: 'librechat',
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request', statusCode: 400 });
+    expect(deps.getImporter).not.toHaveBeenCalled();
+  });
+
   it('requires bookmark access before importing tags', async () => {
     const taggedExport = {
       ...baseExport,

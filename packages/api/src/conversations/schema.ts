@@ -10,7 +10,7 @@ import type {
 const MAX_LIST_LIMIT = 100;
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_CURSOR_LENGTH = 1024;
-const MAX_TITLE_LENGTH = 1024;
+export const MAX_TITLE_LENGTH = 1024;
 const MAX_TAGS = 100;
 const MAX_TAG_LENGTH = 256;
 
