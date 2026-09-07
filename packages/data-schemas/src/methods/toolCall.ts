@@ -1,4 +1,4 @@
-import type { Model } from 'mongoose';
+import type { FilterQuery, Model } from 'mongoose';
 
 interface IToolCallData {
   messageId?: string;
@@ -199,7 +199,7 @@ export function createToolCallMethods(mongoose: typeof import('mongoose')): {
   ): Promise<import('mongodb').DeleteResult> {
     try {
       const ToolCall = mongoose.models.ToolCall as Model<IToolCallData>;
-      const query: Record<string, unknown> = { user: userId };
+      const query: FilterQuery<IToolCallData> = { user: userId };
       if (conversationId) {
         query.conversationId = conversationId;
       }

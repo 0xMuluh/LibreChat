@@ -77,7 +77,12 @@ describe('Convos Routes', () => {
 
     /** Mock authenticated user */
     app.use((req, res, next) => {
-      req.user = { id: 'test-user-123', role: 'USER' };
+      const tenantId = req.get('x-test-tenant');
+      req.user = {
+        id: 'test-user-123',
+        role: 'USER',
+        ...(tenantId == null ? {} : { tenantId }),
+      };
       req.config = {
         messageFilter: {
           pii: {
@@ -667,13 +672,26 @@ describe('Convos Routes', () => {
       );
       expect(deleteConvos).toHaveBeenCalledTimes(1);
 
-      /** Verify deleteToolCalls was called with correct userId */
-      expect(deleteToolCalls).toHaveBeenCalledWith('test-user-123');
+      /** Verify deleteToolCalls was called with the explicit legacy tenant boundary. */
+      expect(deleteToolCalls).toHaveBeenCalledWith('test-user-123', undefined, null);
       expect(deleteToolCalls).toHaveBeenCalledTimes(1);
 
       /** Verify deleteAllSharedLinksWithCleanup was called with correct userId */
       expect(deleteAllSharedLinksWithCleanup).toHaveBeenCalledWith('test-user-123');
       expect(deleteAllSharedLinksWithCleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('scopes tool-call cleanup to the authenticated tenant', async () => {
+      deleteConvos.mockResolvedValue({ deletedCount: 1 });
+      deleteToolCalls.mockResolvedValue({ deletedCount: 1 });
+      deleteAllSharedLinksWithCleanup.mockResolvedValue({ deletedCount: 1 });
+
+      const response = await request(app)
+        .delete('/api/convos/all')
+        .set('x-test-tenant', 'tenant-a');
+
+      expect(response.status).toBe(201);
+      expect(deleteToolCalls).toHaveBeenCalledWith('test-user-123', undefined, 'tenant-a');
     });
 
     it('should call deleteAllSharedLinksWithCleanup even when no conversations exist', async () => {

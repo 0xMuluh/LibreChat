@@ -313,7 +313,7 @@ router.delete('/all', configMiddleware, async (req, res) => {
       checkpointer,
     );
     const dbResponse = fencedDeletion.result;
-    await db.deleteToolCalls(req.user.id);
+    await db.deleteToolCalls(req.user.id, undefined, tenantId ?? null);
     await deleteAllSharedLinksWithCleanup(req.user.id);
     res.status(201).json(dbResponse);
   } catch (error) {
