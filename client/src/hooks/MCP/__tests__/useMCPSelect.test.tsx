@@ -60,7 +60,7 @@ describe('useMCPSelect', () => {
     mockStartupConfig = undefined;
   });
 
-  describe('OmicsBase first-use default', () => {
+  describe('OmicsBase Option 2 pre-selection', () => {
     it('selects notethreads for both the picker and outgoing agent after catalog loading', () => {
       const { Wrapper } = createWrapper();
       const { result, rerender } = renderHook(
@@ -80,20 +80,47 @@ describe('useMCPSelect', () => {
       expect(result.current.agent?.mcp).toEqual([]);
     });
 
-    it.each([{ saved: [] }, { saved: ['optional'] }])('respects stored selection $saved on remount', ({ saved }) => {
-      localStorage.setItem(`${LocalStorageKeys.LAST_MCP_}${Constants.NEW_CONVO}`, JSON.stringify(saved));
+    it('pre-selects notethreads for existing conversations as well on load', () => {
       const { Wrapper, servers } = createWrapper(['notethreads', 'optional']);
-      const { result } = renderHook(() => useMCPSelect({ servers, ownsChatSelection: true }), { wrapper: Wrapper });
-      expect(result.current.mcpValues).toEqual(saved);
+      const { result } = renderHook(
+        () => useMCPSelect({ conversationId: 'existing-chat', servers, ownsChatSelection: true }),
+        { wrapper: Wrapper },
+      );
+      expect(result.current.mcpValues).toEqual(['notethreads']);
+    });
+
+    it('merges notethreads with existing selected tools when conversation loads', () => {
+      localStorage.setItem(`${LocalStorageKeys.LAST_MCP_}convo-saved-tools`, JSON.stringify(['optional']));
+      const { Wrapper, servers } = createWrapper(['notethreads', 'optional']);
+      const { result } = renderHook(
+        () => useMCPSelect({ conversationId: 'convo-saved-tools', servers, ownsChatSelection: true }),
+        { wrapper: Wrapper },
+      );
+      expect(result.current.mcpValues).toEqual(['optional', 'notethreads']);
+    });
+
+    it('re-seeds notethreads when switching between conversations', () => {
+      const { Wrapper, servers } = createWrapper(['notethreads']);
+      const { result, rerender } = renderHook(
+        ({ conversationId }) => useMCPSelect({ conversationId, servers, ownsChatSelection: true }),
+        { wrapper: Wrapper, initialProps: { conversationId: 'convo-1' } },
+      );
+      expect(result.current.mcpValues).toEqual(['notethreads']);
+      act(() => result.current.setMCPValues([]));
+      expect(result.current.mcpValues).toEqual([]);
+      rerender({ conversationId: 'convo-2' });
+      expect(result.current.mcpValues).toEqual(['notethreads']);
     });
 
     it.each([
-      { conversationId: 'existing-chat' },
       { specName: 'a-preset' },
       { ownsChatSelection: false },
-    ])('does not seed outside an ordinary new-chat picker: %j', (overrides) => {
+    ])('does not seed for presets or background non-picker instances: %j', (overrides) => {
       const { Wrapper, servers } = createWrapper(['notethreads']);
-      const { result } = renderHook(() => useMCPSelect({ servers, ownsChatSelection: true, ...overrides }), { wrapper: Wrapper });
+      const { result } = renderHook(
+        () => useMCPSelect({ servers, ownsChatSelection: true, ...overrides }),
+        { wrapper: Wrapper },
+      );
       expect(result.current.mcpValues).toEqual([]);
     });
   });

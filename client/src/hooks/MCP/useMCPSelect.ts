@@ -200,24 +200,33 @@ export function useMCPSelect({
     [setMCPValuesRaw, setEphemeralAgent, storageContextKey],
   );
 
-  // OmicsBase: seed ordinary new chats through the existing selection setter.
-  // A saved empty array is an intentional opt-out, not a missing preference.
+  // OmicsBase: ensure `notethreads` is pre-selected whenever any conversation loads (new or existing).
+  // Tracks conversation changes via ref so an explicit user deselection during the conversation is respected.
+  const lastSeededConvoRef = useRef<string | null>(null);
   useEffect(() => {
-    if (
-      !ownsChatSelection ||
-      !isNewConvo ||
-      specName ||
-      !configuredServers.has('notethreads') ||
-      mcpValues.length > 0 ||
-      (ephemeralAgent?.mcp?.length ?? 0) > 0 ||
-      localStorage.getItem(`${LocalStorageKeys.LAST_MCP_}${mcpAtomKey}`) !== null
-    ) {
+    if (!ownsChatSelection || specName || !configuredServers.has('notethreads')) {
       return;
     }
-    setMCPValues(['notethreads']);
+    if (lastSeededConvoRef.current !== key) {
+      lastSeededConvoRef.current = key;
+      const currentSelections = new Set(mcpValues);
+      if (Array.isArray(ephemeralAgent?.mcp)) {
+        ephemeralAgent.mcp.forEach((m) => currentSelections.add(m));
+      }
+      currentSelections.add('notethreads');
+      const merged = Array.from(currentSelections);
+      if (!isEqual(merged, mcpValues)) {
+        setMCPValues(merged);
+      }
+    }
   }, [
-    ownsChatSelection, isNewConvo, specName, configuredServers,
-    mcpValues, ephemeralAgent?.mcp, mcpAtomKey, setMCPValues,
+    ownsChatSelection,
+    specName,
+    configuredServers,
+    key,
+    mcpValues,
+    ephemeralAgent?.mcp,
+    setMCPValues,
   ]);
 
   return {
