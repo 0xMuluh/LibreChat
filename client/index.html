@@ -36,6 +36,12 @@
         padding: 0;
         height: 100%;
       }
+      img[src*="assets/logo"] {
+        transition: filter 0.15s ease-in-out;
+      }
+      .dark img[src*="assets/logo"] {
+        filter: invert(1) brightness(1.2);
+      }
     </style>
     <script>
       const theme = localStorage.getItem('color-theme');

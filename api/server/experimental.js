@@ -544,6 +544,10 @@ if (cluster.isMaster) {
         /<link rel="icon"[^>]*32x32[^>]*>/,
         '<link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />\n    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png" media="(prefers-color-scheme: dark)" />\n    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-light-32x32.png" media="(prefers-color-scheme: light)" />'
       );
+      indexHTML = indexHTML.replace(
+        '</style>',
+        '  img[src*="assets/logo"] { transition: filter 0.15s ease-in-out; }\n      .dark img[src*="assets/logo"] { filter: invert(1) brightness(1.2); }\n    </style>'
+      );
     }
 
     /* The composer lays out against whether a footer bar sits beneath it, and
