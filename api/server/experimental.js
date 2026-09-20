@@ -535,6 +535,13 @@ if (cluster.isMaster) {
       }
     }
 
+    /* OmicsBase: Dynamic branding injection into initial SPA HTML shell */
+    const appTitle = process.env.APP_TITLE || baseAppConfig?.interfaceConfig?.appTitle || 'OmicsBase';
+    if (appTitle) {
+      indexHTML = indexHTML.replace(/<title>.*?<\/title>/, `<title>${appTitle}</title>`);
+      indexHTML = indexHTML.replace(/content="LibreChat - [^"]*"/, `content="${appTitle} - High-throughput multi-omics analysis platform"`);
+    }
+
     /* The composer lays out against whether a footer bar sits beneath it, and
        `/api/config` answers that only after it has painted. One shell serves
        every request, before there is a caller whose overrides could be resolved,
