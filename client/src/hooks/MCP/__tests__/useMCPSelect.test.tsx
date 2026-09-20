@@ -60,6 +60,44 @@ describe('useMCPSelect', () => {
     mockStartupConfig = undefined;
   });
 
+  describe('OmicsBase first-use default', () => {
+    it('selects notethreads for both the picker and outgoing agent after catalog loading', () => {
+      const { Wrapper } = createWrapper();
+      const { result, rerender } = renderHook(
+        ({ servers }) => ({
+          picker: useMCPSelect({ servers, ownsChatSelection: true }),
+          agent: useRecoilValue(ephemeralAgentByConvoId(Constants.NEW_CONVO)),
+        }),
+        { wrapper: Wrapper, initialProps: { servers: createMCPServers([]) } },
+      );
+      expect(result.current.picker.mcpValues).toEqual([]);
+      rerender({ servers: createMCPServers(['notethreads', 'optional']) });
+      expect(result.current.picker.mcpValues).toEqual(['notethreads']);
+      expect(result.current.agent?.mcp).toEqual(['notethreads']);
+      act(() => result.current.picker.setMCPValues([]));
+      rerender({ servers: createMCPServers(['notethreads', 'optional']) });
+      expect(result.current.picker.mcpValues).toEqual([]);
+      expect(result.current.agent?.mcp).toEqual([]);
+    });
+
+    it.each([{ saved: [] }, { saved: ['optional'] }])('respects stored selection $saved on remount', ({ saved }) => {
+      localStorage.setItem(`${LocalStorageKeys.LAST_MCP_}${Constants.NEW_CONVO}`, JSON.stringify(saved));
+      const { Wrapper, servers } = createWrapper(['notethreads', 'optional']);
+      const { result } = renderHook(() => useMCPSelect({ servers, ownsChatSelection: true }), { wrapper: Wrapper });
+      expect(result.current.mcpValues).toEqual(saved);
+    });
+
+    it.each([
+      { conversationId: 'existing-chat' },
+      { specName: 'a-preset' },
+      { ownsChatSelection: false },
+    ])('does not seed outside an ordinary new-chat picker: %j', (overrides) => {
+      const { Wrapper, servers } = createWrapper(['notethreads']);
+      const { result } = renderHook(() => useMCPSelect({ servers, ownsChatSelection: true, ...overrides }), { wrapper: Wrapper });
+      expect(result.current.mcpValues).toEqual([]);
+    });
+  });
+
   describe('Basic Functionality', () => {
     it('should initialize with default values', () => {
       const { Wrapper, servers } = createWrapper();

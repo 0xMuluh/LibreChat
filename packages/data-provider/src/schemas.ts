@@ -892,7 +892,7 @@ export const tMessageSchema = z.object({
   overrideParentMessageId: z.string().nullable().optional(),
   bg: z.string().nullable().optional(),
   model: z.string().nullable().optional(),
-  title: z.string().nullable().or(z.literal('New Chat')).default('New Chat'),
+  title: z.string().nullable().or(z.literal('New Chat')).or(z.literal('New Note')).default('New Note'),
   sender: z.string().optional(),
   text: z.string(),
   /** @deprecated */
@@ -1134,7 +1134,7 @@ export const tConversationSchema = z.object({
         .strict(),
     )
     .optional(),
-  title: z.string().nullable().or(z.literal('New Chat')).default('New Chat'),
+  title: z.string().nullable().or(z.literal('New Chat')).or(z.literal('New Note')).default('New Note'),
   user: z.string().optional(),
   messages: z.array(z.string()).optional(),
   tools: z.union([z.array(tPluginSchema), z.array(z.string())]).optional(),

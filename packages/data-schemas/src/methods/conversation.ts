@@ -3061,7 +3061,7 @@ export function createConversationMethods(
   }
 
   /**
-   * Gets conversation title, returning 'New Chat' as default.
+   * Gets conversation title, returning 'New Note' as default.
    */
   async function getConvoTitle(user: string, conversationId: string) {
     try {
@@ -3069,7 +3069,7 @@ export function createConversationMethods(
       if (convo && !convo.title) {
         return null;
       } else {
-        return convo?.title || 'New Chat';
+        return convo?.title || 'New Note';
       }
     } catch (error) {
       logger.error('[getConvoTitle] Error getting conversation title', error);

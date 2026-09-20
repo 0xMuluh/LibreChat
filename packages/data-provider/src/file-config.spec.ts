@@ -2107,3 +2107,15 @@ describe('getDocumentFileExtension', () => {
     expect(getDocumentFileExtension(mimeType)).toBe(expected);
   });
 });
+
+describe('RDS workspace attachments', () => {
+  it.each(['tse.rds', 'tse.Rds', 'tse.RDS'])(
+    'recognizes %s with missing or compression MIME types', (name) => {
+      for (const type of ['', 'application/octet-stream', 'application/gzip']) {
+        const inferred = inferMimeType(name, type);
+        expect(inferred).toBe('application/x-r-rds');
+        expect(baseFileConfig.checkType(inferred)).toBe(true);
+      }
+    },
+  );
+});

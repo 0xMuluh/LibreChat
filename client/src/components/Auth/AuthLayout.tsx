@@ -60,40 +60,46 @@ function AuthLayout({
   };
 
   return (
-    <div className="relative flex min-h-screen flex-col bg-surface-primary">
-      <Banner />
-      <BlinkAnimation active={isFetching}>
-        <div className="mt-6 h-10 w-full bg-cover">
-          <img
-            src="assets/logo.svg"
-            className="h-full w-full object-contain"
-            alt={localize('com_ui_logo', { 0: startupConfig?.appTitle ?? 'LibreChat' })}
-          />
-        </div>
-      </BlinkAnimation>
-      <DisplayError />
-      <div className="absolute bottom-0 left-0 md:m-4">
-        <ThemeSelector />
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-presentation">
+      <div className="omicsbase-aurora" aria-hidden="true">
+        <div className="omicsbase-aurora-glow" />
+        <div className="omicsbase-aurora-vignette" />
       </div>
-
-      <main className="flex flex-grow items-center justify-center">
-        <div className="w-authPageWidth overflow-hidden bg-surface-primary px-6 py-4 sm:max-w-md sm:rounded-lg">
-          {!hasStartupConfigError && !isFetching && header && (
-            <h1
-              className="mb-4 text-center text-3xl font-semibold text-text-primary"
-              style={{ userSelect: 'none' }}
-            >
-              {header}
-            </h1>
-          )}
-          {children}
-          {!pathname.includes('2fa') &&
-            (pathname.includes('login') || pathname.includes('register')) && (
-              <SocialLoginRender startupConfig={startupConfig} />
-            )}
+      <div className="relative z-[1] flex min-h-screen flex-col">
+        <Banner />
+        <BlinkAnimation active={isFetching}>
+          <div className="mt-6 h-10 w-full bg-cover">
+            <img
+              src="assets/logo.svg"
+              className="h-full w-full object-contain"
+              alt={localize('com_ui_logo', { 0: startupConfig?.appTitle ?? 'LibreChat' })}
+            />
+          </div>
+        </BlinkAnimation>
+        <DisplayError />
+        <div className="absolute bottom-0 left-0 md:m-4">
+          <ThemeSelector />
         </div>
-      </main>
-      <Footer startupConfig={startupConfig} />
+
+        <main className="flex flex-grow items-center justify-center">
+          <div className="w-authPageWidth overflow-hidden rounded-xl border border-border-light/60 bg-surface-primary/80 px-6 py-4 shadow-sm backdrop-blur-sm sm:max-w-md">
+            {!hasStartupConfigError && !isFetching && header && (
+              <h1
+                className="mb-4 text-center font-display text-3xl font-semibold tracking-tight text-text-primary"
+                style={{ userSelect: 'none' }}
+              >
+                {header}
+              </h1>
+            )}
+            {children}
+            {!pathname.includes('2fa') &&
+              (pathname.includes('login') || pathname.includes('register')) && (
+                <SocialLoginRender startupConfig={startupConfig} />
+              )}
+          </div>
+        </main>
+        <Footer startupConfig={startupConfig} />
+      </div>
     </div>
   );
 }

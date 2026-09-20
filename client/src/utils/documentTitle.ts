@@ -4,7 +4,7 @@ export const CHAT_TITLE_IN_TAB_KEY = 'chatTitleInTab';
 export const DEFAULT_APP_TITLE = 'LibreChat';
 
 export const hasRealTitle = (title?: string | null): title is string =>
-  title != null && title !== '' && title !== 'New Chat';
+  title != null && title !== '' && title !== 'New Chat' && title !== 'New Note';
 
 const getAppTitle = (): string => {
   try {

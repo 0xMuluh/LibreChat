@@ -568,7 +568,7 @@ const buildOptimisticConversation = (
     ...submission.conversation,
     conversationId,
     endpoint: submission.conversation.endpoint ?? null,
-    title: submission.conversation.title ?? 'New Chat',
+    title: submission.conversation.title ?? 'New Note',
     messages: messageIds.length > 0 ? messageIds : submission.conversation.messages,
     createdAt: submission.conversation.createdAt ?? now,
     updatedAt: now,

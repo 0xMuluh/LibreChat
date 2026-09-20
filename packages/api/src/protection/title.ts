@@ -2,7 +2,7 @@ import type { FiltersConfig } from 'librechat-data-provider';
 import { extractConversationTitleContent } from './adapters/submissions';
 import { inspectContent } from './runtime';
 
-export const SAFE_CONVERSATION_TITLE = 'New Chat';
+export const SAFE_CONVERSATION_TITLE = 'New Note';
 
 export interface ResolveConversationTitleOptions {
   readonly filters?: FiltersConfig;

@@ -47,6 +47,10 @@ function isGroupableToolCall(part: TMessageContentParts): boolean {
   if (isStandardToolCall && toolCall.name?.startsWith(Constants.LC_TRANSFER_TO_)) {
     return false;
   }
+  const name = toolCall.name ?? '';
+  if (name === 'execute_r_cell' || name.includes('execute_r_cell')) {
+    return false;
+  }
   return true;
 }
 

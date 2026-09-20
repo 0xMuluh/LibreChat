@@ -27,8 +27,8 @@
   },
   "scripts": {
     "clean": "rimraf dist",
-    "build": "npm run clean && tsdown && npm run openapi:copy",
-    "build:dev": "npm run clean && tsdown && npm run openapi:copy",
+    "build": "npm run clean && tsdown --config-loader native && npm run openapi:copy",
+    "build:dev": "npm run clean && tsdown --config-loader native && npm run openapi:copy",
     "build:watch": "npm run openapi:copy && tsdown --watch",
     "build:watch:prod": "npm run openapi:copy && tsdown --watch",
     "openapi:copy": "node -e \"const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.copyFileSync('openapi/agents.openapi.json','dist/agents.openapi.json')\"",

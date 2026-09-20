@@ -1,10 +1,10 @@
-import { useCallback, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useRecoilValue } from 'recoil';
 import * as Ariakit from '@ariakit/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Constants, QueryKeys } from 'librechat-data-provider';
-import { ArrowLeft, ArrowUpDown, Check, Folder, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowUpDown, Check, Folder, Pencil, Plus, Trash2, MessageSquare, Layout } from 'lucide-react';
 import { Button, Spinner, DropdownPopup, TooltipAnchor, useMediaQuery } from '@librechat/client';
 import type { ConversationListResponse } from 'librechat-data-provider';
 import type { MenuItemProps, RenderProp } from '~/common';
@@ -13,8 +13,10 @@ import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
 import ProjectDeleteDialog from './ProjectDeleteDialog';
 import ProjectEditDialog from './ProjectEditDialog';
 import { useLocalize, useNewConvo } from '~/hooks';
+import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import { cn, clearMessagesCache } from '~/utils';
 import ProjectChatList from './ProjectChatList';
+import WorkspaceCanvas from './WorkspaceCanvas';
 import store from '~/store';
 
 type ChatSortField = 'updatedAt' | 'createdAt';
@@ -39,6 +41,28 @@ export default function ProjectWorkspace() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { projectId = '' } = useParams();
+  const { setSidebarOpen } = useSidebarToggle();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get('tab') as 'notes' | 'workspace') || 'notes';
+
+  useEffect(() => {
+    if (activeTab === 'workspace') {
+      setSidebarOpen(false);
+    }
+  }, [activeTab, setSidebarOpen]);
+
+  const setActiveTab = useCallback((tab: 'notes' | 'workspace') => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (tab === 'notes') {
+        next.delete('tab');
+      } else {
+        next.set('tab', tab);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
   const [sortBy, setSortBy] = useState<ChatSortField>('updatedAt');
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -135,6 +159,24 @@ export default function ProjectWorkspace() {
     );
   }
 
+  if (activeTab === 'workspace') {
+    return (
+      <main className="flex h-full min-h-0 flex-col overflow-hidden bg-presentation text-text-primary">
+        <ProjectEditDialog open={isEditOpen} onOpenChange={setIsEditOpen} project={project} />
+        <ProjectDeleteDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen} project={project} />
+
+        {/* Edge-to-Edge Full Bleed Studio with Single Unified Header */}
+        <div className="flex flex-1 min-h-0 w-full overflow-hidden">
+          <WorkspaceCanvas
+            project={project}
+            onNavigateNotes={() => setActiveTab('notes')}
+            onEditProject={() => setIsEditOpen(true)}
+          />
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="flex h-full min-h-0 flex-col overflow-y-auto bg-presentation text-text-primary">
       <header className="sticky top-0 z-10 border-b border-border-light bg-presentation">
@@ -159,7 +201,7 @@ export default function ProjectWorkspace() {
             <Folder className="h-6 w-6" aria-hidden="true" />
           </span>
           <div className="min-w-0 flex-1 pt-0.5">
-            <h1 className="truncate text-balance text-2xl font-semibold tracking-tight text-text-primary">
+            <h1 className="truncate text-balance font-display text-2xl font-semibold tracking-tight text-text-primary">
               {project.name}
             </h1>
             {project.description ? (
@@ -213,11 +255,37 @@ export default function ProjectWorkspace() {
         <ProjectEditDialog open={isEditOpen} onOpenChange={setIsEditOpen} project={project} />
         <ProjectDeleteDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen} project={project} />
 
+        {/* Mode Switcher Tabs */}
+        <div className="mt-7 flex items-center justify-between border-b border-border-light pb-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('notes')}
+              className="flex items-center gap-2 rounded-xl border border-border-light bg-surface-secondary px-3.5 py-2 text-sm font-medium text-text-primary shadow-xs transition-all"
+            >
+              <MessageSquare className="h-4 w-4 text-primary" />
+              <span>Notes</span>
+              <span className="rounded-full bg-surface-tertiary px-2 py-0.5 text-xs text-text-secondary">
+                {project.conversationCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('workspace')}
+              className="flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium text-text-secondary transition-all hover:text-text-primary"
+            >
+              <Layout className="h-4 w-4 text-primary" />
+              <span>Workspace</span>
+            </button>
+          </div>
+        </div>
+
         <button
           type="button"
           onClick={startProjectChat}
           className={cn(
-            'mt-7 flex w-full items-center gap-3 rounded-2xl border border-border-light bg-surface-secondary px-3.5 py-3 text-left',
+            'mt-6 flex w-full items-center gap-3 rounded-2xl border border-border-light bg-surface-secondary px-3.5 py-3 text-left',
             'transition-colors duration-150 hover:bg-surface-hover',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-text-primary',
           )}

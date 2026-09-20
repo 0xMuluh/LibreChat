@@ -141,13 +141,17 @@ export default function Presentation({ children }: { children: React.ReactNode }
 
   return (
     <DragDropWrapper className="relative flex w-full grow overflow-hidden bg-presentation">
+      <div className="omicsbase-aurora" aria-hidden="true">
+        <div className="omicsbase-aurora-glow" />
+        <div className="omicsbase-aurora-vignette" />
+      </div>
       <AppChatSurface>
         <ParentSubagentsProvider
           conversationId={conversationId ?? ''}
           enabled={conversationEndpoint === EModelEndpoint.agents && conversationAgentId != null}
         >
           <SidePanelGroup panel={panelElement}>
-            <main className="flex h-full flex-col overflow-y-auto" role="main">
+            <main className="relative z-[1] flex h-full flex-col overflow-y-auto" role="main">
               {children}
             </main>
           </SidePanelGroup>

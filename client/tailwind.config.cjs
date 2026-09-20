@@ -17,6 +17,8 @@ module.exports = {
   theme: {
     fontFamily: {
       sans: ['Inter', 'sans-serif'],
+      display: ['var(--theme-font-display)', 'Fraunces', 'ui-serif', 'Georgia', 'serif'],
+      heading: ['var(--theme-font-display)', 'Fraunces', 'ui-serif', 'Georgia', 'serif'],
       mono: ['Roboto Mono', 'monospace'],
     },
     // fontFamily: {

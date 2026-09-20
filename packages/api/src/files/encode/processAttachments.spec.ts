@@ -6,6 +6,7 @@ import {
   isBedrockDocumentType,
 } from 'librechat-data-provider';
 import type { FileConfig, EndpointFileConfig } from 'librechat-data-provider';
+import { isWorkspaceDataFileAttachment } from '../context';
 
 /**
  * Mirrors the categorization logic from BaseClient.processAttachments.
@@ -13,6 +14,7 @@ import type { FileConfig, EndpointFileConfig } from 'librechat-data-provider';
  */
 function categorizeFile(
   file: {
+    filename?: string;
     type?: string | null;
     source?: string;
     embedded?: boolean;
@@ -35,6 +37,9 @@ function categorizeFile(
     file.metadata?.codeEnvRef != null ||
     file.metadata?.fileIdentifier != null
   ) {
+    return 'skipped';
+  }
+  if (isWorkspaceDataFileAttachment(file)) {
     return 'skipped';
   }
 
@@ -80,6 +85,17 @@ describe('processAttachments — supportedMimeTypes routing logic', () => {
     const { merged, epConfig } = resolveConfig(['text/csv']);
     const result = categorizeFile({ type: 'text/csv' }, false, merged, epConfig);
     expect(result).toBe('documents');
+  });
+
+  it('should keep a CSV attachment available to the workspace instead of provider documents', () => {
+    const { merged, epConfig } = resolveConfig(['text/csv']);
+    const result = categorizeFile(
+      { filename: 'wilcox_phylum.csv', type: 'text/csv' },
+      false,
+      merged,
+      epConfig,
+    );
+    expect(result).toBe('skipped');
   });
 
   it('should route text/plain to documents when supportedMimeTypes uses wildcard', () => {

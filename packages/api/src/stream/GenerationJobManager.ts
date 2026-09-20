@@ -4694,7 +4694,7 @@ class GenerationJobManagerClass {
         final: true,
         // Don't include conversation for early aborts - it doesn't exist in DB
         conversation: isEarlyAbort ? null : { conversationId: jobData.conversationId },
-        title: 'New Chat',
+        title: 'New Note',
         requestMessage: jobData.userMessage
           ? {
               messageId: userMessageId,

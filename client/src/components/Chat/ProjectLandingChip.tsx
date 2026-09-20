@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
-import { Folder, X } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { Folder, X, Layout } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ControlCombobox, TooltipAnchor } from '@librechat/client';
 import type { TChatProject } from 'librechat-data-provider';
 import type { OptionWithIcon } from '~/common';
@@ -16,6 +16,7 @@ import { useLocalize } from '~/hooks';
  */
 export default function ProjectLandingChip({ project }: { project: TChatProject }) {
   const localize = useLocalize();
+  const navigate = useNavigate();
   const { conversation, setConversation } = useChatContext();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -53,7 +54,7 @@ export default function ProjectLandingChip({ project }: { project: TChatProject 
   );
 
   return (
-    <div className="flex items-center gap-0.5 px-2.5 pt-2">
+    <div className="flex items-center gap-1 px-2.5 pt-2">
       <ControlCombobox
         selectId="project-landing-select"
         selectedValue={project._id}
@@ -76,6 +77,21 @@ export default function ProjectLandingChip({ project }: { project: TChatProject 
         className="h-8 w-auto min-w-[7.5rem] max-w-[14rem] gap-1.5 rounded-full border-0 bg-transparent px-2.5 text-sm font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary"
         popoverClassName="animate-popover-bottom min-w-64 rounded-2xl shadow-xl"
       />
+
+      <TooltipAnchor
+        description="Switch to Study Workspace (ADE Deliverable)"
+        render={
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${encodeURIComponent(project._id)}?tab=workspace`)}
+            className="flex h-7 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+          >
+            <Layout className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Workspace</span>
+          </button>
+        }
+      />
+
       <TooltipAnchor
         description={localize('com_ui_remove_from_project')}
         render={

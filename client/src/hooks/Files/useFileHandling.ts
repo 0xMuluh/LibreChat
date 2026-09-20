@@ -417,6 +417,9 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
       if (conversation?.agent_id != null && formData.get('agent_id') == null) {
         formData.append('agent_id', conversation.agent_id);
       }
+      if (conversation?.conversationId != null && formData.get('conversationId') == null) {
+        formData.append('conversationId', conversation.conversationId);
+      }
 
       uploadWithRecovery(formData, extendedFile.file_id, uploadLifecycle);
       return;

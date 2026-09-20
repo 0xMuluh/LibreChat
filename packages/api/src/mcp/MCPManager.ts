@@ -1,3 +1,4 @@
+import { bindNoteThread } from '~/notes/mcp';
 import pick from 'lodash/pick';
 import { logger } from '@librechat/data-schemas';
 import { Permissions, PermissionTypes } from 'librechat-data-provider';
@@ -1144,6 +1145,7 @@ Please follow these instructions when using tools from the respective MCP server
     onOAuthCredentialsChanged?: t.UserConnectionContext['onOAuthCredentialsChanged'];
     onOAuthCredentialsChanging?: t.UserConnectionContext['onOAuthCredentialsChanging'];
   }): Promise<t.FormattedToolResponse> {
+    toolArguments = bindNoteThread(serverName, toolName, toolArguments, requestBody?.conversationId);
     const userId = user?.id;
     const logPrefix = userId ? `[MCP][User: ${userId}][${serverName}]` : `[MCP][${serverName}]`;
     this.bindRequestScopedConnectionStore(requestScopedConnections);

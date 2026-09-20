@@ -1,5 +1,5 @@
 import type { TFile } from 'librechat-data-provider';
-import { getAttachmentTitleText } from './context';
+import { getAttachmentTitleText, isWorkspaceDataFileAttachment } from './context';
 
 const file = (filename?: string): TFile => ({ filename }) as TFile;
 
@@ -26,5 +26,20 @@ describe('getAttachmentTitleText', () => {
 
   it('returns an empty string when no file has a filename', () => {
     expect(getAttachmentTitleText([file(), file()])).toBe('');
+  });
+});
+
+describe('isWorkspaceDataFileAttachment', () => {
+  it.each(['wilcox_phylum.csv', 'counts.tsv', 'object.RDS', 'matrix.h5ad', 'sample.mzML'])(
+    'recognizes %s as workspace data',
+    (filename) => {
+      expect(isWorkspaceDataFileAttachment(file(filename))).toBe(true);
+    },
+  );
+
+  it('leaves provider document formats eligible', () => {
+    expect(isWorkspaceDataFileAttachment(file('report.pdf'))).toBe(false);
+    expect(isWorkspaceDataFileAttachment(file('table.xlsx'))).toBe(false);
+    expect(isWorkspaceDataFileAttachment(file('notes.txt'))).toBe(false);
   });
 });

@@ -4,6 +4,9 @@ module.exports = {
     extend: {
       fontFamily: {
         'theme-ui': ['var(--theme-font-family, Inter, sans-serif)'],
+        'theme-display': [
+          'var(--theme-font-display, Fraunces, ui-serif, Georgia, serif)',
+        ],
       },
       height: {
         'theme-control': 'var(--theme-control-height, 2.25rem)',

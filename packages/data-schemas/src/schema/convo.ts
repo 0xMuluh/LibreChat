@@ -27,7 +27,7 @@ const convoSchema: Schema<IConversation> = new Schema(
     },
     title: {
       type: String,
-      default: 'New Chat',
+      default: 'New Note',
       meiliIndex: true,
     },
     user: {

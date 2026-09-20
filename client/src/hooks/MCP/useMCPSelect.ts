@@ -200,6 +200,26 @@ export function useMCPSelect({
     [setMCPValuesRaw, setEphemeralAgent, storageContextKey],
   );
 
+  // OmicsBase: seed ordinary new chats through the existing selection setter.
+  // A saved empty array is an intentional opt-out, not a missing preference.
+  useEffect(() => {
+    if (
+      !ownsChatSelection ||
+      !isNewConvo ||
+      specName ||
+      !configuredServers.has('notethreads') ||
+      mcpValues.length > 0 ||
+      (ephemeralAgent?.mcp?.length ?? 0) > 0 ||
+      localStorage.getItem(`${LocalStorageKeys.LAST_MCP_}${mcpAtomKey}`) !== null
+    ) {
+      return;
+    }
+    setMCPValues(['notethreads']);
+  }, [
+    ownsChatSelection, isNewConvo, specName, configuredServers,
+    mcpValues, ephemeralAgent?.mcp, mcpAtomKey, setMCPValues,
+  ]);
+
   return {
     isPinned,
     mcpValues,

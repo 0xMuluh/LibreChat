@@ -35,14 +35,15 @@ describe('document title', () => {
     expect(document.title).toBe('LibreChat');
   });
 
-  it('uses a conversation deliberately titled New Chat when enabled', () => {
-    setDocumentTitle('New Chat', true);
+  it('uses a conversation deliberately titled New Note when enabled', () => {
+    setDocumentTitle('New Note', true);
 
-    expect(document.title).toBe('New Chat');
+    expect(document.title).toBe('New Note');
   });
 
-  it('keeps rejecting the generated new chat placeholder as a real title', () => {
+  it('keeps rejecting the generated new note placeholder as a real title', () => {
     expect(hasRealTitle('New Chat')).toBe(false);
+    expect(hasRealTitle('New Note')).toBe(false);
   });
 
   it('uses the default app title when no app title is stored', () => {

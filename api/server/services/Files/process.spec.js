@@ -474,6 +474,20 @@ describe('processAgentFileUpload', () => {
     inspectContent.mockReturnValue(null);
   });
 
+  it('stores an RDS message attachment without text extraction', async () => {
+    const req = makeReq({ mimetype: 'application/x-r-rds' });
+    req.file.originalname = 'tse.Rds';
+    const upload = setupStoredFileUpload({ filename: 'tse.Rds' });
+    await processAgentFileUpload({
+      req, res: mockRes, metadata: { ...makeMetadata(), message_file: true },
+    });
+    expect(upload).toHaveBeenCalled();
+    expect(extractInspectableFileText).not.toHaveBeenCalled();
+    expect(db.createFile).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: 'tse.Rds', type: 'application/x-r-rds' }), true,
+    );
+  });
+
   describe('content filtering for extracted context', () => {
     const filters = { files: { pii: {} } };
     const extractedTextFinding = {

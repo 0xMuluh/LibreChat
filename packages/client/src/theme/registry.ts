@@ -9,8 +9,7 @@ import type {
   ThemeMode,
 } from './types';
 import { highContrastDarkTheme, highContrastLightTheme } from './themes/highContrast';
-import { defaultTheme } from './themes/default';
-import { darkTheme } from './themes/dark';
+import { omicsbaseLight as defaultTheme, omicsbaseDark as darkTheme } from './themes/omicsbase';
 export const THEME_VERSION = 1 as const;
 
 /**

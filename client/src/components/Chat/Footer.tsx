@@ -74,7 +74,12 @@ function Footer({ className, startupConfig, configuredOnly = false }: FooterProp
     </a>
   );
 
-  const configuredFooter = typeof config?.customFooter === 'string' ? config.customFooter : null;
+  const configuredFooter =
+    typeof config?.customFooter === 'string'
+      ? config.customFooter.trim()
+        ? config.customFooter
+        : ''
+      : null;
   /** The generic disclaimer is the part a conversation drops; operator content is not. */
   const genericFooter = configuredOnly
     ? ''
@@ -83,7 +88,13 @@ function Footer({ className, startupConfig, configuredOnly = false }: FooterProp
       '](https://librechat.ai) - ' +
       localize('com_ui_latest_footer');
   const mainContent = configuredFooter ?? genericFooter;
-  const mainContentParts = mainContent === '' ? [] : mainContent.split('|');
+  const mainContentParts =
+    mainContent === ''
+      ? []
+      : mainContent
+          .split('|')
+          .map((part) => part.trim())
+          .filter(Boolean);
 
   useEffect(() => {
     if (config?.analyticsGtmId != null && typeof window.google_tag_manager === 'undefined') {

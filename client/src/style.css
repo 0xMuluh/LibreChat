@@ -24,17 +24,18 @@
   --gray-850: 23 23 23;
   --gray-875: 18 18 18;
   --gray-900: 13 13 13;
-  --green-50: 236 253 245;
-  --green-100: 209 250 229;
-  --green-200: 167 243 208;
-  --green-300: 110 231 183;
-  --green-400: 52 211 153;
-  --green-500: 16 185 129;
-  --green-600: 5 150 105;
-  --green-700: 4 120 87;
-  --green-800: 6 95 70;
-  --green-900: 6 78 59;
-  --green-950: 2 44 34;
+  /* Soft Daisy teal family (OmicsBase1) */
+  --green-50: 237 247 246;
+  --green-100: 213 239 236;
+  --green-200: 168 219 214;
+  --green-300: 121 189 180;
+  --green-400: 67 161 150;
+  --green-500: 56 126 126;
+  --green-600: 28 87 87;
+  --green-700: 10 67 67;
+  --green-800: 15 53 54;
+  --green-900: 8 32 34;
+  --green-950: 5 26 21;
   --red-50: 254 242 242;
   --red-100: 254 226 226;
   --red-200: 254 202 202;
@@ -148,11 +149,11 @@
 
 html {
   --brand-purple: 126 34 206;
-  --presentation: var(--white);
-  --text-primary: var(--gray-800);
-  --text-secondary: var(--gray-600);
-  --text-secondary-alt: var(--gray-500);
-  --text-tertiary: var(--gray-500);
+  --presentation: 250 250 250; /* Soft Daisy #fafafa */
+  --text-primary: 21 27 33;
+  --text-secondary: 35 42 48;
+  --text-secondary-alt: 87 94 102;
+  --text-tertiary: 87 94 102;
   --text-muted: 105 110 121; /* Click UI global.color.text.muted #696e79 */
   --shimmer-dip: 129 130 134;
   --shimmer-dip-alpha: 0.18;
@@ -161,49 +162,49 @@ html {
   --link: var(--blue-600);
   --link-hover: var(--blue-700);
   --link-visited: 147 51 234;
-  --accent-primary: 18 110 107;
-  --accent-primary-hover: 10 79 83;
-  --ring-primary: var(--gray-500);
+  --accent-primary: 28 87 87; /* Soft Daisy #1c5757 */
+  --accent-primary-hover: 10 67 67;
+  --ring-primary: 56 126 126; /* Soft Daisy ring #387e7e */
   --header-primary: var(--white);
-  --header-hover: var(--gray-50);
-  --header-button-hover: var(--gray-50);
-  --surface-active: var(--gray-100);
-  --surface-active-alt: var(--gray-200);
-  --surface-hover: var(--gray-200);
-  --surface-hover-alt: var(--gray-300);
-  --surface-composer-hover: var(--gray-200);
+  --header-hover: 237 247 246;
+  --header-button-hover: 237 247 246;
+  --surface-active: 237 247 246;
+  --surface-active-alt: 220 240 237;
+  --surface-hover: 237 247 246;
+  --surface-hover-alt: 220 240 237;
+  --surface-composer-hover: 237 247 246;
   --surface-primary: var(--white);
   --chart-widget-surface: 255 255 255; /* Click UI dashboards.chartWidget.color.background.default #ffffff */
   --chart-widget-stroke: 230 231 233; /* Click UI dashboards.chartWidget.color.stroke.default #e6e7e9 */
-  --surface-primary-alt: var(--gray-50);
-  --surface-primary-contrast: var(--gray-100);
-  --surface-secondary: var(--gray-50);
-  --surface-secondary-alt: var(--gray-200);
-  --surface-tertiary: var(--gray-100);
+  --surface-primary-alt: 244 244 246;
+  --surface-primary-contrast: 237 247 246;
+  --surface-secondary: 244 244 246;
+  --surface-secondary-alt: 237 247 246;
+  --surface-tertiary: 237 247 246;
   --surface-tertiary-alt: var(--white);
   --surface-dialog: var(--white);
-  --surface-overlay: var(--gray-500);
-  --surface-submit: var(--green-700);
-  --surface-submit-hover: var(--green-800);
+  --surface-overlay: 87 94 102;
+  --surface-submit: 28 87 87;
+  --surface-submit-hover: 10 67 67;
   --surface-destructive: var(--red-700);
   --surface-destructive-hover: var(--red-800);
   --surface-chat: var(--white);
   --surface-code: var(--surface-primary-alt);
   --surface-qr: var(--white);
-  --border-light: var(--gray-200);
+  --border-light: 220 232 230;
   --border-light-alpha: 1;
-  --border-medium-alt: var(--gray-300);
-  --border-medium: var(--gray-300);
+  --border-medium-alt: 196 216 214;
+  --border-medium: 196 216 214;
   --border-medium-alpha: 1;
-  --border-heavy: var(--gray-400);
+  --border-heavy: 148 180 176;
   --border-heavy-alpha: 1;
-  --border-xheavy: var(--gray-500);
+  --border-xheavy: 87 94 102;
   --border-xheavy-alpha: 1;
   --border-destructive: var(--red-600);
-  --status-success: var(--green-700);
-  --status-success-subtle: var(--green-50);
-  --status-success-border: var(--green-300);
-  --status-success-strong: 2 133 94;
+  --status-success: 28 87 87;
+  --status-success-subtle: 237 247 246;
+  --status-success-border: 121 189 180;
+  --status-success-strong: 10 67 67;
   --status-info: var(--blue-600);
   --status-info-subtle: var(--blue-50);
   --status-info-border: var(--blue-300);
@@ -229,7 +230,7 @@ html {
   --series-4: 182 123 5;
   --series-5: 216 90 142;
   --series-6: 126 35 205;
-  --series-7: 1 131 1;
+  --series-7: 28 87 87; /* Soft Daisy teal */
   --series-8: 63 81 181;
 
   /* Code syntax highlighting */
@@ -257,6 +258,7 @@ html {
   --theme-space-compact: 0.375rem;
   --theme-space-normal: 0.75rem;
   --theme-font-family: Inter, sans-serif;
+  --theme-font-display: Fraunces, ui-serif, Georgia, serif;
   --theme-elevation-surface: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --theme-motion-fast: 150ms;
   --theme-motion-normal: 200ms;
@@ -271,11 +273,11 @@ html {
 }
 .dark {
   --brand-purple: 171 104 255;
-  --presentation: var(--gray-800);
-  --text-primary: var(--gray-100);
-  --text-secondary: var(--gray-300);
-  --text-secondary-alt: var(--gray-400);
-  --text-tertiary: var(--gray-400);
+  --presentation: 5 8 12; /* Soft Daisy #05080c teal-black */
+  --text-primary: 246 246 243; /* #f6f6f3 */
+  --text-secondary: 203 213 225; /* #cbd5e1 */
+  --text-secondary-alt: 148 163 184; /* #94a3b8 */
+  --text-tertiary: 148 163 184;
   --text-muted: 179 182 189; /* Click UI global.color.text.muted #b3b6bd */
   --shimmer-base: 255 255 255;
   --shimmer-base-alpha: 0.8;
@@ -286,44 +288,45 @@ html {
   --link: var(--blue-400);
   --link-hover: var(--blue-300);
   --link-visited: 192 132 252;
-  --accent-primary: 65 167 157;
-  --accent-primary-hover: 109 200 185;
-  --header-primary: var(--gray-700);
-  --header-hover: var(--gray-600);
-  --header-button-hover: var(--gray-700);
-  --surface-active: var(--gray-500);
-  --surface-active-alt: var(--gray-700);
-  --surface-hover: var(--gray-650);
-  --surface-hover-alt: var(--gray-600);
-  --surface-composer-hover: var(--gray-600);
-  --surface-primary: var(--gray-900);
+  --accent-primary: 99 204 192; /* Soft Daisy #63ccc0 */
+  --accent-primary-hover: 133 225 213;
+  --ring-primary: 45 212 191; /* #2dd4bf */
+  --header-primary: 12 18 22; /* #0c1216 */
+  --header-hover: 18 28 32;
+  --header-button-hover: 18 28 32;
+  --surface-active: 28 87 87;
+  --surface-active-alt: 22 50 51;
+  --surface-hover: 18 36 38;
+  --surface-hover-alt: 22 50 51;
+  --surface-composer-hover: 23 25 36;
+  --surface-primary: 5 8 12;
   --chart-widget-surface: 40 40 40; /* Click UI dashboards.chartWidget.color.background.default #282828 */
   --chart-widget-stroke: 50 50 50; /* Click UI dashboards.chartWidget.color.stroke.default #323232 */
-  --surface-primary-alt: var(--gray-850);
-  --surface-primary-contrast: var(--gray-850);
-  --surface-secondary: var(--gray-800);
-  --surface-secondary-alt: var(--gray-800);
-  --surface-tertiary: var(--gray-700);
-  --surface-tertiary-alt: var(--gray-700);
-  --surface-dialog: var(--gray-875);
+  --surface-primary-alt: 12 18 22;
+  --surface-primary-contrast: 18 28 32;
+  --surface-secondary: 12 18 22;
+  --surface-secondary-alt: 18 28 32;
+  --surface-tertiary: 22 40 42;
+  --surface-tertiary-alt: 22 40 42;
+  --surface-dialog: 18 20 28;
   --surface-overlay: 0 0 0;
-  --surface-submit: var(--green-700);
-  --surface-submit-hover: var(--green-800);
+  --surface-submit: 28 87 87;
+  --surface-submit-hover: 45 212 191;
   --surface-destructive: var(--red-800);
   --surface-destructive-hover: var(--red-900);
-  --surface-chat: var(--gray-700);
+  --surface-chat: 12 18 22;
   --surface-code: var(--presentation);
   --surface-qr: var(--white);
-  --border-light: var(--gray-700);
-  --border-medium-alt: var(--gray-600);
-  --border-medium: var(--gray-600);
-  --border-heavy: var(--gray-500);
-  --border-xheavy: var(--gray-400);
+  --border-light: 22 40 42;
+  --border-medium-alt: 28 60 58;
+  --border-medium: 28 60 58;
+  --border-heavy: 45 90 88;
+  --border-xheavy: 99 204 192;
   --border-destructive: var(--red-500);
-  --status-success: var(--green-300);
-  --status-success-subtle: var(--green-950);
-  --status-success-border: var(--green-800);
-  --status-success-strong: 8 135 89;
+  --status-success: 99 204 192;
+  --status-success-subtle: 5 26 21;
+  --status-success-border: 10 67 67;
+  --status-success-strong: 28 87 87;
   --status-info: var(--blue-300);
   --status-info-subtle: var(--blue-950);
   --status-info-border: var(--blue-800);
@@ -336,20 +339,20 @@ html {
   --status-error-subtle: var(--red-950);
   --status-error-border: var(--red-800);
   --status-error-strong: var(--red-800);
-  --status-neutral: var(--gray-300);
-  --status-neutral-subtle: var(--gray-800);
-  --status-neutral-border: var(--gray-700);
+  --status-neutral: 203 213 225;
+  --status-neutral-subtle: 12 18 22;
+  --status-neutral-border: 22 40 42;
   --status-verified: 26 127 216;
   --text-on-status: var(--white);
 
-  /* Categorical series scale — same hues, stepped for the dark surface */
+  /* Categorical series scale — Soft Daisy teal in brand-adjacent slots */
   --series-1: 9 140 238;
   --series-2: 217 87 35;
-  --series-3: 6 158 152;
+  --series-3: 99 204 192;
   --series-4: 200 133 12;
   --series-5: 213 82 130;
   --series-6: 171 104 254;
-  --series-7: 80 167 49;
+  --series-7: 45 212 191;
   --series-8: 120 130 190;
 
   /* Code syntax highlighting. Comment and meta are the flattened equivalents of
@@ -630,6 +633,11 @@ html.high-contrast.dark .btn-neutral:hover {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Soft Daisy display face — mirrors OmicsBase1 font-display */
+.font-display {
+  font-family: var(--theme-font-display), ui-serif, Georgia, serif;
 }
 
 @font-face {
@@ -936,6 +944,7 @@ pre {
 }
 .prose :where(h1):not(:where([class~='not-prose'] *)) {
   color: var(--tw-prose-headings);
+  font-family: var(--theme-font-display), ui-serif, Georgia, serif;
   font-size: 2.25em;
   font-weight: 800;
   line-height: 1;
@@ -948,6 +957,7 @@ pre {
 }
 .prose :where(h2):not(:where([class~='not-prose'] *)) {
   color: var(--tw-prose-headings);
+  font-family: var(--theme-font-display), ui-serif, Georgia, serif;
   font-size: 1.5em;
   font-weight: 700;
   line-height: 1.1;
@@ -960,6 +970,7 @@ pre {
 }
 .prose :where(h3):not(:where([class~='not-prose'] *)) {
   color: var(--tw-prose-headings);
+  font-family: var(--theme-font-display), ui-serif, Georgia, serif;
   font-size: 1.25em;
   font-weight: 600;
   line-height: 1.3;
@@ -1309,6 +1320,58 @@ pre[class*='language-'] {
   color: rgb(var(--syntax-title));
 }
 
+/* OB1-parity R cell syntax colors (dark code pane on Soft Daisy) */
+.r-cell-code.code-theme-dark,
+.r-cell-code.code-theme-dark code.hljs {
+  color: #f1f5f9;
+  background: #0f172a !important;
+}
+.r-cell-code .hljs-comment,
+.r-cell-code .hljs-meta {
+  color: #64748b;
+}
+.r-cell-code .hljs-keyword,
+.r-cell-code .hljs-literal,
+.r-cell-code .hljs-doctag,
+.r-cell-code .hljs-formula {
+  color: #60a5fa;
+}
+.r-cell-code .hljs-string,
+.r-cell-code .hljs-addition,
+.r-cell-code .hljs-attribute,
+.r-cell-code .hljs-meta-string,
+.r-cell-code .hljs-regexp {
+  color: #2dd4bf;
+}
+.r-cell-code .hljs-number,
+.r-cell-code .hljs-attr,
+.r-cell-code .hljs-variable,
+.r-cell-code .hljs-template-variable,
+.r-cell-code .hljs-type {
+  color: #fbbf24;
+}
+.r-cell-code .hljs-built_in,
+.r-cell-code .hljs-title,
+.r-cell-code .hljs-section,
+.r-cell-code .hljs-name,
+.r-cell-code .hljs-selector-id,
+.r-cell-code .hljs-selector-class {
+  color: #f472b6;
+}
+.r-cell-code .hljs-function .hljs-title,
+.r-cell-code .hljs-title.function_ {
+  color: #f472b6;
+}
+.r-cell-code .hljs-symbol,
+.r-cell-code .hljs-bullet,
+.r-cell-code .hljs-link {
+  color: #fb7185;
+}
+.r-cell-code .hljs-operator,
+.r-cell-code .hljs-punctuation {
+  color: #a78bfa;
+}
+
 [role='button'],
 button {
   cursor: pointer;
@@ -1350,12 +1413,12 @@ button {
 .btn-primary {
   --tw-bg-opacity: 1;
   --tw-text-opacity: 1;
-  background-color: rgba(16, 163, 127, var(--tw-bg-opacity));
+  background-color: rgba(28, 87, 87, var(--tw-bg-opacity)); /* Soft Daisy #1c5757 */
   color: rgba(255, 255, 255, var(--tw-text-opacity));
 }
 .btn-primary:hover {
   --tw-bg-opacity: 1;
-  background-color: rgba(26, 127, 100, var(--tw-bg-opacity));
+  background-color: rgba(10, 67, 67, var(--tw-bg-opacity));
 }
 .btn-primary:focus {
   --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width)
@@ -1372,22 +1435,22 @@ button {
 }
 .btn-primary.focus-visible {
   --tw-ring-opacity: 1;
-  --tw-ring-color: rgba(25, 195, 125, var(--tw-ring-opacity));
+  --tw-ring-color: rgba(56, 126, 126, var(--tw-ring-opacity)); /* Soft Daisy ring */
 }
 .btn-primary:focus-visible {
   --tw-ring-opacity: 1;
-  --tw-ring-color: rgba(25, 195, 125, var(--tw-ring-opacity));
+  --tw-ring-color: rgba(56, 126, 126, var(--tw-ring-opacity));
 }
 .btn-primary:disabled:hover {
   --tw-bg-opacity: 1;
-  background-color: rgba(16, 163, 127, var(--tw-bg-opacity));
+  background-color: rgba(28, 87, 87, var(--tw-bg-opacity));
 }
 .btn-secondary {
   --tw-border-opacity: 1;
   --tw-bg-opacity: 1;
   --tw-text-opacity: 1;
   background-color: transparent;
-  background-color: rgba(16, 163, 156, var(--tw-bg-opacity));
+  background-color: rgba(56, 126, 126, var(--tw-bg-opacity));
   color: rgba(255, 255, 255, var(--tw-text-opacity));
 }
 .btn-secondary:hover {
@@ -2693,4 +2756,82 @@ html[data-input-modality='keyboard']
    question card, so the card travels behind the ChatForm, not over it. */
 ::view-transition-group(chat-form) {
   z-index: 2;
+}
+
+/* Soft Daisy atmosphere — OB1-like teal aurora on canvases */
+.omicsbase-aurora {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  opacity: 0.85;
+}
+
+html.dark .omicsbase-aurora {
+  opacity: 0.95;
+}
+
+.omicsbase-aurora-glow {
+  position: absolute;
+  inset: -10%;
+  background:
+    radial-gradient(ellipse 55% 45% at 18% 30%, rgba(20, 184, 166, 0.35), transparent 62%),
+    radial-gradient(ellipse 50% 40% at 82% 22%, rgba(34, 211, 238, 0.26), transparent 58%),
+    radial-gradient(ellipse 60% 50% at 55% 70%, rgba(163, 230, 53, 0.12), transparent 65%),
+    radial-gradient(ellipse 40% 35% at 70% 55%, rgba(251, 191, 36, 0.1), transparent 60%);
+  filter: blur(8px);
+  animation: omicsbase-aurora-drift 18s ease-in-out infinite alternate;
+}
+
+html.dark .omicsbase-aurora-glow {
+  background:
+    radial-gradient(ellipse 55% 45% at 18% 30%, rgba(20, 184, 166, 0.38), transparent 62%),
+    radial-gradient(ellipse 50% 40% at 82% 22%, rgba(34, 211, 238, 0.28), transparent 58%),
+    radial-gradient(ellipse 60% 50% at 55% 70%, rgba(163, 230, 53, 0.12), transparent 65%),
+    radial-gradient(ellipse 40% 35% at 70% 55%, rgba(251, 191, 36, 0.1), transparent 60%);
+  filter: blur(8px);
+}
+
+.omicsbase-aurora-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at 50% 42%,
+    transparent 0%,
+    rgba(250, 250, 250, 0.12) 55%,
+    rgb(250, 250, 250) 100%
+  );
+}
+
+html.dark .omicsbase-aurora-vignette {
+  background: radial-gradient(
+    ellipse at 50% 42%,
+    transparent 0%,
+    rgba(5, 8, 12, 0.35) 55%,
+    rgb(5, 8, 12) 100%
+  );
+}
+
+@keyframes omicsbase-aurora-drift {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1.02);
+  }
+  to {
+    transform: translate3d(2%, 2%, 0) scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .omicsbase-aurora-glow {
+    animation: none;
+  }
+}
+
+html:not(.dark) .bg-presentation {
+  background-color: rgb(250 250 250);
+}
+
+html.dark .bg-presentation {
+  background-color: rgb(5 8 12);
 }

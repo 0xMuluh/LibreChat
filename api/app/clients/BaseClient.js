@@ -8,6 +8,7 @@ const {
   buildMessageFiles,
   sanitizeFileForTransmit,
   extractFileContext,
+  isWorkspaceDataFileAttachment,
   getReferencedQuotes,
   applyTurnDelivery,
   encodeAndFormatAudios,
@@ -1851,6 +1852,15 @@ class BaseClient {
           file.metadata?.codeEnvRefs != null ||
           file.metadata?.fileIdentifier != null)
       ) {
+        allFiles.push(file);
+        continue;
+      }
+
+      /** Scientific data files are bridged to the NoteCell workspace. Keep
+       * the original file reference for that workspace, but do not serialize
+       * it as provider document input (which many models reject, sometimes
+       * reporting the file as an unsupported PDF). */
+      if (isWorkspaceDataFileAttachment(file)) {
         allFiles.push(file);
         continue;
       }

@@ -1,5 +1,5 @@
 const cookies = require('cookie');
-const { isEnabled, math, clearCloudFrontCookies } = require('@librechat/api');
+const { isEnabled, math, clearCloudFrontCookies, revokeWorkspaceSessions } = require('@librechat/api');
 const { logger, DEFAULT_REFRESH_TOKEN_EXPIRY } = require('@librechat/data-schemas');
 const { logoutUser } = require('~/server/services/AuthService');
 const { deleteAllRefreshTokenBridges } = require('~/server/services/RefreshTokenBridge');
@@ -45,6 +45,11 @@ const logoutController = async (req, res) => {
     : [refreshToken];
 
   try {
+    try {
+      await revokeWorkspaceSessions(req.user?.id ?? req.user?._id?.toString?.() ?? '');
+    } catch (err) {
+      logger.warn('[logoutController] Workspace session revocation failed:', err);
+    }
     if (isOpenIdUser) {
       const userId = req.user?.id ?? req.user?._id?.toString?.();
       const refreshIdentity = {
@@ -84,6 +89,10 @@ const logoutController = async (req, res) => {
     const { status, message } = logout;
 
     res.clearCookie('refreshToken');
+    res.clearCookie('omicsbase_openhands', { path: '/' });
+    for (const name of Object.keys(parsedCookies)) {
+      if (name.startsWith('omicsbase_project_')) res.clearCookie(name, { path: '/' });
+    }
     res.clearCookie('openid_access_token');
     res.clearCookie('openid_id_token');
     res.clearCookie('openid_user_id');

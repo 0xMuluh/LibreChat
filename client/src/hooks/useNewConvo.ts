@@ -365,7 +365,7 @@ const useNewConvo = (index = 0) => {
 
       let conversation = {
         conversationId: Constants.NEW_CONVO as string,
-        title: 'New Chat',
+        title: 'New Note',
         endpoint: null,
         ...template,
         createdAt: '',

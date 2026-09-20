@@ -782,6 +782,39 @@ describe('MCPManager', () => {
       );
     });
 
+    it.each([
+      ['notethreads', 'execute_r_cell', 'current-chat'],
+      ['another-server', 'execute_r_cell', 'model-supplied'],
+      ['notethreads', 'another-tool', 'model-supplied'],
+    ])(
+      'binds only NoteThreads R execution to its chat: %s/%s',
+      async (name, toolName, expectedThread) => {
+        const manager = new MCPManager();
+        const connection = createConnection();
+        jest.spyOn(manager, 'getConnection').mockResolvedValue(connection);
+        await manager.callTool({
+          user: mockUser,
+          serverName: name,
+          serverConfig,
+          toolName,
+          toolArguments: { code: 'print(42)', thread_id: 'model-supplied' },
+          requestBody: { conversationId: 'current-chat' },
+          provider: 'openai',
+          flowManager: mockFlowManager,
+        });
+        expect(connection.client.request).toHaveBeenCalledWith(
+          expect.objectContaining({
+            params: {
+              name: toolName,
+              arguments: { code: 'print(42)', thread_id: expectedThread },
+            },
+          }),
+          expect.anything(),
+          expect.anything(),
+        );
+      },
+    );
+
     it('updates activity when a cached connection is replaced during an in-flight call', async () => {
       const manager = new MCPManager();
       const activeConnection = createConnection();

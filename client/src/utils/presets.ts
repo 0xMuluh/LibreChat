@@ -29,7 +29,12 @@ export const getPresetTitle = (preset: TPreset, mention?: boolean) => {
   ) {
     title = label + ': ';
     label = '';
-  } else if (presetTitle != null && presetTitle && presetTitle.trim() !== 'New Chat') {
+  } else if (
+    presetTitle != null &&
+    presetTitle &&
+    presetTitle.trim() !== 'New Chat' &&
+    presetTitle.trim() !== 'New Note'
+  ) {
     title = presetTitle + ': ';
   }
 

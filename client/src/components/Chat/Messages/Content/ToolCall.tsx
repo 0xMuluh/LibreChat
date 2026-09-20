@@ -19,6 +19,7 @@ import { useToolCallIntent } from './Parts/intent';
 import { AttachmentGroup } from './Parts';
 import ToolCallInfo from './ToolCallInfo';
 import ProgressText from './ProgressText';
+import { useNoteTool } from '~/components/Notes/ToolCall';
 import { TOOL_ROW_CLASSES } from './rows';
 import { ToolAuthWarning } from './auth';
 import store from '~/store';
@@ -265,6 +266,11 @@ export default function ToolCall({
     }
     return localize('com_assistants_completed_function', { 0: displayFunctionName });
   };
+
+  const noteTool = useNoteTool({ function_name, name, _args, output, phase, toolCallId });
+  if (noteTool) {
+    return noteTool;
+  }
 
   if (!isLast && (!function_name || function_name.length === 0) && !output) {
     return null;

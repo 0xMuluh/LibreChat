@@ -49,7 +49,7 @@ import { useGetStartupConfig } from '~/data-provider';
 import { mainTextareaId, BadgeItem } from '~/common';
 import PendingSteerChips from './PendingSteerChips';
 import PendingQuoteChips from './PendingQuoteChips';
-import AttachFileChat from './Files/AttachFileChat';
+import ComposerPlusMenu from './ComposerPlusMenu';
 import CodeWorkspaceMenu from './CodeWorkspaceMenu';
 import useSteering from '~/hooks/Chat/useSteering';
 import CodeApprovalMenu from './CodeApprovalMenu';
@@ -591,7 +591,7 @@ const ChatForm = memo(function ChatForm({
   const baseClasses = useMemo(
     () =>
       cn(
-        'md:py-3.5 m-0 w-full resize-none py-[13px] placeholder:text-text-tertiary bg-transparent [&:has(textarea:focus)]:shadow-[0_2px_6px_rgba(0,0,0,.05)]',
+        'md:py-3.5 m-0 w-full resize-none py-[13px] text-[17px] leading-6 placeholder:text-text-tertiary bg-transparent [&:has(textarea:focus)]:shadow-[0_2px_6px_rgba(0,0,0,.05)]',
         isCollapsed ? 'max-h-[52px]' : 'max-h-[45vh] md:max-h-[55vh]',
         isMoreThanThreeRows ? 'pl-5' : 'px-5',
       ),
@@ -843,12 +843,13 @@ const ChatForm = memo(function ChatForm({
                 )}
               >
                 <div className="shrink-0">
-                  <AttachFileChat
+                  <ComposerPlusMenu
                     conversation={conversation}
                     disableInputs={disableInputs}
                     files={files}
                     setFiles={setFiles}
                     setFilesLoading={setFilesLoading}
+                    methods={methods}
                   />
                 </div>
                 <BadgeRow

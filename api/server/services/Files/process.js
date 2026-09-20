@@ -518,6 +518,7 @@ const processImageFile = async ({ req, res, metadata, returnFile = false, sseStr
     filepath,
     ...storageMetadata,
     filename: file.originalname,
+    conversationId: metadata?.conversationId || req.body?.conversationId || undefined,
     context: FileContext.message_attachment,
     source,
     type: `image/${appConfig.imageOutputType}`,
@@ -545,6 +546,17 @@ const processImageFile = async ({ req, res, metadata, returnFile = false, sseStr
   }
 
   const result = await db.createFile(fileInfo, true);
+
+  const convoId = metadata?.conversationId || req.body?.conversationId;
+  if (convoId && convoId !== 'new') {
+    try {
+      const { bridgeFileToThread } = require('~/server/services/NoteCells/noteDataBridge');
+      await bridgeFileToThread({ conversationId: convoId, userId: req.user.id, file: result });
+    } catch (bridgeErr) {
+      logger.warn('[processFileUpload] Note data bridge warning:', bridgeErr.message);
+    }
+  }
+
   sendUploadSuccess(res, sseStream, 'File uploaded and processed successfully', result);
 };
 
@@ -785,6 +797,7 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
   const { agent_id, tool_resource, file_id, temp_file_id = null } = metadata;
 
   let messageAttachment = isMessageFileUpload(metadata.message_file);
+  const isRdsAttachment = messageAttachment && /\.rds$/i.test(file.originalname);
 
   let effectiveToolResource;
 
@@ -919,7 +932,7 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
       throw new Error('File search is not enabled for Agents');
     }
     // Note: File search processing continues to dual storage logic below
-  } else if (effectiveToolResource === EToolResources.context) {
+  } else if (effectiveToolResource === EToolResources.context && !isRdsAttachment) {
     const { file_id, temp_file_id = null } = metadata;
     const getExtractionLogDetails = (error) =>
       getFileExtractionLogDetails({
@@ -1020,6 +1033,15 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
         });
       }
       const result = await db.createFile(fileInfo, true);
+      const convoId = metadata?.conversationId || req.body?.conversationId;
+      if (convoId && convoId !== 'new') {
+        try {
+          const { bridgeFileToThread } = require('~/server/services/NoteCells/noteDataBridge');
+          await bridgeFileToThread({ conversationId: convoId, userId: req.user.id, file: result });
+        } catch (bridgeErr) {
+          logger.warn('[processAgentFileUpload] Note data bridge warning:', bridgeErr.message);
+        }
+      }
       sendUploadSuccess(res, sseStream, 'Agent file uploaded and processed successfully', result);
     };
 
@@ -1344,6 +1366,7 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
       filepath,
       ...storageMetadata,
       filename: filename ?? sanitizeFilename(file.originalname),
+      conversationId: metadata?.conversationId || req.body?.conversationId || undefined,
       context: messageAttachment ? FileContext.message_attachment : FileContext.agents,
       model: messageAttachment ? undefined : req.body.model,
       metadata: {
@@ -1367,6 +1390,15 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
   };
 
   const result = await db.createFile(fileInfo, true);
+  const convoId = metadata?.conversationId || req.body?.conversationId;
+  if (convoId && convoId !== 'new') {
+    try {
+      const { bridgeFileToThread } = require('~/server/services/NoteCells/noteDataBridge');
+      await bridgeFileToThread({ conversationId: convoId, userId: req.user.id, file: result });
+    } catch (bridgeErr) {
+      logger.warn('[processAgentFileUpload] Note data bridge warning:', bridgeErr.message);
+    }
+  }
 
   sendUploadSuccess(res, sseStream, 'Agent file uploaded and processed successfully', result);
 };
