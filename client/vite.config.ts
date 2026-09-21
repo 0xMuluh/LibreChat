@@ -151,11 +151,12 @@ export default defineConfig(({ command }) => ({
       },
       includeAssets: [],
       manifest: {
-        name: 'LibreChat',
-        short_name: 'LibreChat',
+        name: 'OmicsBase',
+        short_name: 'OmicsBase',
+        description: 'OmicsBase - High-throughput multi-omics analysis platform',
         display: 'standalone',
-        background_color: '#000000',
-        theme_color: '#1c5757',
+        background_color: '#171717',
+        theme_color: '#171717',
         icons: [
           {
             src: 'assets/favicon-32x32.png',
