@@ -2,6 +2,7 @@ import { cn } from '~/utils';
 import { statusTone, statusIcon, statusLabel } from './status';
 import { Terminal, Table as TableIcon, Image as ImageIcon, Download, XCircle } from 'lucide-react';
 import { TooltipAnchor } from '@librechat/client';
+import MarkdownLite from '~/components/Chat/Messages/Content/MarkdownLite';
 import type { useRCell } from './useRCell';
 
 type OutputProps = Pick<
@@ -89,8 +90,8 @@ export function Output({
                       />
                     )}
                   </div>
-                  <div className="prose prose-sm dark:prose-invert max-w-none overflow-x-auto text-xs">
-                    <pre className="font-mono text-xs">{tbl.markdown}</pre>
+                  <div className="markdown prose prose-sm dark:prose-invert max-w-none overflow-x-auto text-xs">
+                    <MarkdownLite content={tbl.markdown} codeExecution={false} />
                   </div>
                 </div>
               ))}
