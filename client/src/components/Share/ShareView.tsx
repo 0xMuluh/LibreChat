@@ -194,7 +194,7 @@ function SharedView() {
           onContinue={handleContinue}
           isContinuing={forkShare.isLoading}
         />
-        <ShareMessagesProvider messages={data.messages}>
+        <ShareMessagesProvider messages={data.messages} conversationId={shareId || data.conversationId}>
           <MessagesView messagesTree={messagesTree} conversationId={SHARED_CONVO_KEY} />
         </ShareMessagesProvider>
       </>

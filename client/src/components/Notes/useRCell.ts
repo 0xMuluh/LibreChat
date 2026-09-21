@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import { useToastContext } from '@librechat/client';
+import { useShareContext } from '~/Providers';
 import {
   noteCellsApi,
   TERMINAL_STATUSES,
@@ -26,6 +27,7 @@ export function useRCell(
   messageId: string | undefined,
 ) {
   const { showToast } = useToastContext();
+  const { isSharedConvo } = useShareContext();
 
   const metaFromOutput = useMemo(() => parseCellMeta(initialOutput), [initialOutput]);
   // Never derive blockKey from code content — streaming code would create new cells every chunk.
@@ -144,6 +146,56 @@ export function useRCell(
   useEffect(() => {
     let cancelled = false;
     async function boot() {
+      if (isSharedConvo) {
+        setIsBootstrapping(false);
+        const resolvedCellId = cellIdProp || metaFromOutput.cellId || cellId;
+        const resolvedExecId = executionIdProp || metaFromOutput.executionId;
+        if (resolvedCellId) {
+          setCellId(resolvedCellId);
+        }
+        if (resolvedExecId && resolvedCellId && conversationId) {
+          try {
+            const full = await noteCellsApi.getExecution(
+              conversationId,
+              resolvedCellId,
+              resolvedExecId,
+            );
+            if (!cancelled) {
+              setExecution(full);
+              setHistory([full]);
+              await loadArtifacts(full);
+            }
+          } catch {
+            if (!cancelled && initialOutput) {
+              const fallback: NoteCellExecution = {
+                id: resolvedExecId,
+                cellId: resolvedCellId,
+                revisionId: '',
+                attempt: 1,
+                timeoutSeconds: 180,
+                status: metaFromOutput.status || 'completed',
+                markdown: initialOutput.replace(/<!--.*?-->/g, '').trim(),
+              };
+              setExecution(fallback);
+              await loadArtifacts(fallback);
+            }
+          }
+        } else if (initialOutput) {
+          const fallback: NoteCellExecution = {
+            id: resolvedExecId || 'shared',
+            cellId: resolvedCellId || 'shared',
+            revisionId: '',
+            attempt: 1,
+            timeoutSeconds: 180,
+            status: metaFromOutput.status || 'completed',
+            markdown: initialOutput.replace(/<!--.*?-->/g, '').trim(),
+          };
+          setExecution(fallback);
+          await loadArtifacts(fallback);
+        }
+        return;
+      }
+
       wasLive.current ||= isParentRunning;
       if (
         isAgentGenerated &&

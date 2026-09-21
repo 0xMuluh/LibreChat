@@ -7,6 +7,8 @@ const { createImportBatchBuilder } = require('./importBatchBuilder');
 const { getAppConfig } = require('~/server/services/Config');
 const { resolveImportDefaultEndpoint } = require('./defaults');
 const BaseClient = require('~/app/clients/BaseClient');
+const mongoose = require('mongoose');
+const { cloneNoteConversation } = require('~/server/services/NoteCells/cloneNoteConversation');
 
 /**
  * Helper function to clone messages with proper parent-child relationships and timestamps
@@ -106,7 +108,7 @@ async function forkConversation({
       messagesToClone = getMessagesUpToTargetLevel(originalMessages, targetMessageId);
     }
 
-    cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder, {
+    const idMapping = cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder, {
       /** A human continuation is an ordinary conversation snapshot, not another
        * durable child executor. Preserve visible history while dropping the
        * task protocol and private serialized model transcript. */
@@ -124,6 +126,17 @@ async function forkConversation({
         newTitle || originalConvo.title
       }" forked from conversation ID ${originalConvoId}`,
     );
+
+    try {
+      await cloneNoteConversation({
+        sourceConversationId: originalConvoId,
+        targetConversationId: result.conversation.conversationId,
+        targetUserId: requestUserId,
+        messageIdMap: idMapping,
+      });
+    } catch (err) {
+      logger.warn('[forkConversation] Error cloning note data:', err);
+    }
 
     if (!records) {
       return result;
@@ -450,7 +463,7 @@ async function forkSharedConversation({
           );
     importBatchBuilder.startConversation(endpoint);
 
-    cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder);
+    const idMapping = cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder);
 
     const result = importBatchBuilder.finishConversation(share.title, new Date(), {}, model);
     await importBatchBuilder.saveBatch();
@@ -459,6 +472,23 @@ async function forkSharedConversation({
       shareId,
       conversationId: result.conversation.conversationId,
     });
+
+    try {
+      const SharedLink = mongoose.models.SharedLink;
+      if (SharedLink) {
+        const sharedLink = await SharedLink.findOne({ shareId }).select('conversationId').lean();
+        if (sharedLink?.conversationId) {
+          await cloneNoteConversation({
+            sourceConversationId: sharedLink.conversationId,
+            targetConversationId: result.conversation.conversationId,
+            targetUserId: requestUserId,
+            messageIdMap: idMapping,
+          });
+        }
+      }
+    } catch (err) {
+      logger.warn('[forkSharedConversation] Error cloning note data:', err);
+    }
 
     const conversation = await getConvo(requestUserId, result.conversation.conversationId);
     const messages = await getMessages({
@@ -513,7 +543,7 @@ async function duplicateConversation({
       : builderFactory(userId, undefined, filters, legacyPii);
   importBatchBuilder.startConversation(originalConvo.endpoint ?? EModelEndpoint.openAI);
 
-  cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder);
+  const idMapping = cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder);
 
   const duplicateTitle = title || originalConvo.title;
   const result = importBatchBuilder.finishConversation(duplicateTitle, new Date(), originalConvo);
@@ -524,6 +554,17 @@ async function duplicateConversation({
     conversationId: result.conversation.conversationId,
     hasTitleOverride: typeof title === 'string' && title.length > 0,
   });
+
+  try {
+    await cloneNoteConversation({
+      sourceConversationId: conversationId,
+      targetConversationId: result.conversation.conversationId,
+      targetUserId: userId,
+      messageIdMap: idMapping,
+    });
+  } catch (err) {
+    logger.warn('[duplicateConversation] Error cloning note data:', err);
+  }
 
   const conversation = await getConvo(userId, result.conversation.conversationId);
   const messages = await getMessages({

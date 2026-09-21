@@ -11,6 +11,9 @@ export interface NoteModels {
 export interface NoteDependencies {
   models: NoteModels;
   getConversationModel: () => Model<{ conversationId: string; user: string }> | undefined;
+  getSharedLinkModel?: () =>
+    | Model<{ conversationId: string; user: string; shareId: string; expiredAt?: Date }>
+    | undefined;
   bridgeConversationFiles: (conversationId: string, userId: string) => Promise<void>;
   executeOnEngine: (input: {
     code: string;

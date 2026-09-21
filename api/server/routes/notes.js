@@ -1,5 +1,6 @@
 const express = require('express');
 const requireJwtAuth = require('~/server/middleware/requireJwtAuth');
+const optionalJwtAuth = require('~/server/middleware/optionalJwtAuth');
 const noteCells = require('~/server/services/NoteCells/service');
 
 const { bridgeConversationFiles } = require('~/server/services/NoteCells/noteDataBridge');
@@ -109,22 +110,31 @@ router.post(
 );
 
 const authed = express.Router({ mergeParams: true });
-authed.use(requireJwtAuth);
+authed.use(optionalJwtAuth);
 
 authed.use(
   asyncHandler(async (req, res, next) => {
     const userId = getUserId(req);
-    if (!userId) {
+    const conversationId = req.params.conversationId;
+    const isReadOnly = req.method === 'GET' || req.method === 'HEAD';
+
+    if (!isReadOnly && !userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    const conversationId = req.params.conversationId;
+
     try {
-      await noteCells.assertConversationAccess(conversationId, userId);
+      const access = await noteCells.assertConversationAccess(conversationId, userId, {
+        readOnly: isReadOnly,
+      });
+      req.noteUserId = access.userId;
+      req.noteConversationId = access.conversationId;
+      return next();
     } catch (err) {
       if (
         err.status === 404 &&
         req.method === 'POST' &&
-        (req.path === '/cells' || req.path.endsWith('/cells'))
+        (req.path === '/cells' || req.path.endsWith('/cells')) &&
+        userId
       ) {
         req.noteUserId = userId;
         req.noteConversationId = conversationId;
@@ -132,9 +142,6 @@ authed.use(
       }
       return sendError(res, err);
     }
-    req.noteUserId = userId;
-    req.noteConversationId = conversationId;
-    return next();
   }),
 );
 
@@ -145,7 +152,7 @@ authed.get(
     for (const cell of cells) {
       if (cell.latestExecution) {
         withArtifactUrls(
-          req.noteConversationId,
+          req.params.conversationId,
           cell.id,
           cell.latestExecution.id,
           cell.latestExecution,
@@ -178,7 +185,7 @@ authed.get(
     const cell = await noteCells.getCell(req.noteConversationId, req.noteUserId, req.params.cellId);
     if (cell.latestExecution) {
       withArtifactUrls(
-        req.noteConversationId,
+        req.params.conversationId,
         cell.id,
         cell.latestExecution.id,
         cell.latestExecution,
@@ -250,7 +257,7 @@ authed.get(
       req.params.cellId,
       req.params.executionId,
     );
-    withArtifactUrls(req.noteConversationId, req.params.cellId, req.params.executionId, execution);
+    withArtifactUrls(req.params.conversationId, req.params.cellId, req.params.executionId, execution);
     res.json(execution);
   }),
 );

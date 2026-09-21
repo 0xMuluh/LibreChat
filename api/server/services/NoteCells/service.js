@@ -7,6 +7,7 @@ const { bridgeConversationFiles } = require('./noteDataBridge');
 module.exports = createNoteService({
   models,
   getConversationModel: () => mongoose.models.Conversation,
+  getSharedLinkModel: () => mongoose.models.SharedLink,
   executeOnEngine,
   fetchArtifactFromEngine,
   signalCancel,

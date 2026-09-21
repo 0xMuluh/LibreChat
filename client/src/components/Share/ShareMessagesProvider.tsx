@@ -5,6 +5,7 @@ import { MessagesViewContext } from '~/Providers/MessagesViewContext';
 
 interface ShareMessagesProviderProps {
   messages: TMessage[];
+  conversationId?: string;
   children: React.ReactNode;
 }
 
@@ -12,15 +13,16 @@ interface ShareMessagesProviderProps {
  * Minimal MessagesViewContext provider for share view.
  * Provides conversation data needed by message components.
  * Uses the same MessagesViewContext as the main app for compatibility with existing hooks.
- *
- * Note: conversationId is set to undefined because share view is read-only and doesn't
- * need to check Recoil state for in-flight messages during streaming.
  */
-export function ShareMessagesProvider({ messages, children }: ShareMessagesProviderProps) {
+export function ShareMessagesProvider({
+  messages,
+  conversationId,
+  children,
+}: ShareMessagesProviderProps) {
   const contextValue = useMemo<MessagesViewContextValue>(
     () => ({
       conversation: null,
-      conversationId: undefined,
+      conversationId: conversationId || undefined,
       // These are required by the context but not used in share view
       ask: () => {},
       regenerate: () => {},

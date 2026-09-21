@@ -17,7 +17,7 @@ import Icon from './MessageIcon';
 
 export default function Message(props: TMessageProps) {
   const localize = useLocalize();
-  const { hasConfiguredSender } = useShareContext();
+  const { hasConfiguredSender, shareId } = useShareContext();
   const {
     message,
     siblingIdx,
@@ -85,7 +85,7 @@ export default function Message(props: TMessageProps) {
               value={{
                 messageId,
                 isExpanded: false,
-                conversationId: conversation?.conversationId,
+                conversationId: conversation?.conversationId ?? shareId ?? undefined,
                 isSubmitting: false,
                 isLatestMessage: false,
               }}

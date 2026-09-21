@@ -73,3 +73,78 @@ test('only the note execution tool receives the host conversation binding', () =
   expect(service.verifyInternalSecret('test-secret')).toBe(true);
   expect(service.verifyInternalSecret('wrong')).toBe(false);
 });
+
+test('assertConversationAccess handles owner and read-only shared link resolution', async () => {
+  const fakeConvoModel = {
+    findOne: jest.fn(({ conversationId, user }) => ({
+      select: () => ({
+        lean: async () => {
+          if (conversationId === 'convo1' && user === 'alice') {
+            return { _id: 'c1', user: 'alice' };
+          }
+          return null;
+        },
+      }),
+    })),
+  } as any;
+
+  const fakeSharedLinkModel = {
+    findOne: jest.fn((query) => ({
+      select: () => ({
+        lean: async () => {
+          const matches = query.$or?.some(
+            (c: any) =>
+              c.shareId === 'share123' ||
+              c.conversationId === 'share123' ||
+              c.conversationId === 'convo1',
+          );
+          if (matches) {
+            return { conversationId: 'convo1', user: 'alice', shareId: 'share123' };
+          }
+          return null;
+        },
+      }),
+    })),
+  } as any;
+
+  const authService = createNoteService({
+    models,
+    getConversationModel: () => fakeConvoModel,
+    getSharedLinkModel: () => fakeSharedLinkModel,
+    bridgeConversationFiles: bridge,
+    executeOnEngine: execute,
+    fetchArtifactFromEngine: artifact,
+    signalCancel: cancel,
+    internalSecret: 'test-secret',
+  });
+
+  // 1. Owner can access (read or write)
+  const ownerAccess = await authService.assertConversationAccess('convo1', 'alice');
+  expect(ownerAccess).toEqual({ conversationId: 'convo1', userId: 'alice' });
+
+  // 2. Non-owner without readOnly cannot access (e.g. mutation)
+  await expect(
+    authService.assertConversationAccess('convo1', 'bob', { readOnly: false }),
+  ).rejects.toMatchObject({
+    status: 404,
+  });
+
+  // 3. Non-owner with readOnly can access via active SharedLink
+  const sharedAccess = await authService.assertConversationAccess('share123', 'bob', {
+    readOnly: true,
+  });
+  expect(sharedAccess).toEqual({ conversationId: 'convo1', userId: 'alice', isShared: true });
+
+  // 4. Unauthenticated viewer with readOnly can access via active SharedLink
+  const anonAccess = await authService.assertConversationAccess('share123', undefined, {
+    readOnly: true,
+  });
+  expect(anonAccess).toEqual({ conversationId: 'convo1', userId: 'alice', isShared: true });
+
+  // 5. Invalid shareId rejected
+  await expect(
+    authService.assertConversationAccess('badshare', undefined, { readOnly: true }),
+  ).rejects.toMatchObject({
+    status: 404,
+  });
+});

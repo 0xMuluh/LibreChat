@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { TooltipAnchor } from '@librechat/client';
-import { useMessageContext } from '~/Providers';
+import { useMessageContext, useShareContext } from '~/Providers';
 import { cn } from '~/utils';
 import useLazyHighlight from '~/components/Chat/Messages/Content/Parts/useLazyHighlight';
 import { useRCell } from './useRCell';
@@ -30,6 +30,7 @@ import type { RCellBlockProps } from './types';
 
 export default function RCell(props: RCellBlockProps) {
   const { conversationId, messageId } = useMessageContext();
+  const { isSharedConvo } = useShareContext();
   const { isAgentGenerated, isParentRunning } = props;
   const {
     handleSelectHistory,
@@ -60,6 +61,7 @@ export default function RCell(props: RCellBlockProps) {
   const highlighted = useLazyHighlight(code || '# (Preparing R cell...)', 'r');
 
   const runDisabled =
+    !!isSharedConvo ||
     !cellId ||
     isDirty ||
     isActive ||
@@ -164,23 +166,25 @@ export default function RCell(props: RCellBlockProps) {
         </div>
 
         <div className="flex items-center gap-1">
-          <TooltipAnchor
-            description={isEditing ? 'View rendered code' : 'Edit code'}
-            side="top"
-            render={
-              <button
-                type="button"
-                onClick={() => setIsEditing((prev) => !prev)}
-                className={cn(
-                  'inline-flex size-7 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary',
-                  isEditing && 'bg-surface-hover text-text-primary',
-                )}
-                aria-label={isEditing ? 'Preview code' : 'Edit code'}
-              >
-                {isEditing ? <Eye className="size-4" /> : <Pencil className="size-4" />}
-              </button>
-            }
-          />
+          {!isSharedConvo && (
+            <TooltipAnchor
+              description={isEditing ? 'View rendered code' : 'Edit code'}
+              side="top"
+              render={
+                <button
+                  type="button"
+                  onClick={() => setIsEditing((prev) => !prev)}
+                  className={cn(
+                    'inline-flex size-7 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary',
+                    isEditing && 'bg-surface-hover text-text-primary',
+                  )}
+                  aria-label={isEditing ? 'Preview code' : 'Edit code'}
+                >
+                  {isEditing ? <Eye className="size-4" /> : <Pencil className="size-4" />}
+                </button>
+              }
+            />
+          )}
 
           <TooltipAnchor
             description={isCopied ? 'Copied!' : 'Copy R code'}
@@ -248,52 +252,54 @@ export default function RCell(props: RCellBlockProps) {
             />
           )}
 
-          {isActive ? (
-            <TooltipAnchor
-              description="Cancel active execution"
-              side="top"
-              render={
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  className="inline-flex size-7 items-center justify-center rounded-md bg-slate-600 text-white shadow-sm transition-all hover:bg-slate-700 active:scale-95"
-                  aria-label="Cancel execution"
-                >
-                  <Square className="size-3.5 fill-current" />
-                </button>
-              }
-            />
-          ) : (
-            <TooltipAnchor
-              description={
-                runDisabled
-                  ? isDirty
-                    ? 'Save changes before running'
-                    : !cellId
-                      ? 'Cell binding in progress'
-                      : !code.trim()
-                        ? 'Enter code to run'
-                        : 'Cannot run'
-                  : 'Run code in NoteKernel'
-              }
-              side="top"
-              render={
-                <button
-                  type="button"
-                  onClick={handleRun}
-                  disabled={runDisabled}
-                  className={cn(
-                    'inline-flex size-7 items-center justify-center rounded-md transition-all',
-                    runDisabled
-                      ? 'cursor-not-allowed bg-emerald-600/30 text-white/50'
-                      : 'bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 active:scale-95',
-                  )}
-                  aria-label="Run code in NoteKernel"
-                >
-                  <Play className="size-3.5 fill-current" />
-                </button>
-              }
-            />
+          {!isSharedConvo && (
+            isActive ? (
+              <TooltipAnchor
+                description="Cancel active execution"
+                side="top"
+                render={
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    className="inline-flex size-7 items-center justify-center rounded-md bg-slate-600 text-white shadow-sm transition-all hover:bg-slate-700 active:scale-95"
+                    aria-label="Cancel execution"
+                  >
+                    <Square className="size-3.5 fill-current" />
+                  </button>
+                }
+              />
+            ) : (
+              <TooltipAnchor
+                description={
+                  runDisabled
+                    ? isDirty
+                      ? 'Save changes before running'
+                      : !cellId
+                        ? 'Cell binding in progress'
+                        : !code.trim()
+                          ? 'Enter code to run'
+                          : 'Cannot run'
+                    : 'Run code in NoteKernel'
+                }
+                side="top"
+                render={
+                  <button
+                    type="button"
+                    onClick={handleRun}
+                    disabled={runDisabled}
+                    className={cn(
+                      'inline-flex size-7 items-center justify-center rounded-md transition-all',
+                      runDisabled
+                        ? 'cursor-not-allowed bg-emerald-600/30 text-white/50'
+                        : 'bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 active:scale-95',
+                    )}
+                    aria-label="Run code in NoteKernel"
+                  >
+                    <Play className="size-3.5 fill-current" />
+                  </button>
+                }
+              />
+            )
           )}
         </div>
       </div>

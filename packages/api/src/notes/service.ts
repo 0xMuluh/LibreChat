@@ -14,8 +14,11 @@ export type NoteService = ReturnType<typeof createCellStore> &
   ReturnType<typeof createEventStore> &
   ReturnType<typeof createExecutionWorker> & {
     agentLifecycle: ReturnType<typeof createNoteAgentLifecycle>;
-    TERMINAL: typeof TERMINAL;
-    assertConversationAccess(conversationId: string, userId: string): Promise<boolean>;
+    assertConversationAccess(
+      conversationId: string,
+      userId?: string,
+      options?: { readOnly?: boolean },
+    ): Promise<{ conversationId: string; userId: string; isShared?: boolean }>;
     executeSyncForAgent(input: {
       conversationId: string;
       userId: string;
@@ -44,17 +47,54 @@ export function createNoteService(deps: NoteDependencies): NoteService {
   const worker = createExecutionWorker(deps, events.appendEvent);
   const executions = createExecutionStore(deps, events.appendEvent, worker.enqueueExecution);
   const { findOrCreateCell } = cells;
-  const { executeCell, getExecution } = executions;
-  async function assertConversationAccess(conversationId: string, userId: string) {
-    const Conversation = deps.getConversationModel();
-    if (!Conversation) {
-      return true;
+  async function assertConversationAccess(
+    conversationId: string,
+    userId?: string,
+    options?: { readOnly?: boolean },
+  ): Promise<{ conversationId: string; userId: string; isShared?: boolean }> {
+    const Conversation = deps.getConversationModel?.();
+    if (Conversation && userId) {
+      const convo = await Conversation.findOne({ conversationId, user: userId })
+        .select('_id user')
+        .lean();
+      if (convo) {
+        return { conversationId, userId: String(convo.user || userId) };
+      }
     }
-    const convo = await Conversation.findOne({ conversationId, user: userId }).select('_id').lean();
-    if (!convo) {
-      throw new NoteError('Conversation not found', 404);
+
+    if (options?.readOnly) {
+      const SharedLink = deps.getSharedLinkModel?.();
+      if (SharedLink) {
+        const now = new Date();
+        const shared = await SharedLink.findOne({
+          $or: [{ shareId: conversationId }, { conversationId }],
+          $and: [
+            {
+              $or: [
+                { expiredAt: { $exists: false } },
+                { expiredAt: null },
+                { expiredAt: { $gt: now } },
+              ],
+            },
+          ],
+        })
+          .select('conversationId user')
+          .lean();
+        if (shared?.conversationId) {
+          return {
+            conversationId: String(shared.conversationId),
+            userId: String(shared.user),
+            isShared: true,
+          };
+        }
+      }
     }
-    return true;
+
+    if (!Conversation && !deps.getSharedLinkModel?.()) {
+      return { conversationId, userId: userId || 'system' };
+    }
+
+    throw new NoteError('Conversation not found', 404);
   }
 
   async function executeSyncForAgent({
