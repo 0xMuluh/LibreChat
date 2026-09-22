@@ -10,6 +10,7 @@ import { ScreenshotLimitError, useScreenshot } from '~/hooks/ScreenshotContext';
 import useBuildMessageTree from '~/hooks/Messages/useBuildMessageTree';
 import { NotificationSeverity } from '~/common';
 import { formatMessageText } from './format';
+import { synthesizeThreadToQuarto } from './formatQuarto';
 import { cleanupPreset } from '~/utils';
 import { useLocalize } from '~/hooks';
 
@@ -279,6 +280,32 @@ export default function useExportConversation({
     download(blob, `${filename}.json`, 'application/json');
   };
 
+  const exportQuarto = async () => {
+    const messages = await buildMessageTree({
+      messageId: conversation?.conversationId,
+      message: null,
+      messages: getMessageTree(),
+      branches: false,
+      recursive: false,
+    });
+
+    const messagesList = Array.isArray(messages) ? messages : [messages];
+
+    const qmdData = synthesizeThreadToQuarto({
+      messages: messagesList,
+      title: conversation?.title,
+      includeOptions: includeOptions === true,
+      pruneSuperseded: true,
+    });
+
+    exportFromJSON({
+      data: qmdData,
+      fileName: filename,
+      extension: 'qmd',
+      exportType: exportFromJSON.types.txt,
+    });
+  };
+
   const exportConversation = () => {
     if (type === 'json') {
       exportJSON();
@@ -290,6 +317,8 @@ export default function useExportConversation({
       exportCSV();
     } else if (type == 'screenshot') {
       exportScreenshot();
+    } else if (type === 'quarto') {
+      exportQuarto();
     }
   };
 

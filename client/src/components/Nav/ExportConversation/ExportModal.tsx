@@ -14,6 +14,7 @@ import { useLocalize, useExportConversation } from '~/hooks';
 import { normalizeExportFilename } from '~/utils';
 
 const TYPE_OPTIONS = [
+  { value: 'quarto', label: 'quarto (.qmd)' },
   { value: 'markdown', label: 'markdown (.md)' },
   { value: 'text', label: 'text (.txt)' },
   { value: 'json', label: 'json (.json)' },
@@ -117,7 +118,9 @@ export default function ExportModal({
               <div className="col-span-1 flex flex-col items-start justify-start gap-2">
                 <div className="grid w-full items-center gap-2">
                   <Label htmlFor="includeOptions" className="text-left text-sm font-medium">
-                    {localize('com_nav_export_include_endpoint_options')}
+                    {type === 'quarto'
+                      ? 'Include YAML frontmatter'
+                      : localize('com_nav_export_include_endpoint_options')}
                   </Label>
                   <div className="flex h-[40px] w-full items-center space-x-3">
                     <Checkbox
@@ -133,7 +136,9 @@ export default function ExportModal({
                       className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                     >
                       {exportOptionsSupport
-                        ? localize('com_nav_export_include_endpoint_options')
+                        ? type === 'quarto'
+                          ? 'Include YAML frontmatter'
+                          : localize('com_nav_export_include_endpoint_options')
                         : localize('com_nav_not_supported')}
                     </Label>
                   </div>
