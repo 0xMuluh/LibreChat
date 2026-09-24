@@ -76,6 +76,49 @@ function getCertificateContent(value) {
 }
 
 /**
+ * Retrieves the private key content from the given value (file path, PEM string, or base64).
+ * @param {string} value - The private key string or file path.
+ * @returns {string} The private key content.
+ */
+function getPrivateKeyContent(value) {
+  if (typeof value !== 'string') {
+    throw new Error('Invalid input: SAML_PRIVATE_KEY must be a string.');
+  }
+
+  // Check if file exists and is readable
+  const keyPath = path.normalize(path.isAbsolute(value) ? value : path.join(paths.root, value));
+  if (fs.existsSync(keyPath) && fs.statSync(keyPath).isFile()) {
+    try {
+      logger.info(`[samlStrategy] Loading private key from file: ${keyPath}`);
+      return fs.readFileSync(keyPath, 'utf8').trim();
+    } catch (error) {
+      throw new Error(`Error reading private key file: ${error.message}`);
+    }
+  }
+
+  // Check if it's already a PEM formatted private key
+  if (value.includes('-----BEGIN') && value.includes('PRIVATE KEY-----')) {
+    logger.info('[samlStrategy] Detected PEM formatted private key string.');
+    return value.trim();
+  }
+
+  // Check if it's a Base64-encoded string
+  if (/^[A-Za-z0-9+/=]+$/.test(value) && value.length % 4 === 0) {
+    try {
+      const decoded = Buffer.from(value, 'base64').toString('utf8');
+      if (decoded.includes('-----BEGIN') && decoded.includes('PRIVATE KEY-----')) {
+        logger.info('[samlStrategy] Decoded base64-encoded private key string.');
+        return decoded.trim();
+      }
+    } catch {
+      // Fall through
+    }
+  }
+
+  return value.trim();
+}
+
+/**
  * Retrieves a SAML claim from a profile object based on environment configuration.
  * @param {object} profile - Saml profile
  * @param {string} envVar - Environment variable name (SAML_*)
@@ -310,12 +353,20 @@ function getBaseSamlConfig() {
   if (identifierFormat === TRANSIENT_SAML_NAME_ID_FORMAT) {
     throw new Error('SAML_NAME_ID_FORMAT must provide a stable, non-transient identifier');
   }
+  const idpIssuer = process.env.SAML_IDP_ISSUER?.trim();
+  const privateKey = process.env.SAML_PRIVATE_KEY?.trim()
+    ? getPrivateKeyContent(process.env.SAML_PRIVATE_KEY.trim())
+    : undefined;
+
   return {
     entryPoint: process.env.SAML_ENTRY_POINT,
     issuer: process.env.SAML_ISSUER,
     idpCert: getCertificateContent(process.env.SAML_CERT),
     wantAssertionsSigned: process.env.SAML_USE_AUTHN_RESPONSE_SIGNED === 'true' ? false : true,
     wantAuthnResponseSigned: process.env.SAML_USE_AUTHN_RESPONSE_SIGNED === 'true' ? true : false,
+    signatureAlgorithm: process.env.SAML_SIGNATURE_ALGORITHM || 'sha256',
+    ...(privateKey ? { privateKey } : {}),
+    ...(idpIssuer ? { idpIssuer } : {}),
     ...(identifierFormat ? { identifierFormat } : {}),
   };
 }
@@ -354,4 +405,4 @@ function setupSamlAdmin(baseConfig) {
   }
 }
 
-module.exports = { setupSaml, getCertificateContent };
+module.exports = { setupSaml, getCertificateContent, getPrivateKeyContent };
