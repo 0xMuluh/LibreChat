@@ -144,11 +144,22 @@ function getUserName(profile) {
 }
 
 function getGivenName(profile) {
-  return getSamlClaim(profile, 'SAML_GIVEN_NAME_CLAIM', 'given_name');
+  return (
+    getSamlClaim(profile, 'SAML_GIVEN_NAME_CLAIM', 'given_name') ||
+    profile['givenName'] ||
+    profile['urn:oid:2.5.4.42'] ||
+    profile['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname']
+  );
 }
 
 function getFamilyName(profile) {
-  return getSamlClaim(profile, 'SAML_FAMILY_NAME_CLAIM', 'family_name');
+  return (
+    getSamlClaim(profile, 'SAML_FAMILY_NAME_CLAIM', 'family_name') ||
+    profile['sn'] ||
+    profile['surname'] ||
+    profile['urn:oid:2.5.4.4'] ||
+    profile['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname']
+  );
 }
 
 function getPicture(profile) {
@@ -175,26 +186,49 @@ const resizeIdentityProviderAvatar = async (url, userId) => {
  * @returns {string} The determined full name of the user
  */
 function getFullName(profile) {
-  if (process.env.SAML_NAME_CLAIM) {
+  if (process.env.SAML_NAME_CLAIM && profile[process.env.SAML_NAME_CLAIM]) {
     logger.debug(`[samlStrategy] Using SAML_NAME_CLAIM: ${process.env.SAML_NAME_CLAIM}`);
     return profile[process.env.SAML_NAME_CLAIM];
+  }
+
+  // Check explicit full display name claims (standard in academic SAML / Keycloak)
+  const displayName =
+    profile['displayName'] ||
+    profile['urn:oid:2.16.840.1.113730.3.1.241'] ||
+    profile['cn'] ||
+    profile['urn:oid:2.5.4.3'] ||
+    profile['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'];
+  if (displayName && typeof displayName === 'string' && displayName.trim().length > 0) {
+    return displayName.trim();
   }
 
   const givenName = getGivenName(profile);
   const familyName = getFamilyName(profile);
 
   if (givenName && familyName) {
-    return `${givenName} ${familyName}`;
+    return `${givenName} ${familyName}`.trim();
   }
 
   if (givenName) {
-    return givenName;
+    return givenName.trim();
   }
   if (familyName) {
-    return familyName;
+    return familyName.trim();
   }
 
-  return getUserName(profile) || getEmail(profile);
+  // Smart fallback: if user has a firstname.lastname@domain email, parse and format as First Last
+  const email = getEmail(profile);
+  if (email && typeof email === 'string' && email.includes('@')) {
+    const localPart = email.split('@')[0];
+    if (localPart.includes('.')) {
+      const parts = localPart.split('.').filter(Boolean);
+      if (parts.length >= 2) {
+        return parts.map((s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()).join(' ');
+      }
+    }
+  }
+
+  return getUserName(profile) || email;
 }
 
 /**
