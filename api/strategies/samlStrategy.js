@@ -399,7 +399,7 @@ function getBaseSamlConfig() {
     wantAssertionsSigned: process.env.SAML_USE_AUTHN_RESPONSE_SIGNED === 'true' ? false : true,
     wantAuthnResponseSigned: process.env.SAML_USE_AUTHN_RESPONSE_SIGNED === 'true' ? true : false,
     signatureAlgorithm: process.env.SAML_SIGNATURE_ALGORITHM || 'sha256',
-    ...(privateKey ? { privateKey } : {}),
+    ...(privateKey ? { privateKey, decryptionPvk: privateKey } : {}),
     ...(idpIssuer ? { idpIssuer } : {}),
     ...(identifierFormat ? { identifierFormat } : {}),
   };
