@@ -32,6 +32,7 @@ export default function Presentation({ children }: { children: React.ReactNode }
   const conversationId = useRecoilValue(store.conversationIdByIndex(0));
   const conversationEndpoint = useRecoilValue(store.effectiveEndpointByIndex(0));
   const conversationAgentId = useRecoilValue(store.conversationAgentIdByIndex(0));
+  const isSubmitting = useRecoilValue(store.isSubmittingFamily(0));
   const selectedSubagent = useAtomValue(activeSubagentPanel);
   const setSelectedSubagent = useSetAtom(activeSubagentPanel);
   const resetSelectedSubagent = useCallback(() => setSelectedSubagent(null), [setSelectedSubagent]);
@@ -149,6 +150,7 @@ export default function Presentation({ children }: { children: React.ReactNode }
         <ParentSubagentsProvider
           conversationId={conversationId ?? ''}
           enabled={conversationEndpoint === EModelEndpoint.agents && conversationAgentId != null}
+          isSubmitting={isSubmitting}
         >
           <SidePanelGroup panel={panelElement}>
             <main className="relative z-[1] flex h-full flex-col overflow-y-auto" role="main">
