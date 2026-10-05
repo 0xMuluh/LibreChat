@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, Sparkles } from 'lucide-react';
+import type { TEndpointsConfig, TModelSpec } from 'librechat-data-provider';
 import type { DiscoverModel } from '~/data-provider';
+import SpecDescription from '~/components/Chat/Menus/Endpoints/components/SpecDescription';
+import SpecIcon from '~/components/Chat/Menus/Endpoints/components/SpecIcon';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
@@ -10,11 +13,34 @@ type Props = {
   onSelect: (model: DiscoverModel) => void;
 };
 
-/** The model picker as signed-in users see it; the choice carries into the first note. */
+/** The spec shape the signed-in picker's icon reads. */
+const toSpec = (model: DiscoverModel) =>
+  ({
+    name: model.name,
+    label: model.label,
+    iconURL: model.iconURL ?? undefined,
+    preset: { endpoint: model.endpoint ?? undefined, model: model.model ?? undefined },
+  }) as TModelSpec;
+
+/**
+ * The model picker as signed-in users see it, with the same provider logos;
+ * the choice carries into the first note.
+ */
 export default function ModelMenu({ models, selected, onSelect }: Props) {
   const localize = useLocalize();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  /** Just enough endpoint config for the logos: provider and icon per endpoint. */
+  const endpointsConfig = useMemo(
+    () =>
+      Object.fromEntries(
+        models
+          .filter((m) => m.endpoint)
+          .map((m) => [m.endpoint, { providerId: m.providerId, iconURL: m.endpointIconURL }]),
+      ) as TEndpointsConfig,
+    [models],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -37,9 +63,12 @@ export default function ModelMenu({ models, selected, onSelect }: Props) {
     };
   }, [open]);
 
+  const trigger =
+    'my-1 flex h-9 max-w-full items-center gap-2 rounded-xl border border-border-light bg-presentation px-3 py-2 text-sm text-text-primary hover:bg-surface-active-alt';
+
   if (!models.length) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg border border-border-light px-2.5 py-1 text-sm font-medium text-text-tertiary">
+      <span className={cn(trigger, 'text-text-tertiary hover:bg-presentation')}>
         <Sparkles className="size-4" aria-hidden="true" />
         {localize('com_discover_model_unavailable')}
       </span>
@@ -47,50 +76,65 @@ export default function ModelMenu({ models, selected, onSelect }: Props) {
   }
 
   return (
-    <div className="relative" ref={rootRef}>
+    <div className="relative min-w-0 max-w-[60vw] sm:max-w-xs" ref={rootRef}>
       <button
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-label={localize('com_ui_select_model')}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-border-light px-2.5 py-1 text-sm font-medium text-text-primary hover:bg-surface-hover"
+        className={trigger}
       >
-        <Sparkles className="size-4 text-accent-primary" aria-hidden="true" />
-        {selected?.label}
-        <ChevronDown className="size-3.5 text-text-tertiary" aria-hidden="true" />
+        {selected && (
+          <span className="flex flex-shrink-0 items-center justify-center overflow-hidden">
+            <SpecIcon currentSpec={toSpec(selected)} endpointsConfig={endpointsConfig} />
+          </span>
+        )}
+        <span className="truncate text-left">{selected?.label}</span>
       </button>
       {open && (
         <div
           role="listbox"
           aria-label={localize('com_discover_models')}
-          className="absolute left-0 top-full z-20 mt-1.5 w-72 rounded-xl border border-border-light bg-surface-primary p-1 shadow-lg"
+          className="animate-popover absolute left-0 top-full z-40 mt-1 flex max-h-[min(450px,65vh)] w-max min-w-[300px] max-w-[calc(100vw-4rem)] flex-col overflow-auto rounded-xl border border-border-light bg-presentation px-3 py-2 text-sm text-text-primary shadow-lg sm:max-w-[400px]"
         >
-          {models.map((model) => (
-            <button
-              key={model.name}
-              type="button"
-              role="option"
-              aria-selected={model.name === selected?.name}
-              onClick={() => {
-                onSelect(model);
-                setOpen(false);
-              }}
-              className={cn(
-                'flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-surface-hover',
-                model.name === selected?.name && 'bg-surface-secondary',
-              )}
-            >
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="text-sm font-medium text-text-primary">{model.label}</span>
-                {model.description && (
-                  <span className="text-xs text-text-tertiary">{model.description}</span>
+          {models.map((model) => {
+            const isSelected = model.name === selected?.name;
+            return (
+              <button
+                key={model.name}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => {
+                  onSelect(model);
+                  setOpen(false);
+                }}
+                className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring-primary"
+              >
+                <span
+                  className={cn(
+                    'flex w-full min-w-0 gap-2 px-1 py-1',
+                    model.description ? 'items-start' : 'items-center',
+                  )}
+                >
+                  <span className="flex-shrink-0">
+                    <SpecIcon currentSpec={toSpec(model)} endpointsConfig={endpointsConfig} />
+                  </span>
+                  <span className="flex min-w-0 flex-col gap-1">
+                    <span className="truncate">{model.label}</span>
+                    <SpecDescription description={model.description} />
+                  </span>
+                </span>
+                {isSelected && (
+                  <CheckCircle2
+                    className="size-4 shrink-0 self-center text-text-primary"
+                    aria-hidden="true"
+                  />
                 )}
-              </span>
-              {model.name === selected?.name && (
-                <Check className="mt-0.5 size-4 flex-none text-accent-primary" aria-hidden="true" />
-              )}
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

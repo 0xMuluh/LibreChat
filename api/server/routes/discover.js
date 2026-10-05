@@ -4,9 +4,16 @@
  */
 const express = require('express');
 const { logger } = require('@librechat/data-schemas');
-const { excludeHiddenModelSpecs } = require('@librechat/api');
+const { normalizeEndpointName } = require('librechat-data-provider');
+const { excludeHiddenModelSpecs, loadCustomEndpointsConfig } = require('@librechat/api');
 const { getAppConfig } = require('~/server/services/Config/app');
-const { datasets, listExamples, getExampleCover, shuffle } = require('~/server/services/Discover');
+const {
+  datasets,
+  shuffle,
+  listExamples,
+  listStudies,
+  getExampleCover,
+} = require('~/server/services/Discover');
 
 const router = express.Router();
 
@@ -41,6 +48,18 @@ router.get('/datasets', (req, res) => {
   res.json({ items: shuffle(datasets, req.query.seed) });
 });
 
+/** Open microbiome studies from MGnify or Zenodo, one page at a time. */
+router.get('/studies', async (req, res) => {
+  try {
+    const { source, biome, q, page } = req.query;
+    res.set('Cache-Control', 'public, max-age=600');
+    res.json(await listStudies({ source, biome, q, page }));
+  } catch (error) {
+    logger.warn(`[discover] Open studies unavailable: ${error.message}`);
+    res.status(error.status === 429 ? 429 : 502).json({ message: 'Source unavailable' });
+  }
+});
+
 /** The deployment's own footer, which the public startup config leaves out. */
 router.get('/footer', (req, res) => {
   res.set('Cache-Control', 'public, max-age=3600');
@@ -49,18 +68,31 @@ router.get('/footer', (req, res) => {
   });
 });
 
-/** Model names for the picker, without any endpoint or key details. */
+/**
+ * Model names for the picker, with what the signed-in picker uses to draw the
+ * provider logo (endpoint, model, icon, provider). No keys or URLs.
+ */
 router.get('/models', async (req, res) => {
   try {
     const appConfig = await getAppConfig();
     const specs = excludeHiddenModelSpecs(appConfig?.modelSpecs)?.list ?? [];
+    const custom = loadCustomEndpointsConfig(appConfig?.endpoints?.custom) ?? {};
     res.json({
-      items: specs.map((spec) => ({
-        name: spec.name,
-        label: spec.label ?? spec.name,
-        description: spec.description ?? '',
-        default: spec.default === true,
-      })),
+      items: specs.map((spec) => {
+        const endpoint = spec.preset?.endpoint ?? null;
+        const configured = endpoint ? custom[normalizeEndpointName(endpoint)] : undefined;
+        return {
+          name: spec.name,
+          label: spec.label ?? spec.name,
+          description: spec.description ?? '',
+          default: spec.default === true,
+          endpoint,
+          model: spec.preset?.model ?? null,
+          iconURL: spec.iconURL ?? spec.preset?.iconURL ?? null,
+          endpointIconURL: configured?.iconURL ?? null,
+          providerId: configured?.providerId ?? null,
+        };
+      }),
     });
   } catch (error) {
     logger.error('[discover] Error listing models:', error);

@@ -1,6 +1,6 @@
 /* OmicsBase: public Examples, Datasets and model names (see api/server/routes/discover.js). */
-import { useQuery } from '@tanstack/react-query';
 import { request } from 'librechat-data-provider';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 
 export type DiscoverExample = {
   shareId: string;
@@ -38,6 +38,34 @@ export type DiscoverModel = {
   label: string;
   description: string;
   default: boolean;
+  endpoint: string | null;
+  model: string | null;
+  iconURL: string | null;
+  endpointIconURL: string | null;
+  providerId: string | null;
+};
+
+export type DiscoverStudySource = 'mgnify' | 'zenodo';
+
+export type DiscoverStudy = {
+  source: 'MGnify' | 'Zenodo';
+  accession: string;
+  name: string;
+  url: string;
+  /** MGnify */
+  samples?: number;
+  biome?: string;
+  /** Zenodo */
+  id?: string;
+  year?: string;
+  license?: string;
+  files?: number;
+};
+
+export type DiscoverStudiesPage = {
+  count: number;
+  hasNext: boolean;
+  results: DiscoverStudy[];
 };
 
 export type DiscoverExamplesParams = {
@@ -62,6 +90,15 @@ export const exampleShareUrl = (shareId: string) => `/share/${encodeURIComponent
 /** A starter prompt for a dataset: what a note asks first when a dataset is picked. */
 export const datasetPrompt = (dataset: DiscoverDataset) =>
   `Load ${dataset.name} from ${dataset.pkg} and give me an overview of what it contains.`;
+
+/**
+ * A starter prompt for an open study. Whole MGnify studies take longer to fetch
+ * than a cell may run, so the note starts from the metadata and a few analyses.
+ */
+export const studyPrompt = (study: DiscoverStudy) =>
+  study.source === 'Zenodo'
+    ? `Download the data files from Zenodo record ${study.id} (${study.name}), import the abundance table into a TreeSummarizedExperiment and give me an overview.`
+    : `Use MGnifyR to look up MGnify study ${study.accession} (${study.name}). Show the sample metadata first, then fetch the taxonomic profiles for a small subset of its analyses and give me an overview of the samples and their composition.`;
 
 /**
  * One random seed per browser session: the order is random on each visit and
@@ -121,5 +158,30 @@ export function useDiscoverFooter() {
     queryKey: ['discover', 'footer'],
     queryFn: () => request.get<{ customFooter: string | null }>(`${BASE}/footer`),
     staleTime: 3_600_000,
+  });
+}
+
+/** Open studies, a page of 12 at a time; `fetchNextPage` loads more. */
+export function useDiscoverStudies(params: {
+  source: DiscoverStudySource;
+  biome: string;
+  q: string;
+  enabled?: boolean;
+}) {
+  const { source, biome, q, enabled = true } = params;
+  return useInfiniteQuery<DiscoverStudiesPage>({
+    queryKey: ['discover', 'studies', source, biome, q],
+    queryFn: ({ pageParam = 1 }) => {
+      const search = new URLSearchParams({ source, biome, page: String(pageParam) });
+      if (q) {
+        search.set('q', q);
+      }
+      return request.get<DiscoverStudiesPage>(`${BASE}/studies?${search.toString()}`);
+    },
+    getNextPageParam: (last, pages) => (last.hasNext ? pages.length + 1 : undefined),
+    keepPreviousData: true,
+    staleTime: 600_000,
+    retry: false,
+    enabled,
   });
 }

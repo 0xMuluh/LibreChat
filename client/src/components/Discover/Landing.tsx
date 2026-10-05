@@ -2,13 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildLoginRedirectUrl } from 'librechat-data-provider';
 import { ArrowUp, Database, LayoutGrid, Mic, Plus, SquarePen } from 'lucide-react';
 import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import type { DiscoverDataset, DiscoverModel } from '~/data-provider';
-import {
-  datasetPrompt,
-  useDiscoverFooter,
-  useDiscoverModels,
-  useGetStartupConfig,
-} from '~/data-provider';
+import type { DiscoverModel } from '~/data-provider';
+import { useDiscoverFooter, useDiscoverModels, useGetStartupConfig } from '~/data-provider';
 import { useAuthContext, useDocumentTitle, useLocalize } from '~/hooks';
 import ExamplesGallery from './ExamplesGallery';
 import Footer from '~/components/Chat/Footer';
@@ -89,8 +84,8 @@ export default function Landing() {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const useDataset = (dataset: DiscoverDataset) => {
-    setText(datasetPrompt(dataset));
+  const applyPrompt = (prompt: string) => {
+    setText(prompt);
     goTo('top');
   };
 
@@ -238,7 +233,7 @@ export default function Landing() {
                 <h2 id="datasetsHeading" className="mb-4 font-display text-xl font-medium">
                   {localize('com_ui_datasets')}
                 </h2>
-                <DatasetsGrid field={field} query={query} onSelect={useDataset} />
+                <DatasetsGrid field={field} query={query} onPrompt={applyPrompt} />
               </section>
             </main>
           </div>

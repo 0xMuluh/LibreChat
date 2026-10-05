@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useMediaQuery } from '@librechat/client';
 import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
 import { useDocumentTitle, useLocalize } from '~/hooks';
-import { datasetPrompt } from '~/data-provider';
 import ExamplesGallery from './ExamplesGallery';
 import DatasetsGrid from './DatasetsGrid';
 import SearchBox from './SearchBox';
@@ -33,9 +32,7 @@ export default function DiscoverPage({ view }: { view: 'examples' | 'datasets' }
           ) : (
             <DatasetsGrid
               query={query}
-              onSelect={(dataset) =>
-                navigate(`/c/new?prompt=${encodeURIComponent(datasetPrompt(dataset))}`)
-              }
+              onPrompt={(prompt) => navigate(`/c/new?prompt=${encodeURIComponent(prompt)}`)}
             />
           )}
         </div>
