@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { buildLoginRedirectUrl } from 'librechat-data-provider';
+import { buildSignedOutRedirectUrl } from '~/utils/signedOutRedirect';
 import { useAuthContext } from '~/hooks';
 
 export default function useAuthRedirect() {
@@ -14,7 +14,7 @@ export default function useAuthRedirect() {
         return;
       }
 
-      navigate(buildLoginRedirectUrl(location.pathname, location.search, location.hash), {
+      navigate(buildSignedOutRedirectUrl(location.pathname, location.search, location.hash), {
         replace: true,
       });
     }, 300);

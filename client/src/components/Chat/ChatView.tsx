@@ -22,6 +22,7 @@ import { QueuedTurnPortalProvider } from './Steering/QueuedTurnPortal';
 import ApprovalProvider from './Messages/Content/ApprovalContext';
 import ConversationStarters from './Input/ConversationStarters';
 import { pendingApprovalActionFamily } from './approval/state';
+import StartStrip from '~/components/Discover/StartStrip';
 import { useGetMessagesByConvoId } from '~/data-provider';
 import Footer, { useConfiguredFooter } from './Footer';
 import { AskAnswerHostProvider } from './ask/state';
@@ -219,6 +220,9 @@ function ChatView({ index = 0, project }: { index?: number; project?: TChatProje
                               footerBelow={footerBelow}
                               centerFormOnLanding={centerFormOnLanding}
                             />
+                          )}
+                          {isLandingPage && !isProjectLandingPage && !isSubagentThreadReadOnly && (
+                            <StartStrip />
                           )}
                           {/* The generic disclaimer is the welcome screen's; a
                             deployment's own footer, privacy policy and terms

@@ -16,6 +16,7 @@ import RouteErrorBoundary from './RouteErrorBoundary';
 import StartupLayout from './Layouts/Startup';
 import LoginLayout from './Layouts/Login';
 import dashboardRoutes from './Dashboard';
+import WelcomeRoute from './WelcomeRoute';
 import WithRum from '~/lib/rum/WithRum';
 import ShareRoute from './ShareRoute';
 import ChatRoute from './ChatRoute';
@@ -46,6 +47,16 @@ const loadInsightsView = () =>
     Component: m.default,
   }));
 
+const loadExamplesPage = () =>
+  import('~/components/Discover').then((m) => ({
+    Component: m.ExamplesPage,
+  }));
+
+const loadDatasetsPage = () =>
+  import('~/components/Discover').then((m) => ({
+    Component: m.DatasetsPage,
+  }));
+
 const loadProjectsView = () =>
   import('~/components/Projects').then((m) => ({
     Component: m.ProjectsView,
@@ -64,6 +75,11 @@ export const router = createBrowserRouter(
     {
       path: 'share/:shareId',
       element: <ShareRoute />,
+      errorElement: <RouteErrorBoundary />,
+    },
+    {
+      path: 'welcome',
+      element: <WelcomeRoute />,
       errorElement: <RouteErrorBoundary />,
     },
     {
@@ -155,6 +171,14 @@ export const router = createBrowserRouter(
             {
               path: 'skills',
               lazy: loadSkillsView,
+            },
+            {
+              path: 'examples',
+              lazy: loadExamplesPage,
+            },
+            {
+              path: 'datasets',
+              lazy: loadDatasetsPage,
             },
             {
               path: 'insights',

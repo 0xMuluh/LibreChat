@@ -17,7 +17,6 @@ import {
   SystemRoles,
   setTokenHeader,
   isSystemRoleName,
-  buildLoginRedirectUrl,
 } from 'librechat-data-provider';
 import type * as t from 'librechat-data-provider';
 import type { ReactNode } from 'react';
@@ -39,6 +38,7 @@ import {
 } from '~/data-provider';
 import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
 import { TAuthConfig, TUserContext, TAuthContext, TResError } from '~/common';
+import { buildSignedOutRedirectUrl } from '~/utils/signedOutRedirect';
 import useTimeout from './useTimeout';
 import store from '~/store';
 
@@ -247,7 +247,7 @@ const AuthContextProvider = ({
           return;
         }
         if (authConfig?.optional !== true) {
-          navigate(buildLoginRedirectUrl());
+          navigate(buildSignedOutRedirectUrl());
         }
       },
       onError: (error) => {
@@ -261,7 +261,7 @@ const AuthContextProvider = ({
           return;
         }
         if (authConfig?.optional !== true) {
-          navigate(buildLoginRedirectUrl());
+          navigate(buildSignedOutRedirectUrl());
         }
       },
     });
@@ -279,7 +279,7 @@ const AuthContextProvider = ({
       doSetError((userQuery.error as Error).message);
       setIsAuthReady(true);
       if (authConfig?.optional !== true) {
-        navigate(buildLoginRedirectUrl(), { replace: true });
+        navigate(buildSignedOutRedirectUrl(), { replace: true });
       }
     }
     if (error != null && error && isAuthenticated) {

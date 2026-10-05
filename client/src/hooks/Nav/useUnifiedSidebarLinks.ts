@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { useRecoilValue } from 'recoil';
-import { BarChart3, MessagesSquare } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useUserKeyQuery } from 'librechat-data-provider/react-query';
 import { getConfigDefaults, getEndpointField } from 'librechat-data-provider';
+import { BarChart3, Database, LayoutGrid, MessagesSquare } from 'lucide-react';
 import type { TEndpointsConfig } from 'librechat-data-provider';
 import type { NavLink } from '~/common';
 import { useGetEndpointsQuery, useGetStartupConfig, useInsightsAccessQuery } from '~/data-provider';
@@ -72,11 +72,29 @@ export default function useUnifiedSidebarLinks() {
       Component: ConversationsSection,
     };
 
+    /* OmicsBase: the public Examples and the built-in Datasets. */
+    const discoverLinks: NavLink[] = [
+      {
+        title: 'com_ui_examples',
+        label: '',
+        icon: LayoutGrid,
+        id: 'examples',
+        onClick: () => navigate('/examples'),
+      },
+      {
+        title: 'com_ui_datasets',
+        label: '',
+        icon: Database,
+        id: 'datasets',
+        onClick: () => navigate('/datasets'),
+      },
+    ];
+
     if (
       !insightsFeatureEnabled ||
       (!isInsightsRoute && !isInsightsAccessLoading && insightsAccess?.access !== true)
     ) {
-      return [conversationLink, ...sideNavLinks];
+      return [conversationLink, ...discoverLinks, ...sideNavLinks];
     }
 
     const insightsLink: NavLink = {
@@ -95,7 +113,7 @@ export default function useUnifiedSidebarLinks() {
     const nextLinks = [...sideNavLinks];
     nextLinks.splice(mcpIndex >= 0 ? mcpIndex + 1 : nextLinks.length, 0, insightsLink);
 
-    return [conversationLink, ...nextLinks];
+    return [conversationLink, ...discoverLinks, ...nextLinks];
   }, [
     insightsAccess?.access,
     insightsFeatureEnabled,

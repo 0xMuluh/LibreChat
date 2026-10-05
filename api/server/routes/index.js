@@ -19,6 +19,7 @@ const memories = require('./memories');
 const presets = require('./presets');
 const projects = require('./projects');
 const notes = require('./notes');
+const discover = require('./discover');
 const prompts = require('./prompts');
 const schedules = require('./schedules');
 const skills = require('./skills');
@@ -80,6 +81,7 @@ module.exports = {
   prompts,
   projects,
   notes,
+  discover,
   schedules,
   skills,
   actions,
