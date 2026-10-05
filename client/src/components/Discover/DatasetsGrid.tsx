@@ -1,27 +1,36 @@
 import type { DiscoverDataset } from '~/data-provider';
-import { useDiscoverDatasets } from '~/data-provider';
+import { discoverSeed, useDiscoverDatasets } from '~/data-provider';
 import { useLocalize } from '~/hooks';
 import { fieldIcon } from './fields';
 
 type Props = {
   /** Show only this field; empty shows all. */
   field?: string;
+  /** Search text from the page's search box. */
+  query?: string;
   onSelect: (dataset: DiscoverDataset) => void;
 };
 
-export default function DatasetsGrid({ field = '', onSelect }: Props) {
+export default function DatasetsGrid({ field = '', query = '', onSelect }: Props) {
   const localize = useLocalize();
-  const { data = [] } = useDiscoverDatasets();
-  const list = data.filter((d) => !field || d.domain === field);
+  const { data = [] } = useDiscoverDatasets(discoverSeed());
+  const q = query.trim().toLowerCase();
+  const list = data.filter(
+    (d) =>
+      (!field || d.domain === field) &&
+      (!q ||
+        [d.name, d.pkg, d.desc, d.domain, d.species, d.cls].join(' ').toLowerCase().includes(q)),
+  );
+
+  let emptyText = localize('com_discover_datasets_empty');
+  if (q) {
+    emptyText = localize('com_discover_datasets_no_match', { 0: query.trim() });
+  } else if (field) {
+    emptyText = localize('com_discover_datasets_empty_field', { 0: field });
+  }
 
   if (!list.length) {
-    return (
-      <p className="py-7 text-center text-sm text-text-tertiary">
-        {field
-          ? localize('com_discover_datasets_empty_field', { 0: field })
-          : localize('com_discover_datasets_empty')}
-      </p>
-    );
+    return <p className="py-7 text-center text-sm text-text-tertiary">{emptyText}</p>;
   }
 
   return (

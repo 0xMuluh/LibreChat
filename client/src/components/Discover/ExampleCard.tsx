@@ -1,12 +1,11 @@
 import { memo } from 'react';
 import type { DiscoverExample } from '~/data-provider';
 import { exampleCoverUrl, exampleShareUrl } from '~/data-provider';
+import Placeholder from './Placeholder';
 import { useLocalize } from '~/hooks';
-import { fieldIcon } from './fields';
 
 function ExampleCard({ example }: { example: DiscoverExample }) {
   const localize = useLocalize();
-  const Icon = fieldIcon(example.field);
   const meta = [example.dataset, example.source].filter(Boolean).join(' · ');
   return (
     <a
@@ -22,8 +21,8 @@ function ExampleCard({ example }: { example: DiscoverExample }) {
             className="absolute inset-1.5 h-[calc(100%-0.75rem)] w-[calc(100%-0.75rem)] object-contain"
           />
         ) : (
-          <div className="flex h-full items-center justify-center bg-surface-secondary text-text-tertiary">
-            <Icon className="size-8" aria-hidden="true" />
+          <div className="h-full bg-surface-secondary p-3">
+            <Placeholder seed={example.shareId} />
           </div>
         )}
       </div>
@@ -38,7 +37,7 @@ function ExampleCard({ example }: { example: DiscoverExample }) {
           <span className="truncate font-mono text-xs text-text-tertiary" title={meta}>
             {meta || example.field}
           </span>
-          <span className="flex-none rounded-full bg-surface-tertiary px-2.5 py-0.5 text-xs font-medium text-text-primary group-hover:bg-surface-active-alt">
+          <span className="flex-none rounded-full bg-surface-tertiary px-2.5 py-0.5 text-xs font-medium text-accent-primary group-hover:bg-surface-active-alt">
             {localize(
               example.mode === 'reports' ? 'com_discover_read_report' : 'com_discover_explore',
             )}

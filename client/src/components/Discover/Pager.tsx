@@ -49,7 +49,7 @@ export default function Pager({ page, pages, first, count, total, onPage }: Prop
               className={cn(
                 step,
                 'min-w-8',
-                n === page ? 'bg-text-primary text-surface-primary' : 'hover:bg-surface-hover',
+                n === page ? 'bg-accent-primary text-surface-primary' : 'hover:bg-surface-hover',
               )}
             >
               {n}

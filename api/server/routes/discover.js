@@ -6,15 +6,15 @@ const express = require('express');
 const { logger } = require('@librechat/data-schemas');
 const { excludeHiddenModelSpecs } = require('@librechat/api');
 const { getAppConfig } = require('~/server/services/Config/app');
-const { datasets, listExamples, getExampleCover } = require('~/server/services/Discover');
+const { datasets, listExamples, getExampleCover, shuffle } = require('~/server/services/Discover');
 
 const router = express.Router();
 
 router.get('/examples', async (req, res) => {
   try {
-    const { page, pageSize, field, mode, q } = req.query;
+    const { page, pageSize, field, mode, q, perField, seed } = req.query;
     res.set('Cache-Control', 'public, max-age=60');
-    res.json(await listExamples({ page, pageSize, field, mode, q }));
+    res.json(await listExamples({ page, pageSize, field, mode, q, perField, seed }));
   } catch (error) {
     logger.error('[discover] Error listing examples:', error);
     res.status(500).json({ message: 'Error listing examples' });
@@ -38,7 +38,15 @@ router.get('/examples/:shareId/cover', async (req, res) => {
 
 router.get('/datasets', (req, res) => {
   res.set('Cache-Control', 'public, max-age=3600');
-  res.json({ items: datasets });
+  res.json({ items: shuffle(datasets, req.query.seed) });
+});
+
+/** The deployment's own footer, which the public startup config leaves out. */
+router.get('/footer', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.json({
+    customFooter: typeof process.env.CUSTOM_FOOTER === 'string' ? process.env.CUSTOM_FOOTER : null,
+  });
 });
 
 /** Model names for the picker, without any endpoint or key details. */

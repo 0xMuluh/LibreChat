@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Search } from 'lucide-react';
 import type { TranslationKeys } from '~/hooks';
-import { useDiscoverExamples } from '~/data-provider';
+import { discoverSeed, useDiscoverExamples } from '~/data-provider';
 import ExampleCard from './ExampleCard';
 import { useLocalize } from '~/hooks';
 import { sortFields } from './fields';
@@ -18,23 +17,21 @@ const MODES: { value: string; label: TranslationKeys; hint?: TranslationKeys }[]
 type Props = {
   /** Called with the active field, so a datasets list below can follow it. */
   onFieldChange?: (field: string) => void;
-  /** Search text from outside, e.g. a shared search box. */
+  /** Search text from the page's search box. */
   query?: string;
-  showSearch?: boolean;
 };
 
-export default function ExamplesGallery({ onFieldChange, query, showSearch = true }: Props) {
+export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
   const localize = useLocalize();
-  const [text, setText] = useState('');
   const [q, setQ] = useState('');
   const [field, setField] = useState('');
   const [mode, setMode] = useState('');
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    const timer = setTimeout(() => setQ((query ?? text).trim()), 250);
+    const timer = setTimeout(() => setQ(query.trim()), 250);
     return () => clearTimeout(timer);
-  }, [text, query]);
+  }, [query]);
 
   useEffect(() => setPage(1), [q, field, mode]);
   useEffect(() => onFieldChange?.(field), [field, onFieldChange]);
@@ -45,6 +42,7 @@ export default function ExamplesGallery({ onFieldChange, query, showSearch = tru
     field,
     mode,
     q,
+    seed: discoverSeed(),
   });
   const fields = sortFields(data?.fields ?? []);
 
@@ -72,7 +70,7 @@ export default function ExamplesGallery({ onFieldChange, query, showSearch = tru
               className={cn(
                 'rounded-full border px-3 py-1 text-[13px] font-medium transition-colors',
                 field === value
-                  ? 'border-transparent bg-text-primary text-surface-primary'
+                  ? 'border-transparent bg-accent-primary text-surface-primary'
                   : 'border-border-medium text-text-secondary hover:bg-surface-hover',
               )}
             >
@@ -80,43 +78,28 @@ export default function ExamplesGallery({ onFieldChange, query, showSearch = tru
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
-          {showSearch && (
-            <label className="flex items-center gap-2 rounded-lg border border-border-light bg-surface-primary px-2.5 py-1.5 text-text-tertiary focus-within:border-border-heavy">
-              <Search className="size-4" aria-hidden="true" />
-              <input
-                type="search"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder={localize('com_discover_search_examples')}
-                aria-label={localize('com_discover_search_examples')}
-                className="w-44 bg-transparent text-sm text-text-primary outline-none placeholder:text-text-tertiary"
-              />
-            </label>
-          )}
-          <div
-            className="inline-flex rounded-lg border border-border-light bg-surface-secondary p-0.5"
-            role="group"
-            aria-label={localize('com_discover_filter_mode')}
-          >
-            {MODES.map((m) => (
-              <button
-                key={localize(m.label)}
-                type="button"
-                title={m.hint ? localize(m.hint) : undefined}
-                aria-pressed={mode === m.value}
-                onClick={() => setMode(m.value)}
-                className={cn(
-                  'rounded-md px-3 py-1 text-[13px] font-medium',
-                  mode === m.value
-                    ? 'bg-surface-primary text-text-primary shadow-sm'
-                    : 'text-text-tertiary hover:text-text-primary',
-                )}
-              >
-                {localize(m.label)}
-              </button>
-            ))}
-          </div>
+        <div
+          className="inline-flex rounded-lg border border-border-light bg-surface-secondary p-0.5"
+          role="group"
+          aria-label={localize('com_discover_filter_mode')}
+        >
+          {MODES.map((m) => (
+            <button
+              key={localize(m.label)}
+              type="button"
+              title={m.hint ? localize(m.hint) : undefined}
+              aria-pressed={mode === m.value}
+              onClick={() => setMode(m.value)}
+              className={cn(
+                'rounded-md px-3 py-1 text-[13px] font-medium',
+                mode === m.value
+                  ? 'bg-surface-primary text-text-primary shadow-sm'
+                  : 'text-text-tertiary hover:text-text-primary',
+              )}
+            >
+              {localize(m.label)}
+            </button>
+          ))}
         </div>
       </div>
 

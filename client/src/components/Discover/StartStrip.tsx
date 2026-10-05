@@ -48,7 +48,7 @@ export default function StartStrip() {
   const navigate = useNavigate();
   const { setValue, control } = useChatFormContext();
   const text = useWatch({ control, name: 'text' });
-  const { data: examples } = useDiscoverExamples({ pageSize: 48 });
+  const { data: examples } = useDiscoverExamples({ perField: 1 });
   const { data: datasets = [] } = useDiscoverDatasets();
 
   const suggestions = useMemo(() => pick(examples?.items ?? [], datasets), [examples, datasets]);
