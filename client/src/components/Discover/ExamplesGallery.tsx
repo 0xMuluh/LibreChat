@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { TranslationKeys } from '~/hooks';
 import { discoverSeed, useDiscoverExamples } from '~/data-provider';
 import ExampleCard from './ExampleCard';
@@ -7,7 +7,8 @@ import { sortFields } from './fields';
 import { cn } from '~/utils';
 import Pager from './Pager';
 
-const PAGE_SIZE = 12;
+/** A page is this many full rows of cards, however many columns fit. */
+const ROWS_PER_PAGE = 2;
 const MODES: { value: string; label: TranslationKeys; hint?: TranslationKeys }[] = [
   { value: '', label: 'com_discover_all' },
   { value: 'notes', label: 'com_discover_notes', hint: 'com_discover_notes_hint' },
@@ -27,6 +28,24 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
   const [field, setField] = useState('');
   const [mode, setMode] = useState('');
   const [page, setPage] = useState(1);
+  const [columns, setColumns] = useState(4);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const sectionRef = useRef<HTMLDivElement>(null);
+
+  /* Count the grid's columns so a page is always two full rows. */
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) {
+      return;
+    }
+    const measure = () =>
+      setColumns(Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ').length));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, []);
+  const pageSize = columns * ROWS_PER_PAGE;
 
   useEffect(() => {
     const timer = setTimeout(() => setQ(query.trim()), 250);
@@ -36,9 +55,9 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
   useEffect(() => setPage(1), [q, field, mode]);
   useEffect(() => onFieldChange?.(field), [field, onFieldChange]);
 
-  const { data, isLoading, isError } = useDiscoverExamples({
+  const { data, isLoading, isError, isFetching } = useDiscoverExamples({
     page,
-    pageSize: PAGE_SIZE,
+    pageSize,
     field,
     mode,
     q,
@@ -53,8 +72,26 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
     emptyText = localize('com_discover_examples_no_match', { 0: q });
   }
 
+  /* When the column count changes, stay near the first card that was on screen. */
+  const firstShown = useRef(0);
+  useEffect(() => {
+    setPage(Math.floor(firstShown.current / pageSize) + 1);
+  }, [pageSize]);
+  if (data) {
+    firstShown.current = (data.page - 1) * data.pageSize;
+  }
+
+  const goTo = (next: number) => {
+    setPage(next);
+    /* Bring the first row back into view if it is above the screen. */
+    const top = sectionRef.current?.getBoundingClientRect().top ?? 0;
+    if (top < 0) {
+      sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex scroll-mt-16 flex-col gap-4" ref={sectionRef}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div
           className="flex flex-wrap gap-2"
@@ -103,7 +140,13 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3.5">
+      <div
+        ref={gridRef}
+        className={cn(
+          'grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3.5 transition-opacity',
+          isFetching && 'opacity-60',
+        )}
+      >
         {(data?.items ?? []).map((example) => (
           <ExampleCard key={example.shareId} example={example} />
         ))}
@@ -120,7 +163,7 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
           first={(data.page - 1) * data.pageSize + 1}
           count={data.items.length}
           total={data.total}
-          onPage={setPage}
+          onPage={goTo}
         />
       )}
     </div>

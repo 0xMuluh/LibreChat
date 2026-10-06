@@ -77,6 +77,9 @@ router.get('/models', async (req, res) => {
     const appConfig = await getAppConfig();
     const specs = excludeHiddenModelSpecs(appConfig?.modelSpecs)?.list ?? [];
     const custom = loadCustomEndpointsConfig(appConfig?.endpoints?.custom) ?? {};
+    /* The landing may preselect a different model from the app's default, e.g. a free one. */
+    const landingDefault = process.env.DISCOVER_DEFAULT_SPEC;
+    const useLanding = specs.some((spec) => spec.name === landingDefault);
     res.json({
       items: specs.map((spec) => {
         const endpoint = spec.preset?.endpoint ?? null;
@@ -85,7 +88,7 @@ router.get('/models', async (req, res) => {
           name: spec.name,
           label: spec.label ?? spec.name,
           description: spec.description ?? '',
-          default: spec.default === true,
+          default: useLanding ? spec.name === landingDefault : spec.default === true,
           endpoint,
           model: spec.preset?.model ?? null,
           iconURL: spec.iconURL ?? spec.preset?.iconURL ?? null,
