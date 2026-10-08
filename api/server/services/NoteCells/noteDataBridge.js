@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const paths = require('../../../config/paths');
 const { logger } = require('@librechat/data-schemas');
+const { noteHasDataFile, uploadNoteDataFile } = require('./engineClient');
 let db = null;
 function getDb() {
   if (db) {
@@ -18,7 +19,6 @@ function getDb() {
   }
   return db;
 }
-
 
 const DEFAULT_INLINE_TEXT_LIMIT_BYTES = 51200; // 50 KB
 
@@ -110,7 +110,10 @@ function isTabularText(textSample) {
   if (!textSample || typeof textSample !== 'string') {
     return false;
   }
-  const lines = textSample.split(/\r?\n/).filter((l) => l.trim().length > 0).slice(0, 5);
+  const lines = textSample
+    .split(/\r?\n/)
+    .filter((l) => l.trim().length > 0)
+    .slice(0, 5);
   if (lines.length < 2) {
     return false;
   }
@@ -121,10 +124,6 @@ function isTabularText(textSample) {
     }
   }
   return false;
-}
-
-function getProjectsDir() {
-  return process.env.PROJECTS_DIR || path.resolve(__dirname, '../../../../projects');
 }
 
 /**
@@ -140,7 +139,10 @@ function isDataFile(fileOrPath, options = {}) {
     return false;
   }
 
-  const filename = typeof fileOrPath === 'string' ? fileOrPath : fileOrPath.filename || fileOrPath.originalname || '';
+  const filename =
+    typeof fileOrPath === 'string'
+      ? fileOrPath
+      : fileOrPath.filename || fileOrPath.originalname || '';
   const ext = filename ? path.extname(filename).toLowerCase() : '';
   const dataExts = getConfiguredDataExtensions();
 
@@ -149,15 +151,21 @@ function isDataFile(fileOrPath, options = {}) {
   }
 
   // Size check: files larger than 50 KB are treated as workspace data to save prompt tokens
-  const limitBytes = Number(process.env.NOTE_DATA_MAX_INLINE_BYTES) || DEFAULT_INLINE_TEXT_LIMIT_BYTES;
+  const limitBytes =
+    Number(process.env.NOTE_DATA_MAX_INLINE_BYTES) || DEFAULT_INLINE_TEXT_LIMIT_BYTES;
   const bytes = options.bytes || (typeof fileOrPath === 'object' ? fileOrPath.bytes : null);
   if (bytes && bytes > limitBytes) {
     return true;
   }
 
   // Content inspection: sample buffer from disk if available
-  let buffer = options.buffer || (typeof fileOrPath === 'object' && Buffer.isBuffer(fileOrPath.buffer) ? fileOrPath.buffer : null);
-  const diskPath = options.path || (typeof fileOrPath === 'string' && fs.existsSync(fileOrPath) ? fileOrPath : (fileOrPath.path && fs.existsSync(fileOrPath.path) ? fileOrPath.path : null));
+  let buffer =
+    options.buffer ||
+    (typeof fileOrPath === 'object' && Buffer.isBuffer(fileOrPath.buffer)
+      ? fileOrPath.buffer
+      : null);
+  const localPath = typeof fileOrPath === 'string' ? fileOrPath : fileOrPath.path;
+  const diskPath = options.path || (localPath && fs.existsSync(localPath) ? localPath : null);
 
   if (!buffer && diskPath && fs.existsSync(diskPath)) {
     try {
@@ -260,44 +268,40 @@ async function bridgeFileToThread({ conversationId, userId, file, strict = false
   }
 
   if (path.basename(filename) !== filename || !/^[a-zA-Z0-9_-]+$/.test(String(conversationId))) {
-    throw new Error("Invalid attachment workspace path");
+    throw new Error('Invalid attachment workspace path');
   }
 
   const sourcePath = resolveSourcePath(file, userId);
   if (!sourcePath || !fs.existsSync(sourcePath)) {
     if (strict) throw new Error(`Uploaded file is unavailable: ${filename}`);
-    logger.warn(`[noteDataBridge] Source file not found on disk for file_id=${file.file_id}, name=${filename}`);
+    logger.warn(
+      `[noteDataBridge] Source file not found on disk for file_id=${file.file_id}, name=${filename}`,
+    );
     return null;
   }
 
-  const projectsDir = getProjectsDir();
-  const threadDataDir = path.join(projectsDir, String(conversationId), 'data');
-
   try {
-    await fs.promises.mkdir(threadDataDir, { recursive: true });
-
-    const targetPath = path.join(threadDataDir, filename);
-
-    // Preserve the analysis working copy on subsequent executions.
-    try {
-      await fs.promises.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
-    } catch (err) {
-      if (err.code !== "EEXIST") throw err;
-      const stat = await fs.promises.lstat(targetPath);
-      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Invalid attachment target");
+    // The engine keeps the analysis working copy on later executions, so upload only once.
+    let bytes = file.bytes;
+    if (!(await noteHasDataFile(conversationId, filename))) {
+      const stored = await uploadNoteDataFile(conversationId, filename, sourcePath);
+      bytes = bytes || stored.bytes;
+      logger.info(
+        `[noteDataBridge] Uploaded ${filename} -> projects/${conversationId}/data/${filename}`,
+      );
     }
-
-    logger.info(`[noteDataBridge] Successfully bridged ${filename} -> projects/${conversationId}/data/${filename}`);
     return {
       bridged: true,
       filename,
       workspacePath: `data/${filename}`,
-      targetPath,
-      bytes: file.bytes || (await fs.promises.stat(targetPath)).size,
+      bytes: bytes || (await fs.promises.stat(sourcePath)).size,
     };
   } catch (err) {
     if (strict) throw new Error(`Could not prepare attachment ${filename}: ${err.message}`);
-    logger.error(`[noteDataBridge] Error bridging file ${filename} to thread ${conversationId}:`, err);
+    logger.error(
+      `[noteDataBridge] Error bridging file ${filename} to thread ${conversationId}:`,
+      err,
+    );
     return null;
   }
 }
@@ -319,10 +323,16 @@ async function bridgeConversationFiles(conversationId, userId) {
     if (!userId) throw new Error('Attachment owner required');
     // Uploads made before a new conversation exists are linked by its messages.
     const messages = await database.getMessages({ conversationId, user: userId }, 'files');
-    const ids = messages.flatMap((message) => (message.files || []).map((file) => file.file_id)).filter(Boolean);
+    const ids = messages
+      .flatMap((message) => (message.files || []).map((file) => file.file_id))
+      .filter(Boolean);
     const convoFiles = await database.getFiles({
       user: userId,
-      $or: [{ conversationId }, { 'metadata.conversationId': conversationId }, { file_id: { $in: ids } }],
+      $or: [
+        { conversationId },
+        { 'metadata.conversationId': conversationId },
+        { file_id: { $in: ids } },
+      ],
     });
 
     if (!convoFiles || convoFiles.length === 0) {
@@ -357,7 +367,8 @@ function formatDataFilesContext(bridgedFiles) {
   }
 
   let text = '\n\n[Attached Data Files in R Workspace]\n';
-  text += 'The following data files have been uploaded and placed into your R NoteKernel workspace (`data/`):\n';
+  text +=
+    'The following data files have been uploaded and placed into your R NoteKernel workspace (`data/`):\n';
 
   for (const f of bridgedFiles) {
     const sizeMb = f.bytes ? (f.bytes / (1024 * 1024)).toFixed(2) : 'unknown';
@@ -365,9 +376,12 @@ function formatDataFilesContext(bridgedFiles) {
   }
 
   text += '\n**Analysis Instructions for Agent:**\n';
-  text += '- The data files are already on disk in your working directory. Do NOT ask the user to re-upload.\n';
-  text += '- In your R code cells, load them directly using standard Bioconductor / R functions (e.g. `read.csv("data/<filename>")` or `readRDS("data/<filename>")`).\n';
-  text += '- Inspect dimensions, summaries, and column names, then proceed with the requested omics analysis.\n';
+  text +=
+    '- The data files are already on disk in your working directory. Do NOT ask the user to re-upload.\n';
+  text +=
+    '- In your R code cells, load them directly using standard Bioconductor / R functions (e.g. `read.csv("data/<filename>")` or `readRDS("data/<filename>")`).\n';
+  text +=
+    '- Inspect dimensions, summaries, and column names, then proceed with the requested omics analysis.\n';
 
   return text;
 }
@@ -378,7 +392,6 @@ module.exports = {
   isTabularText,
   getConfiguredDataExtensions,
   DEFAULT_INLINE_TEXT_LIMIT_BYTES,
-  getProjectsDir,
   bridgeFileToThread,
   bridgeConversationFiles,
   formatDataFilesContext,

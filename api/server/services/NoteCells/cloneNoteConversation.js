@@ -1,21 +1,17 @@
-const fs = require('fs');
-const path = require('path');
 const mongoose = require('mongoose');
 const { logger } = require('@librechat/data-schemas');
 const models = require('./models');
-const { getProjectsDir } = require('./noteDataBridge');
+const { copyNoteFiles } = require('./engineClient');
 
 async function cloneProjectDirectory(sourceConversationId, targetConversationId) {
   try {
-    const projectsDir = getProjectsDir();
-    const srcDir = path.join(projectsDir, String(sourceConversationId));
-    const destDir = path.join(projectsDir, String(targetConversationId));
-
-    if (fs.existsSync(srcDir)) {
-      await fs.promises.mkdir(destDir, { recursive: true });
-      await fs.promises.cp(srcDir, destDir, { recursive: true });
+    const { copied } = await copyNoteFiles(
+      String(sourceConversationId),
+      String(targetConversationId),
+    );
+    if (copied) {
       logger.info(
-        `[cloneNoteConversation] Copied workspace files from ${srcDir} -> ${destDir}`,
+        `[cloneNoteConversation] Copied workspace files from ${sourceConversationId} -> ${targetConversationId}`,
       );
     }
   } catch (err) {
@@ -23,11 +19,7 @@ async function cloneProjectDirectory(sourceConversationId, targetConversationId)
   }
 }
 
-async function updateClonedMessageNoteReferences({
-  targetConversationId,
-  cellIdMap,
-  execIdMap,
-}) {
+async function updateClonedMessageNoteReferences({ targetConversationId, cellIdMap, execIdMap }) {
   if (cellIdMap.size === 0 && execIdMap.size === 0) {
     return;
   }
