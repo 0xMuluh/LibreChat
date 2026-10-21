@@ -79,27 +79,30 @@ export function parseRCellToolCall(part: TMessageContentParts): RCellToolPayload
   }
 
   // Parse arguments
-  let args = toolCall.args || (toolCall.function as { arguments?: unknown } | undefined)?.arguments;
+  let args: unknown =
+    toolCall.args || (toolCall.function as { arguments?: unknown } | undefined)?.arguments;
   if (typeof args === 'string') {
+    const raw = args;
     try {
-      args = JSON.parse(args);
+      args = JSON.parse(raw);
     } catch {
       // Streamed or unparsed args
-      const codeMatch = /"code"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(args);
+      const codeMatch = /"code"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(raw);
       if (codeMatch && codeMatch[1]) {
         try {
           args = { code: JSON.parse(`"${codeMatch[1]}"`) };
         } catch {
           args = { code: codeMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') };
         }
-      } else if (!args.trim().startsWith('{')) {
-        args = { code: args.trim() };
+      } else if (!raw.trim().startsWith('{')) {
+        args = { code: raw.trim() };
       }
     }
   }
 
-  const argsObj = typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
-  let code = String(argsObj.code || '').trim();
+  const argsObj =
+    typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
+  const code = String(argsObj.code || '').trim();
   let cellId = argsObj.cell_id ? String(argsObj.cell_id).trim() : undefined;
   const title = argsObj.title ? String(argsObj.title).trim() : undefined;
 
@@ -193,7 +196,10 @@ export function synthesizeThreadToQuarto({
       const userText = (msg.text || '').trim();
       if (userText) {
         // Clean multi-line user queries into neat markdown sections
-        const lines = userText.split('\n').map((l) => l.trim()).filter(Boolean);
+        const lines = userText
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean);
         const header = lines[0].replace(/^[#\s*->]+/, '');
         if (lines.length === 1) {
           sections.push(`## ${header}`);
@@ -210,7 +216,7 @@ export function synthesizeThreadToQuarto({
         if (!part) return;
 
         // 1. Narrative text
-        if (part.type === ContentTypes.TEXT || part.type === ContentTypes.TEXT_DELTA) {
+        if (part.type === ContentTypes.TEXT || (part.type as string) === ContentTypes.TEXT_DELTA) {
           const textPart = part as { text?: TextValue; text_delta?: TextValue };
           const text = getTextValue(textPart.text_delta ?? textPart.text).trim();
           if (text) {

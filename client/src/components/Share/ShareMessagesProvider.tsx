@@ -23,6 +23,8 @@ export function ShareMessagesProvider({
     () => ({
       conversation: null,
       conversationId: conversationId || undefined,
+      // Read-only so app bridges never proxy auth-bearing calls against the viewer's MCP servers.
+      readOnly: true,
       // These are required by the context but not used in share view
       ask: () => {},
       regenerate: () => {},

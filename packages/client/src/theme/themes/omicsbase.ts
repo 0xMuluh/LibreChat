@@ -43,6 +43,7 @@ export const omicsbaseLight: IThemeRGB = {
   'rgb-status-neutral-subtle': '244 244 246',
   'rgb-series-7': '28 87 87',
   'rgb-presentation': '250 250 250',
+  'rgb-surface-canvas': '250 250 250',
 };
 
 export const omicsbaseDark: IThemeRGB = {
@@ -92,4 +93,5 @@ export const omicsbaseDark: IThemeRGB = {
   'rgb-series-3': '99 204 192',
   'rgb-series-7': '45 212 191',
   'rgb-presentation': '5 8 12',
+  'rgb-surface-canvas': '5 8 12',
 };
