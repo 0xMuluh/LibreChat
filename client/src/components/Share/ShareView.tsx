@@ -316,7 +316,7 @@ function ShareTitle({ title }: { title?: string }) {
       render={
         <h1
           data-testid="share-title"
-          className="text-text-primary focus-visible:ring-text-primary cursor-default truncate text-2xl font-semibold focus-visible:ring-2 focus-visible:outline-hidden md:text-4xl"
+          className="text-text-primary focus-visible:ring-text-primary cursor-default line-clamp-3 break-words text-2xl font-semibold focus-visible:ring-2 focus-visible:outline-hidden md:line-clamp-1 md:text-4xl"
         >
           {title}
         </h1>
@@ -415,9 +415,7 @@ export function ShareHeader({
                   aria-label={settingsLabel}
                   className={cn(
                     'border-border-medium transition-colors',
-                    isMobile
-                      ? 'absolute right-4 bottom-4 justify-center p-0 shadow-lg'
-                      : 'gap-2 self-start px-4 py-2',
+                    isMobile ? 'justify-center p-0' : 'gap-2 self-start px-4 py-2',
                   )}
                 >
                   <Settings className="size-4" aria-hidden="true" />
