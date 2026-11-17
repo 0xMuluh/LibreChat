@@ -1,0 +1,135 @@
+process.env.DOMAIN_CLIENT = 'https://omicsbase.utu.fi';
+
+const { applyPublicPageMeta, summarize } = require('./publicPageMeta');
+
+const SHELL =
+  '<html><head><meta name="description" content="OmicsBase - platform" />' +
+  '<title>OmicsBase</title></head><body><div id="root"></div></body></html>';
+
+const json = (status, body) => ({ ok: status === 200, status, json: async () => body });
+
+function makeRes() {
+  const headers = { 'X-Robots-Tag': 'noindex' };
+  return { headers, removeHeader: (name) => delete headers[name] };
+}
+
+const req = (path, hostname = 'omicsbase.utu.fi') => ({ method: 'GET', path, hostname });
+
+const PUBLIC_SHARE = {
+  title: 'Cell types <versus> "domains"',
+  updatedAt: '2026-10-05T01:16:05.009Z',
+  messages: [
+    {
+      isCreatedByUser: true,
+      text: 'Load the **hippocampus** data\n\n```r\nx <- 1\n```\ninto a SpatialExperiment.',
+    },
+    { isCreatedByUser: false, text: '' },
+  ],
+};
+const CELLS = {
+  cells: [
+    {
+      position: 2,
+      latestExecution: { artifacts: [{ artifactType: 'plot', contentUrl: '/api/notes/s/second' }] },
+    },
+    {
+      position: 1,
+      latestExecution: {
+        artifacts: [
+          { artifactType: 'table' },
+          { artifactType: 'plot', contentUrl: '/api/notes/s/first' },
+        ],
+      },
+    },
+  ],
+};
+
+describe('applyPublicPageMeta', () => {
+  let n = 0;
+  const fresh = () => `share_${++n}_abcdef`;
+
+  afterEach(() => {
+    delete global.fetch;
+  });
+
+  it('tags a public note and drops noindex', async () => {
+    global.fetch = jest.fn(async (url) =>
+      url.includes('/cells') ? json(200, CELLS) : json(200, PUBLIC_SHARE),
+    );
+    const id = fresh();
+    const res = makeRes();
+    const html = await applyPublicPageMeta(req(`/share/${id}`), res, SHELL);
+
+    expect(res.headers['X-Robots-Tag']).toBeUndefined();
+    expect(html).toContain(
+      '<title>Cell types &lt;versus&gt; &quot;domains&quot; | OmicsBase</title>',
+    );
+    expect(html).toContain(
+      '<meta name="description" content="Load the hippocampus data into a SpatialExperiment." />',
+    );
+    expect(html).toContain(`<link rel="canonical" href="https://omicsbase.utu.fi/share/${id}" />`);
+    expect(html).toContain(
+      '<meta property="og:image" content="https://omicsbase.utu.fi/api/notes/s/first" />',
+    );
+    expect(html).toContain('summary_large_image');
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining(`/api/share/${id}`),
+      expect.anything(),
+    );
+  });
+
+  it('leaves a note that is not public untouched', async () => {
+    global.fetch = jest.fn(async () => json(401, null));
+    const res = makeRes();
+    const html = await applyPublicPageMeta(req(`/share/${fresh()}`), res, SHELL);
+    expect(html).toBe(SHELL);
+    expect(res.headers['X-Robots-Tag']).toBe('noindex');
+  });
+
+  it('keeps noindex and does not cache when the share API is rate limited', async () => {
+    const id = fresh();
+    global.fetch = jest.fn(async () => json(429, null));
+    const res = makeRes();
+    expect(await applyPublicPageMeta(req(`/share/${id}`), res, SHELL)).toBe(SHELL);
+    expect(res.headers['X-Robots-Tag']).toBe('noindex');
+
+    global.fetch = jest.fn(async (url) =>
+      url.includes('/cells') ? json(200, CELLS) : json(200, PUBLIC_SHARE),
+    );
+    const res2 = makeRes();
+    await applyPublicPageMeta(req(`/share/${id}`), res2, SHELL);
+    expect(res2.headers['X-Robots-Tag']).toBeUndefined();
+  });
+
+  it('tags the front page', async () => {
+    global.fetch = jest.fn();
+    const res = makeRes();
+    const html = await applyPublicPageMeta(req('/'), res, SHELL);
+    expect(res.headers['X-Robots-Tag']).toBeUndefined();
+    expect(html).toContain('<link rel="canonical" href="https://omicsbase.utu.fi/" />');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('leaves other paths and other hosts untouched', async () => {
+    global.fetch = jest.fn();
+    for (const r of [
+      req('/c/new'),
+      req('/login'),
+      req('/', 'omicsbase.learnpanta.com'),
+      req('/share/abcdefgh', 'omicsbase.learnpanta.com'),
+    ]) {
+      const res = makeRes();
+      expect(await applyPublicPageMeta(r, res, SHELL)).toBe(SHELL);
+      expect(res.headers['X-Robots-Tag']).toBe('noindex');
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('summarize', () => {
+  it('cuts long text at a word boundary', () => {
+    const out = summarize('word '.repeat(60), 40);
+    expect(out.length).toBeLessThanOrEqual(40);
+    expect(out.endsWith('…')).toBe(true);
+  });
+});

@@ -93,6 +93,7 @@ const createSpaFallback = require('./utils/fallback');
 const { getAppConfig } = require('./services/Config');
 const staticCache = require('./utils/staticCache');
 const noIndex = require('./middleware/noIndex');
+const { applyPublicPageMeta } = require('./middleware/publicPageMeta');
 const agentEventMethods = require('~/models');
 
 /** Route admin file-config MIME patterns through a linear-time engine (ReDoS-safe) on upload. */
@@ -343,7 +344,7 @@ const startServer = async () => {
   const cspPolicy = createCspPolicy();
   const shellCache = shellCacheHeaders(cspPolicy != null);
 
-  const sendIndexHtml = (req, res) => {
+  const sendIndexHtml = async (req, res) => {
     res.set(shellCache);
     res.vary(QUERY_DEVTOOLS_HEADER);
 
@@ -354,6 +355,8 @@ const startServer = async () => {
       () => `lang="${saneLang}"`,
     );
     updatedIndexHtml = maybeInjectQueryDevtoolsBootstrap(updatedIndexHtml, req);
+    /* OmicsBase: own title, description and preview tags for public pages. */
+    updatedIndexHtml = await applyPublicPageMeta(req, res, updatedIndexHtml);
 
     /* Nonce last: every injected script above must be stamped too. */
     if (cspPolicy) {
