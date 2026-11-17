@@ -78,6 +78,61 @@ describe('applyPublicPageMeta', () => {
     );
   });
 
+  it('writes a readable copy of the note into the React root', async () => {
+    const share = {
+      title: 'A note',
+      messages: [
+        { isCreatedByUser: true, text: 'Plot the data' },
+        {
+          isCreatedByUser: false,
+          content: [
+            { type: 'think', think: 'private reasoning' },
+            { type: 'text', text: 'Here is **the** plot:\n\n- one\n- two' },
+            {
+              type: 'tool_call',
+              tool_call: {
+                name: 'execute_r_cell_mcp_notethreads',
+                args: JSON.stringify({ code: 'x <- "<script>alert(1)</script>"\nplot(x)' }),
+                output:
+                  '<!-- noteCell cellId=abc123 status=ok -->\n[cell_id: "abc123"]\n```\n[1] 42\n```\n![Plot](https://x/y.png)',
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const cells = {
+      cells: [
+        {
+          id: 'abc123',
+          position: 0,
+          latestExecution: {
+            artifacts: [{ artifactType: 'plot', contentUrl: '/api/notes/s/plot' }],
+          },
+        },
+      ],
+    };
+    global.fetch = jest.fn(async (url) =>
+      url.includes('/cells') ? json(200, cells) : json(200, share),
+    );
+    const shell = SHELL.replace(
+      '<div id="root"></div>',
+      '<div id="root"><div id="loading-container"></div></div>',
+    );
+    const html = await applyPublicPageMeta(req(`/share/${fresh()}`), makeRes(), shell);
+
+    const article = html.slice(html.indexOf('<article'), html.indexOf('</article>'));
+    expect(html.indexOf('<article')).toBeGreaterThan(html.indexOf('<div id="root">'));
+    expect(article).toContain('<h2>Plot the data</h2>');
+    expect(article).toContain('<ul><li>one</li><li>two</li></ul>');
+    expect(article).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(article).not.toContain('<script>');
+    expect(article).toContain('<pre>[1] 42</pre>');
+    expect(article).toContain('<img src="/api/notes/s/plot"');
+    expect(article).not.toContain('private reasoning');
+    expect(article).not.toContain('https://x/y.png');
+  });
+
   it('leaves a note that is not public untouched', async () => {
     global.fetch = jest.fn(async () => json(401, null));
     const res = makeRes();
