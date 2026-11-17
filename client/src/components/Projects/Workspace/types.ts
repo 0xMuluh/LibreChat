@@ -3,7 +3,13 @@ import { type TChatProject } from 'librechat-data-provider';
 
 export type CanvasViewMode = 'agent' | 'quarto';
 
-export type AgentEngineKey = 'openhands' | 'codex' | 'claude-code' | 'gemini-cli';
+export type AgentEngineKey =
+  | 'openhands'
+  | 'codex'
+  | 'claude-code'
+  | 'gemini-cli'
+  | 'pi'
+  | 'opencode';
 
 export interface AgentEngineOption {
   key: AgentEngineKey;
