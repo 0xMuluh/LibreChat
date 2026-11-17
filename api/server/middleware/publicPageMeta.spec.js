@@ -126,8 +126,8 @@ describe('applyPublicPageMeta', () => {
     for (const r of [
       req('/c/new'),
       req('/login'),
-      req('/', 'omicsbase.learnpanta.com'),
-      req('/share/abcdefgh', 'omicsbase.learnpanta.com'),
+      req('/', 'other.example.org'),
+      req('/share/abcdefgh', 'other.example.org'),
     ]) {
       const res = makeRes();
       expect(await applyPublicPageMeta(r, res, SHELL)).toBe(SHELL);
