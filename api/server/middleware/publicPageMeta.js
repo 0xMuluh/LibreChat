@@ -135,7 +135,7 @@ function withTags(html, page) {
 async function applyPublicPageMeta(req, res, html) {
   if (
     !canonicalOrigin ||
-    req.method !== 'GET' ||
+    (req.method !== 'GET' && req.method !== 'HEAD') ||
     req.hostname !== new URL(canonicalOrigin).hostname
   ) {
     return html;

@@ -110,6 +110,17 @@ describe('applyPublicPageMeta', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('answers HEAD like GET', async () => {
+    global.fetch = jest.fn();
+    const res = makeRes();
+    await applyPublicPageMeta(
+      { method: 'HEAD', path: '/', hostname: 'omicsbase.utu.fi' },
+      res,
+      SHELL,
+    );
+    expect(res.headers['X-Robots-Tag']).toBeUndefined();
+  });
+
   it('leaves other paths and other hosts untouched', async () => {
     global.fetch = jest.fn();
     for (const r of [
