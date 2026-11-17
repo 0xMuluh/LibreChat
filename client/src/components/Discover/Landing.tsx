@@ -144,13 +144,13 @@ export default function Landing() {
               <ThemeToggle />
               <a
                 href={loginUrl()}
-                className="rounded-full bg-accent-primary px-3.5 py-1.5 text-sm font-medium text-surface-primary hover:bg-accent-primary-hover"
+                className="whitespace-nowrap rounded-full bg-accent-primary px-3.5 py-1.5 text-sm font-medium text-surface-primary hover:bg-accent-primary-hover"
               >
                 {localize('com_discover_log_in')}
               </a>
               <a
                 href={loginUrl()}
-                className="rounded-full border border-border-medium px-3.5 py-1.5 text-sm font-medium text-text-primary hover:bg-surface-hover"
+                className="hidden whitespace-nowrap rounded-full border border-border-medium px-3.5 py-1.5 text-sm font-medium text-text-primary hover:bg-surface-hover sm:inline-block"
               >
                 {localize('com_discover_sign_up')}
               </a>
