@@ -18,6 +18,7 @@ const messages = require('./messages');
 const memories = require('./memories');
 const presets = require('./presets');
 const projects = require('./projects');
+const roihu = require('./roihu');
 const notes = require('./notes');
 const discover = require('./discover');
 const prompts = require('./prompts');
@@ -82,6 +83,7 @@ module.exports = {
   models,
   prompts,
   projects,
+  roihu,
   notes,
   discover,
   schedules,

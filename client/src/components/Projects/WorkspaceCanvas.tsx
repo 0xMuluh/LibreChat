@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useMediaQuery } from '@librechat/client';
 import { request } from 'librechat-data-provider';
-import { useAuthContext } from '~/hooks/AuthContext';
-import { cn } from '~/utils';
 import {
   CanvasViewMode,
   AgentEngineKey,
@@ -10,10 +8,13 @@ import {
   ProjectSessionOption,
   WorkspaceCanvasProps,
 } from './Workspace/types';
-import WorkspaceHeader from './Workspace/WorkspaceHeader';
-import AgentCanvasFrame from './Workspace/AgentCanvasFrame';
-import AgentLauncherCard from './Workspace/AgentLauncherCard';
 import ReportPreviewFrame from './Workspace/ReportPreviewFrame';
+import AgentLauncherCard from './Workspace/AgentLauncherCard';
+import AgentCanvasFrame from './Workspace/AgentCanvasFrame';
+import RoihuSessionCard from './Workspace/RoihuSessionCard';
+import WorkspaceHeader from './Workspace/WorkspaceHeader';
+import { useAuthContext } from '~/hooks/AuthContext';
+import { cn } from '~/utils';
 
 export default function WorkspaceCanvas({
   project,
@@ -55,12 +56,12 @@ export default function WorkspaceCanvas({
   const [engineBaseUrl, setEngineBaseUrl] = useState(() =>
     typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
       ? 'http://localhost:8001'
-      : '/omics-engine'
+      : '/omics-engine',
   );
   const [openhandsBaseUrl, setOpenhandsBaseUrl] = useState(() =>
     typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
       ? 'http://localhost:3001'
-      : ''
+      : '',
   );
 
   useEffect(() => {
@@ -69,9 +70,8 @@ export default function WorkspaceCanvas({
     setConversationId(localStorage.getItem(storageKey));
     const authorize = async () => {
       try {
-        const authorization: { ticket: string; openhandsBaseUrl: string; engineBaseUrl: string } = await request.post(
-          `/api/projects/${encodeURIComponent(projectId)}/workspace`, {},
-        );
+        const authorization: { ticket: string; openhandsBaseUrl: string; engineBaseUrl: string } =
+          await request.post(`/api/projects/${encodeURIComponent(projectId)}/workspace`, {});
         if (!cancelled) {
           if (authorization.openhandsBaseUrl) {
             setOpenhandsBaseUrl(authorization.openhandsBaseUrl);
@@ -81,11 +81,22 @@ export default function WorkspaceCanvas({
           }
         }
         const saved = localStorage.getItem(storageKey);
-        const currentTheme = typeof document !== 'undefined' && !document.documentElement.classList.contains('dark') ? 'light' : 'dark';
+        const currentTheme =
+          typeof document !== 'undefined' && !document.documentElement.classList.contains('dark')
+            ? 'light'
+            : 'dark';
         const response = await fetch(`${authorization.openhandsBaseUrl}/api/omicsbase/session`, {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authorization.ticket}` },
-          body: JSON.stringify({ ticket: authorization.ticket, conversation_id: saved, theme: currentTheme }),
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authorization.ticket}`,
+          },
+          body: JSON.stringify({
+            ticket: authorization.ticket,
+            conversation_id: saved,
+            theme: currentTheme,
+          }),
         });
         if (!response.ok) throw new Error('Workspace authorization failed');
         const sessionData = await response.json();
@@ -120,12 +131,15 @@ export default function WorkspaceCanvas({
   const fetchProjectStatus = useCallback(async () => {
     const gatewayBase =
       openhandsBaseUrl ||
-      (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+      (typeof window !== 'undefined' &&
+      ['localhost', '127.0.0.1'].includes(window.location.hostname)
         ? 'http://localhost:3001'
         : '');
     if (gatewayBase) {
       try {
-        const res = await fetch(`${gatewayBase}/api/omicsbase/report/${projectId}/status`, { credentials: 'include' });
+        const res = await fetch(`${gatewayBase}/api/omicsbase/report/${projectId}/status`, {
+          credentials: 'include',
+        });
         if (res.ok) {
           const data = await res.json();
           setProjectStatus(data);
@@ -136,7 +150,9 @@ export default function WorkspaceCanvas({
       }
     }
     try {
-      const res = await fetch(`${engineBaseUrl}/api/projects/${projectId}/status`, { credentials: 'include' });
+      const res = await fetch(`${engineBaseUrl}/api/projects/${projectId}/status`, {
+        credentials: 'include',
+      });
       if (res.ok) {
         const data = await res.json();
         setProjectStatus(data);
@@ -177,7 +193,9 @@ export default function WorkspaceCanvas({
         setRenderMessage(`Compilation failed: ${data.stderr || 'Check report R chunks'}`);
       }
     } catch (err) {
-      setRenderMessage(`Error triggering render: ${err instanceof Error ? err.message : 'Engine unreachable'}`);
+      setRenderMessage(
+        `Error triggering render: ${err instanceof Error ? err.message : 'Engine unreachable'}`,
+      );
     } finally {
       setIsRendering(false);
     }
@@ -228,7 +246,9 @@ export default function WorkspaceCanvas({
         ]);
       }
     } catch (err) {
-      alert(`Could not start Workspace Agent: ${err instanceof Error ? err.message : 'Make sure OpenHands is running'}`);
+      alert(
+        `Could not start Workspace Agent: ${err instanceof Error ? err.message : 'Make sure OpenHands is running'}`,
+      );
     } finally {
       setIsLaunching(false);
     }
@@ -236,7 +256,9 @@ export default function WorkspaceCanvas({
 
   const handleResetSession = () => {
     if (
-      confirm('Reset workspace session for this report? You can launch a fresh agent session or switch agent engines.')
+      confirm(
+        'Reset workspace session for this report? You can launch a fresh agent session or switch agent engines.',
+      )
     ) {
       localStorage.removeItem(storageKey);
       localStorage.removeItem(`${storageKey}_engine`);
@@ -282,7 +304,9 @@ export default function WorkspaceCanvas({
         setViewMode('agent');
       }
     } catch (err) {
-      alert(`Could not start ${engineKey} agent: ${err instanceof Error ? err.message : 'Make sure OpenHands is running'}`);
+      alert(
+        `Could not start ${engineKey} agent: ${err instanceof Error ? err.message : 'Make sure OpenHands is running'}`,
+      );
     } finally {
       setIsLaunching(false);
     }
@@ -295,13 +319,30 @@ export default function WorkspaceCanvas({
       : '');
   const quartoSiteUrl = `${effectiveOpenhandsUrl}/api/omicsbase/report/${projectId}/site/index.html`;
 
+  const agentView =
+    conversationId && workspaceAuthorized ? (
+      <AgentCanvasFrame openhandsBaseUrl={openhandsBaseUrl} conversationId={conversationId} />
+    ) : (
+      <div className="h-full overflow-y-auto">
+        <div className="px-6 pt-6">
+          <RoihuSessionCard />
+        </div>
+        <AgentLauncherCard
+          projectId={projectId}
+          selectedEngine={selectedEngine}
+          setSelectedEngine={setSelectedEngine}
+          onLaunchAgent={handleLaunchAgent}
+          isLaunching={isLaunching}
+          workspaceAuthorized={workspaceAuthorized}
+        />
+      </div>
+    );
+
   return (
     <div
       className={cn(
-        'flex w-full flex-col overflow-hidden bg-presentation transition-all',
-        isFullscreen
-          ? 'fixed inset-0 z-[100] h-screen w-screen'
-          : 'h-full flex-1 min-h-0'
+        'bg-presentation flex w-full flex-col overflow-hidden transition-all',
+        isFullscreen ? 'fixed inset-0 z-[100] h-screen w-screen' : 'h-full min-h-0 flex-1',
       )}
     >
       <WorkspaceHeader
@@ -341,21 +382,7 @@ export default function WorkspaceCanvas({
       {/* Main Canvas Body */}
       <div className="relative flex-1 overflow-hidden">
         {viewMode === 'agent' ? (
-          conversationId && workspaceAuthorized ? (
-            <AgentCanvasFrame
-              openhandsBaseUrl={openhandsBaseUrl}
-              conversationId={conversationId}
-            />
-          ) : (
-            <AgentLauncherCard
-              projectId={projectId}
-              selectedEngine={selectedEngine}
-              setSelectedEngine={setSelectedEngine}
-              onLaunchAgent={handleLaunchAgent}
-              isLaunching={isLaunching}
-              workspaceAuthorized={workspaceAuthorized}
-            />
-          )
+          agentView
         ) : (
           <ReportPreviewFrame
             hasSite={!!projectStatus?.has_site}
