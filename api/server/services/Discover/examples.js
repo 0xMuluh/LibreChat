@@ -96,9 +96,11 @@ async function listExamples({
   const query = String(q).trim().toLowerCase();
 
   const all = await listAllExamples(seed);
+  /* A comma-separated list matches any of its fields, e.g. "Proteomics,Metabolomics". */
+  const wanted = String(field).split(',').filter(Boolean);
   const filtered = all.filter(
     (example) =>
-      (!field || example.field === field) &&
+      (wanted.length === 0 || wanted.includes(example.field)) &&
       (!mode || example.mode === mode) &&
       (!query ||
         [

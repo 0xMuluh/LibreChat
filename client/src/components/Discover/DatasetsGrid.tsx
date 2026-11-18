@@ -21,7 +21,7 @@ export default function DatasetsGrid({ field = '', query = '', onPrompt }: Props
 
   const tabs = (
     <div
-      className="inline-flex self-start rounded-lg border border-border-light bg-surface-secondary p-0.5"
+      className="border-border-light bg-surface-secondary inline-flex self-start rounded-lg border p-0.5"
       role="tablist"
       aria-label={localize('com_ui_datasets')}
     >
@@ -38,7 +38,7 @@ export default function DatasetsGrid({ field = '', query = '', onPrompt }: Props
           aria-selected={tab === value}
           onClick={() => setTab(value)}
           className={cn(
-            'rounded-md px-3 py-1 text-[13px] font-medium',
+            'text-1xs rounded-md px-3 py-1 font-medium',
             tab === value
               ? 'bg-surface-primary text-text-primary shadow-sm'
               : 'text-text-tertiary hover:text-text-primary',
@@ -53,8 +53,8 @@ export default function DatasetsGrid({ field = '', query = '', onPrompt }: Props
   let body = <BuiltIn field={field} query={query} onPrompt={onPrompt} />;
   if (tab === 'open') {
     body =
-      field && field !== 'Microbiome' ? (
-        <p className="py-7 text-center text-sm text-text-tertiary">
+      field && !field.split(',').includes('Microbiome') ? (
+        <p className="text-text-tertiary py-7 text-center text-sm">
           {localize('com_discover_studies_microbiome_only')}
         </p>
       ) : (
@@ -76,7 +76,7 @@ function BuiltIn({ field = '', query = '', onPrompt }: Props) {
   const q = query.trim().toLowerCase();
   const list = data.filter(
     (d) =>
-      (!field || d.domain === field) &&
+      (!field || field.split(',').includes(d.domain)) &&
       (!q ||
         [d.name, d.pkg, d.desc, d.domain, d.species, d.cls].join(' ').toLowerCase().includes(q)),
   );
@@ -85,11 +85,11 @@ function BuiltIn({ field = '', query = '', onPrompt }: Props) {
   if (q) {
     emptyText = localize('com_discover_datasets_no_match', { 0: query.trim() });
   } else if (field) {
-    emptyText = localize('com_discover_datasets_empty_field', { 0: field });
+    emptyText = localize('com_discover_datasets_empty_field', { 0: field.split(',').join(', ') });
   }
 
   if (!list.length) {
-    return <p className="py-7 text-center text-sm text-text-tertiary">{emptyText}</p>;
+    return <p className="text-text-tertiary py-7 text-center text-sm">{emptyText}</p>;
   }
 
   return (
@@ -101,15 +101,15 @@ function BuiltIn({ field = '', query = '', onPrompt }: Props) {
             key={`${d.pkg}:${d.name}`}
             type="button"
             onClick={() => onPrompt(datasetPrompt(d))}
-            className="flex items-start gap-3 rounded-xl border border-border-light bg-surface-primary p-3 text-left transition-colors hover:border-border-heavy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring-primary"
+            className="border-border-light bg-surface-primary hover:border-border-heavy focus-visible:ring-ring-primary flex items-start gap-3 rounded-xl border p-3 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none"
           >
-            <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-surface-secondary text-text-secondary">
+            <span className="bg-surface-secondary text-text-secondary flex size-9 flex-none items-center justify-center rounded-lg">
               <Icon className="size-4" aria-hidden="true" />
             </span>
             <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="font-mono text-[13px] font-medium text-text-primary">{d.name}</span>
-              <span className="text-[13px] leading-snug text-text-secondary">{d.desc}</span>
-              <span className="text-xs text-text-tertiary">
+              <span className="text-text-primary text-1xs font-mono font-medium">{d.name}</span>
+              <span className="text-text-secondary text-1xs leading-snug">{d.desc}</span>
+              <span className="text-text-tertiary text-xs">
                 {d.pkg} · {d.species}
               </span>
             </span>

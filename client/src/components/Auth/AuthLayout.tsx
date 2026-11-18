@@ -1,6 +1,7 @@
 import { ThemeSelector } from '@librechat/client';
 import { TStartupConfig } from 'librechat-data-provider';
 import { ErrorMessage } from '~/components/Auth/ErrorMessage';
+import HelixBackground from '~/components/HelixBackground';
 import { hasPublishedPolicies } from '~/utils/policies';
 import { TranslationKeys, useLocalize } from '~/hooks';
 import SocialLoginRender from './SocialLoginRender';
@@ -55,6 +56,13 @@ function AuthLayout({
    *  reader never meets both and never meets neither. */
   const statesConsent = registrationStatesConsent || statesConsentBelowProviders;
   const isTwoFactorSetup = pathname === '/login/2fa/setup';
+  /** OmicsBase: one line under the heading on the two ways in. */
+  let subtitle: TranslationKeys | null = null;
+  if (isRegister) {
+    subtitle = 'com_auth_register_subtitle';
+  } else if (isLogin) {
+    subtitle = 'com_auth_login_subtitle';
+  }
   const DisplayError = () => {
     if (hasStartupConfigError) {
       return (
@@ -93,6 +101,7 @@ function AuthLayout({
         <div className="omicsbase-aurora-glow" />
         <div className="omicsbase-aurora-vignette" />
       </div>
+      <HelixBackground />
       <div className="relative z-[1] flex min-h-screen flex-col">
         <Banner />
         <BlinkAnimation active={isFetching}>
@@ -120,6 +129,11 @@ function AuthLayout({
               <h1 className="font-display text-text-primary mb-4 text-center text-3xl font-semibold tracking-tight select-none">
                 {header}
               </h1>
+            )}
+            {!hasStartupConfigError && !isFetching && header && subtitle && (
+              <p className="text-text-secondary -mt-2 mb-5 text-center text-sm">
+                {localize(subtitle)}
+              </p>
             )}
             {children}
             {showsSocialLogin && (
