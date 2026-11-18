@@ -1,5 +1,4 @@
 const express = require('express');
-const requireJwtAuth = require('~/server/middleware/requireJwtAuth');
 const optionalJwtAuth = require('~/server/middleware/optionalJwtAuth');
 const noteCells = require('~/server/services/NoteCells/service');
 
@@ -31,34 +30,6 @@ function withArtifactUrls(conversationId, cellId, executionId, payload) {
   }
   return payload;
 }
-
-/** Internal agent sync execute (engine MCP → LibreChat durable path). No JWT. */
-router.post(
-  '/:conversationId/internal/execute-sync',
-  asyncHandler(async (req, res) => {
-    if (!noteCells.verifyInternalSecret(req.get('X-Internal-Secret'))) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    const { conversationId } = req.params;
-    const code = req.body?.code ?? '';
-    const timeoutSeconds = Number(req.body?.timeout_seconds) || 180;
-    let userId = req.body?.user_id || (await noteCells.resolveUserForConversation(conversationId));
-    if (!userId) {
-      userId = 'system';
-    }
-    try {
-      const result = await noteCells.executeSyncForAgent({
-        conversationId,
-        userId: String(userId),
-        code,
-        timeoutSeconds,
-      });
-      return res.json(result);
-    } catch (err) {
-      return sendError(res, err);
-    }
-  }),
-);
 
 router.post(
   '/:conversationId/internal/start',
@@ -96,12 +67,7 @@ router.post(
         req.body,
       );
       res.json(
-        withArtifactUrls(
-          req.params.conversationId,
-          result.cellId,
-          req.params.executionId,
-          result,
-        ),
+        withArtifactUrls(req.params.conversationId, result.cellId, req.params.executionId, result),
       );
     } catch (err) {
       return sendError(res, err);
@@ -257,7 +223,12 @@ authed.get(
       req.params.cellId,
       req.params.executionId,
     );
-    withArtifactUrls(req.params.conversationId, req.params.cellId, req.params.executionId, execution);
+    withArtifactUrls(
+      req.params.conversationId,
+      req.params.cellId,
+      req.params.executionId,
+      execution,
+    );
     res.json(execution);
   }),
 );
