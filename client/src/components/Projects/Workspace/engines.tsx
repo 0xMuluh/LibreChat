@@ -3,6 +3,10 @@ import { Pi, Terminal } from 'lucide-react';
 import { GPTIcon, AnthropicIcon, GeminiIcon } from '@librechat/client';
 import { AgentEngineOption } from './types';
 
+type IconProps = { size?: number; className?: string };
+const PiIcon = (props: IconProps) => <Pi {...props} />;
+const OpenCodeIcon = (props: IconProps) => <Terminal {...props} />;
+
 export const OpenHandsIcon = ({
   size = 16,
   className = '',
@@ -70,12 +74,12 @@ export const AGENT_ENGINES: AgentEngineOption[] = [
     key: 'pi',
     name: 'Pi',
     provider: 'Anthropic ACP',
-    icon: Pi,
+    icon: PiIcon,
   },
   {
     key: 'opencode',
     name: 'OpenCode',
     provider: 'OpenRouter ACP',
-    icon: Terminal,
+    icon: OpenCodeIcon,
   },
 ];

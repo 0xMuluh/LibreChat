@@ -1,17 +1,25 @@
-import jwt from 'jsonwebtoken';
+import { roihuConfig } from './roihu';
 
-/** Revoke all workspace sessions for this user, including the other host's cookie. */
-export async function revokeWorkspaceSessions(userId: string): Promise<void> {
-  const secret = process.env.OMICSBASE_AUTH_SECRET;
-  if (!secret || !userId) return;
-  const token = jwt.sign({ purpose: 'logout' }, secret, {
-    algorithm: 'HS256', issuer: 'librechat', audience: 'omicsbase-openhands',
-    subject: userId, expiresIn: '30s',
-  });
-  const base = process.env.OMICSBASE_OPENHANDS_INTERNAL_URL || 'http://openhands:3000';
-  const response = await fetch(`${base.replace(/\/$/, '')}/api/omicsbase/revoke`, {
-    method: 'POST', headers: { Authorization: `Bearer ${token}` },
+/**
+ * End this browser's access to the user's Reports sessions on Roihu: the router stops
+ * accepting every routing cookie it has issued for the user, so the next person to sign
+ * in on the same browser cannot reach them. The sessions keep running.
+ */
+export async function revokeWorkspaceSessions(
+  userId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const config = roihuConfig(env);
+  if (!config || !userId) {
+    return;
+  }
+  const url = `${config.routerUrl.replace(/\/$/, '')}/users/${encodeURIComponent(userId)}/sign-out`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${config.routerSecret}` },
     signal: AbortSignal.timeout(5000),
   });
-  if (!response.ok) throw new Error('Workspace session revocation failed');
+  if (!response.ok) {
+    throw new Error('Workspace session revocation failed');
+  }
 }
