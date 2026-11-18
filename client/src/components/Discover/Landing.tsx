@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { disabledFillClasses } from '@librechat/client';
 import { buildLoginRedirectUrl } from 'librechat-data-provider';
 import { ArrowUp, Database, LayoutGrid, Mic, Plus, SquarePen } from 'lucide-react';
 import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type { DiscoverModel } from '~/data-provider';
 import { useDiscoverFooter, useDiscoverModels, useGetStartupConfig } from '~/data-provider';
 import { useAuthContext, useDocumentTitle, useLocalize } from '~/hooks';
+import HelixBackground from '~/components/HelixBackground';
 import ExamplesGallery from './ExamplesGallery';
 import Footer from '~/components/Chat/Footer';
 import DatasetsGrid from './DatasetsGrid';
 import ThemeToggle from './ThemeToggle';
 import SearchBox from './SearchBox';
 import ModelMenu from './ModelMenu';
+import { cn } from '~/utils';
 
 /**
  * OmicsBase: the page a signed-out visitor sees at /welcome. A question typed
@@ -93,17 +96,18 @@ export default function Landing() {
     'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-text-primary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring-primary';
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-presentation text-text-primary">
+    <div className="bg-presentation text-text-primary relative flex h-screen overflow-hidden">
       <div className="omicsbase-aurora" aria-hidden="true">
         <div className="omicsbase-aurora-glow" />
         <div className="omicsbase-aurora-vignette" />
       </div>
+      <HelixBackground scrollRef={scrollRef} />
 
       <aside
-        className="relative z-[1] hidden w-64 flex-none flex-col border-r border-border-light bg-surface-primary-alt p-3 md:flex"
+        className="border-border-light bg-surface-primary-alt relative z-[1] hidden w-64 flex-none flex-col border-r p-3 md:flex"
         aria-label={localize('com_discover_sidebar')}
       >
-        <div className="flex items-center gap-2 px-1.5 pb-4 pt-1">
+        <div className="flex items-center gap-2 px-1.5 pt-1 pb-4">
           <img src="assets/logo.svg" alt="" className="size-6" />
           <span className="font-display text-base font-medium">
             {startupConfig?.appTitle ?? 'OmicsBase'}
@@ -124,12 +128,12 @@ export default function Landing() {
           </button>
         </nav>
         <div className="mt-auto flex flex-col gap-3 px-1.5 pb-1">
-          <p className="text-[13px] leading-snug text-text-secondary">
+          <p className="text-text-secondary text-1xs leading-snug">
             {localize('com_discover_sidebar_login_hint')}
           </p>
           <a
             href={loginUrl()}
-            className="rounded-full border border-border-medium px-3 py-1.5 text-center text-sm font-medium text-text-primary hover:bg-surface-hover"
+            className="border-border-medium text-text-primary hover:bg-surface-hover rounded-full border px-3 py-1.5 text-center text-sm font-medium"
           >
             {localize('com_discover_log_in')}
           </a>
@@ -138,19 +142,19 @@ export default function Landing() {
 
       <div className="relative z-[1] min-w-0 flex-1">
         <div ref={scrollRef} className="h-full overflow-y-auto">
-          <header className="sticky top-0 z-10 flex items-center justify-between gap-3 bg-presentation/80 px-3 py-2.5 backdrop-blur sm:px-4">
+          <header className="bg-presentation/80 sticky top-0 z-10 flex items-center justify-between gap-3 px-3 py-2.5 backdrop-blur sm:px-4">
             <ModelMenu models={models ?? []} selected={model} onSelect={setChosen} />
             <div className="flex items-center gap-2">
               <ThemeToggle />
               <a
                 href={loginUrl()}
-                className="whitespace-nowrap rounded-full bg-accent-primary px-3.5 py-1.5 text-sm font-medium text-surface-primary hover:bg-accent-primary-hover"
+                className="bg-accent-primary text-surface-primary hover:bg-accent-primary-hover rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap"
               >
                 {localize('com_discover_log_in')}
               </a>
               <a
                 href={loginUrl()}
-                className="hidden whitespace-nowrap rounded-full border border-border-medium px-3.5 py-1.5 text-sm font-medium text-text-primary hover:bg-surface-hover sm:inline-block"
+                className="border-border-medium text-text-primary hover:bg-surface-hover hidden rounded-full border px-3.5 py-1.5 text-sm font-medium whitespace-nowrap sm:inline-block"
               >
                 {localize('com_discover_sign_up')}
               </a>
@@ -159,11 +163,11 @@ export default function Landing() {
           <div className="mx-auto flex max-w-6xl flex-col px-4 pb-16 sm:px-6">
             <main className="flex flex-col">
               <section className="mx-auto mt-[9vh] w-full max-w-3xl text-center">
-                <h1 className="mb-6 font-display text-3xl font-medium tracking-tight sm:text-4xl">
+                <h1 className="font-display mb-6 text-3xl font-medium tracking-tight sm:text-4xl">
                   {localize('com_discover_hero')}
                 </h1>
                 <form
-                  className="flex items-end gap-2 rounded-3xl border border-border-light bg-surface-chat p-2.5 shadow-sm"
+                  className="border-border-light bg-surface-chat flex items-end gap-2 rounded-3xl border p-2.5 shadow-sm"
                   onSubmit={(e) => {
                     e.preventDefault();
                     submit();
@@ -173,7 +177,7 @@ export default function Landing() {
                     href={loginUrl()}
                     aria-label={localize('com_discover_add_data')}
                     title={localize('com_discover_log_in_to_add_data')}
-                    className="flex size-9 flex-none items-center justify-center rounded-full text-text-secondary hover:bg-surface-hover"
+                    className="text-text-secondary hover:bg-surface-hover flex size-9 flex-none items-center justify-center rounded-full"
                   >
                     <Plus className="size-5" aria-hidden="true" />
                   </a>
@@ -190,13 +194,13 @@ export default function Landing() {
                     }}
                     placeholder={localize('com_discover_prompt_placeholder')}
                     aria-label={localize('com_discover_message')}
-                    className="max-h-[200px] flex-1 resize-none bg-transparent py-2 text-base text-text-primary outline-none placeholder:text-text-tertiary"
+                    className="text-text-primary placeholder:text-text-tertiary max-h-[200px] flex-1 resize-none bg-transparent py-2 text-base outline-none"
                   />
                   <a
                     href={loginUrl()}
                     aria-label={localize('com_discover_voice_input')}
                     title={localize('com_discover_log_in_to_use_voice')}
-                    className="flex size-9 flex-none items-center justify-center rounded-full text-text-secondary hover:bg-surface-hover"
+                    className="text-text-secondary hover:bg-surface-hover flex size-9 flex-none items-center justify-center rounded-full"
                   >
                     <Mic className="size-5" aria-hidden="true" />
                   </a>
@@ -204,7 +208,10 @@ export default function Landing() {
                     type="submit"
                     aria-label={localize('com_discover_send')}
                     disabled={!text.trim()}
-                    className="flex size-9 flex-none items-center justify-center rounded-full bg-text-primary text-surface-primary disabled:opacity-30"
+                    className={cn(
+                      'bg-text-primary text-surface-primary flex size-9 flex-none items-center justify-center rounded-full',
+                      disabledFillClasses,
+                    )}
                   >
                     <ArrowUp className="size-5" aria-hidden="true" />
                   </button>
@@ -230,7 +237,7 @@ export default function Landing() {
                 id="datasets"
                 aria-labelledby="datasetsHeading"
               >
-                <h2 id="datasetsHeading" className="mb-4 font-display text-xl font-medium">
+                <h2 id="datasetsHeading" className="font-display mb-4 text-xl font-medium">
                   {localize('com_ui_datasets')}
                 </h2>
                 <DatasetsGrid field={field} query={query} onPrompt={applyPrompt} />
@@ -239,10 +246,10 @@ export default function Landing() {
           </div>
         </div>
         {/* Pinned to the bottom of the page, as in the signed-in app. */}
-        <div className="absolute bottom-0 left-0 right-0">
+        <div className="absolute right-0 bottom-0 left-0">
           <Footer
             startupConfig={footerConfig}
-            className="hidden items-center justify-center gap-2 bg-presentation px-2 py-2 text-center text-xs text-text-muted sm:flex md:px-[60px]"
+            className="bg-presentation text-text-muted hidden items-center justify-center gap-2 px-2 py-2 text-center text-xs sm:flex md:px-15"
           />
         </div>
       </div>
