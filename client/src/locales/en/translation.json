@@ -3781,11 +3781,15 @@
   "com_roihu_starting_title": "Starting your agent",
   "com_roihu_starting_body": "Loading the R environment and connecting it to OmicsBase.",
   "com_roihu_running_title": "Your session is running",
-  "com_roihu_running_body": "On Roihu in {{0}} until about {{1}}. Your files stay in your project folder after it ends.",
   "com_roihu_unknown_title": "Checking your session",
   "com_roihu_unknown_body": "Waiting for Roihu to report the job.",
-  "com_roihu_open": "Open Reports",
   "com_roihu_stop": "Stop session",
   "com_roihu_stop_confirm": "Stop your Reports session on Roihu? Your files stay in your project folder.",
-  "com_roihu_running_body_no_end": "On Roihu in {{0}}. Your files stay in your project folder after it ends."
+  "com_roihu_frame_title": "Connecting to your Reports session",
+  "com_roihu_connecting": "Connecting this browser to your session…",
+  "com_roihu_connect_failed": "This browser could not connect to your session.",
+  "com_roihu_retry": "Try again",
+  "com_roihu_bar_running": "Roihu session running",
+  "com_roihu_bar_details": "{{0}} · {{1}} cores · {{2}} GiB",
+  "com_roihu_bar_until": "until {{0}}"
 }

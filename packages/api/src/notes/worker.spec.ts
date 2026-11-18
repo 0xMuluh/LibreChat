@@ -28,7 +28,7 @@ test('keeps execution non-terminal until artifacts are registered', async () => 
     NoteCellRevision: { findById: jest.fn(async () => ({ content: 'plot(1)' })) },
     NoteExecutionArtifact: artifacts,
   };
-  const appendEvent = jest.fn(async () => undefined);
+  const appendEvent = jest.fn(async () => 1);
   const worker = createExecutionWorker(
     {
       models,
@@ -62,14 +62,21 @@ test('keeps execution non-terminal until artifacts are registered', async () => 
 test('does not execute R when attachment preparation fails', async () => {
   const execution = makeExecution();
   const executeOnEngine = jest.fn();
-  const worker = createExecutionWorker({
-    models: {
-      NoteCellExecution: { findById: jest.fn(async () => execution) },
-      NoteCellRevision: { findById: jest.fn(async () => ({ content: 'readRDS("data/tse.Rds")' })) },
-    },
-    bridgeConversationFiles: jest.fn(async () => { throw new Error('Attachment permission denied'); }),
-    executeOnEngine,
-  } as never, jest.fn(async () => undefined));
+  const worker = createExecutionWorker(
+    {
+      models: {
+        NoteCellExecution: { findById: jest.fn(async () => execution) },
+        NoteCellRevision: {
+          findById: jest.fn(async () => ({ content: 'readRDS("data/tse.Rds")' })),
+        },
+      },
+      bridgeConversationFiles: jest.fn(async () => {
+        throw new Error('Attachment permission denied');
+      }),
+      executeOnEngine,
+    } as never,
+    jest.fn(async () => 1),
+  );
   await worker.enqueueExecution('execution-1');
   expect(executeOnEngine).not.toHaveBeenCalled();
   expect(execution.status).toBe('failed');

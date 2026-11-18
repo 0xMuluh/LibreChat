@@ -28,6 +28,8 @@ export default function WorkspaceCanvas({
   const storageKey = `omicsbase_workspace_session_v2_${user?.id}_${projectId}`;
 
   const [workspaceAuthorized, setWorkspaceAuthorized] = useState(false);
+  /** The user's Reports session on Roihu is running and this browser is connected to it. */
+  const [roihuReady, setRoihuReady] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(() => {
     return localStorage.getItem(storageKey);
   });
@@ -53,11 +55,6 @@ export default function WorkspaceCanvas({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullscreen]);
 
-  const [engineBaseUrl, setEngineBaseUrl] = useState(() =>
-    typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
-      ? 'http://localhost:8001'
-      : '/omics-engine',
-  );
   const [openhandsBaseUrl, setOpenhandsBaseUrl] = useState(() =>
     typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
       ? 'http://localhost:3001'
@@ -68,16 +65,18 @@ export default function WorkspaceCanvas({
     let cancelled = false;
     setWorkspaceAuthorized(false);
     setConversationId(localStorage.getItem(storageKey));
+    if (!roihuReady) {
+      return;
+    }
     const authorize = async () => {
       try {
-        const authorization: { ticket: string; openhandsBaseUrl: string; engineBaseUrl: string } =
-          await request.post(`/api/projects/${encodeURIComponent(projectId)}/workspace`, {});
+        const authorization: { ticket: string; openhandsBaseUrl: string } = await request.post(
+          `/api/projects/${encodeURIComponent(projectId)}/workspace`,
+          {},
+        );
         if (!cancelled) {
           if (authorization.openhandsBaseUrl) {
             setOpenhandsBaseUrl(authorization.openhandsBaseUrl);
-          }
-          if (authorization.engineBaseUrl) {
-            setEngineBaseUrl(authorization.engineBaseUrl);
           }
         }
         const saved = localStorage.getItem(storageKey);
@@ -125,42 +124,24 @@ export default function WorkspaceCanvas({
       clearInterval(refresh);
       window.removeEventListener('focus', authorize);
     };
-  }, [projectId, storageKey]);
+  }, [projectId, storageKey, roihuReady]);
 
-  // Fetch project report status from gateway or engine
+  // Report status from the gateway in the user's Roihu session
   const fetchProjectStatus = useCallback(async () => {
-    const gatewayBase =
-      openhandsBaseUrl ||
-      (typeof window !== 'undefined' &&
-      ['localhost', '127.0.0.1'].includes(window.location.hostname)
-        ? 'http://localhost:3001'
-        : '');
-    if (gatewayBase) {
-      try {
-        const res = await fetch(`${gatewayBase}/api/omicsbase/report/${projectId}/status`, {
-          credentials: 'include',
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setProjectStatus(data);
-          return;
-        }
-      } catch {
-        // fallback to engine
-      }
+    if (!roihuReady || !openhandsBaseUrl) {
+      return;
     }
     try {
-      const res = await fetch(`${engineBaseUrl}/api/projects/${projectId}/status`, {
+      const res = await fetch(`${openhandsBaseUrl}/api/omicsbase/report/${projectId}/status`, {
         credentials: 'include',
       });
       if (res.ok) {
-        const data = await res.json();
-        setProjectStatus(data);
+        setProjectStatus(await res.json());
       }
     } catch {
-      // engine might still be starting
+      // the session may be reconnecting
     }
-  }, [openhandsBaseUrl, engineBaseUrl, projectId]);
+  }, [roihuReady, openhandsBaseUrl, projectId]);
 
   useEffect(() => {
     fetchProjectStatus();
@@ -179,7 +160,7 @@ export default function WorkspaceCanvas({
     setIsRendering(true);
     setRenderMessage(null);
     try {
-      const res = await fetch(`${engineBaseUrl}/api/projects/${projectId}/render`, {
+      const res = await fetch(`${openhandsBaseUrl}/api/omicsbase/projects/${projectId}/render`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -323,19 +304,14 @@ export default function WorkspaceCanvas({
     conversationId && workspaceAuthorized ? (
       <AgentCanvasFrame openhandsBaseUrl={openhandsBaseUrl} conversationId={conversationId} />
     ) : (
-      <div className="h-full overflow-y-auto">
-        <div className="px-6 pt-6">
-          <RoihuSessionCard />
-        </div>
-        <AgentLauncherCard
-          projectId={projectId}
-          selectedEngine={selectedEngine}
-          setSelectedEngine={setSelectedEngine}
-          onLaunchAgent={handleLaunchAgent}
-          isLaunching={isLaunching}
-          workspaceAuthorized={workspaceAuthorized}
-        />
-      </div>
+      <AgentLauncherCard
+        projectId={projectId}
+        selectedEngine={selectedEngine}
+        setSelectedEngine={setSelectedEngine}
+        onLaunchAgent={handleLaunchAgent}
+        isLaunching={isLaunching}
+        workspaceAuthorized={workspaceAuthorized}
+      />
     );
 
   return (
@@ -379,22 +355,27 @@ export default function WorkspaceCanvas({
         onSelectEngine={handleSelectAndSwitchEngine}
       />
 
+      {/* The session card until the session is connected, then a bar above the workspace. */}
+      <RoihuSessionCard onConnectedChange={setRoihuReady} />
+
       {/* Main Canvas Body */}
-      <div className="relative flex-1 overflow-hidden">
-        {viewMode === 'agent' ? (
-          agentView
-        ) : (
-          <ReportPreviewFrame
-            hasSite={!!projectStatus?.has_site}
-            quartoSiteUrl={quartoSiteUrl}
-            previewKey={previewKey}
-            projectName={projectName}
-            isRendering={isRendering}
-            onRenderQuarto={handleRenderQuarto}
-            onReturnToAgent={() => setViewMode('agent')}
-          />
-        )}
-      </div>
+      {roihuReady && (
+        <div className="relative flex-1 overflow-hidden">
+          {viewMode === 'agent' ? (
+            agentView
+          ) : (
+            <ReportPreviewFrame
+              hasSite={!!projectStatus?.has_site}
+              quartoSiteUrl={quartoSiteUrl}
+              previewKey={previewKey}
+              projectName={projectName}
+              isRendering={isRendering}
+              onRenderQuarto={handleRenderQuarto}
+              onReturnToAgent={() => setViewMode('agent')}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

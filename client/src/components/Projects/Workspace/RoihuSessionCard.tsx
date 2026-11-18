@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Button } from '@librechat/client';
 import { request } from 'librechat-data-provider';
-import { Server, Clock, Square, Loader2, CircleCheck, ExternalLink } from 'lucide-react';
+import { Server, Clock, Square, Loader2, CircleCheck, RotateCw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { TranslationKeys } from '~/hooks';
 import { useLocalize } from '~/hooks';
@@ -12,6 +12,8 @@ type SessionState = 'none' | 'preparing' | 'queued' | 'starting' | 'running' | '
 interface SessionView {
   state: SessionState;
   project?: string;
+  cores?: number;
+  memory?: number;
   endsAt?: number;
   message?: string;
 }
@@ -37,6 +39,8 @@ const ERROR_KEY: Record<Field, TranslationKeys> = {
 
 const ACTIVE: SessionState[] = ['preparing', 'queued', 'starting', 'running', 'unknown'];
 const POLL_MS = 10_000;
+/** How long the hidden open page may take to report back. */
+const CONNECT_MS = 30_000;
 
 /** The server's error text for the user, if any. */
 function serverError(e: unknown): string | undefined {
@@ -105,11 +109,18 @@ function StatusCard({ icon: Icon, spin, title, body, children }: StatusCardProps
   );
 }
 
+interface RoihuSessionCardProps {
+  /** Whether this browser is connected to the running session, so the workspace can use it. */
+  onConnectedChange: (connected: boolean) => void;
+}
+
 /**
- * Reports on Roihu: start the user's own Reports agent as a job in their CSC project, follow
- * it until it runs, open it and stop it. The session belongs to the user, not to one project.
+ * Reports on Roihu: start the user's own Reports agent as a job in their CSC project and
+ * follow it until it runs. A running session is connected in a hidden frame (its one-time
+ * open link sets the routing cookie for openhands.omicsbase.utu.fi); the card then shrinks to
+ * a bar above the workspace. One session serves all of the user's reports.
  */
-export default function RoihuSessionCard() {
+export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCardProps) {
   const uid = useId();
   const localize = useLocalize();
   const [session, setSession] = useState<SessionView | null>(null);
@@ -124,8 +135,9 @@ export default function RoihuSessionCard() {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const refs = useRef<Partial<Record<Field, HTMLInputElement | null>>>({});
-  const openRef = useRef<HTMLButtonElement | null>(null);
-  const lastState = useRef<SessionState | null>(null);
+  const [openUrl, setOpenUrl] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [connectFailed, setConnectFailed] = useState(false);
 
   const generic = localize('com_roihu_err_generic');
 
@@ -150,12 +162,55 @@ export default function RoihuSessionCard() {
     return () => window.clearInterval(timer);
   }, [session, refresh]);
 
-  useEffect(() => {
-    if (session?.state === 'running' && lastState.current !== 'running') {
-      openRef.current?.focus();
+  const running = session?.state === 'running';
+
+  const connect = useCallback(async () => {
+    setConnectFailed(false);
+    try {
+      const { url } = (await request.post('/api/roihu/session/open')) as { url: string };
+      setOpenUrl(url);
+    } catch (err) {
+      setConnectFailed(true);
+      setNotice(serverError(err) ?? generic);
     }
-    lastState.current = session?.state ?? null;
-  }, [session?.state]);
+  }, [generic]);
+
+  useEffect(() => {
+    if (!running) {
+      setConnected(false);
+      setOpenUrl(null);
+      return;
+    }
+    if (!connected && !openUrl && !connectFailed) {
+      connect();
+    }
+  }, [running, connected, openUrl, connectFailed, connect]);
+
+  useEffect(() => {
+    if (!openUrl) {
+      return;
+    }
+    const origin = new URL(openUrl).origin;
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin === origin && e.data?.type === 'omicsbase:roihu-open') {
+        setConnected(true);
+        setOpenUrl(null);
+      }
+    };
+    const timer = window.setTimeout(() => {
+      setOpenUrl(null);
+      setConnectFailed(true);
+    }, CONNECT_MS);
+    window.addEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      window.clearTimeout(timer);
+    };
+  }, [openUrl]);
+
+  useEffect(() => {
+    onConnectedChange(running && connected);
+  }, [running, connected, onConnectedChange]);
 
   const setField = (field: Field) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setValues((v) => ({ ...v, [field]: e.target.value }));
@@ -192,22 +247,6 @@ export default function RoihuSessionCard() {
       setNotice(serverError(err) ?? generic);
     } finally {
       setBusy(false);
-    }
-  };
-
-  const open = async () => {
-    const tab = window.open('', '_blank');
-    try {
-      const { url } = (await request.post('/api/roihu/session/open')) as { url: string };
-      if (tab) {
-        tab.opener = null;
-        tab.location.href = url;
-      } else {
-        window.location.href = url;
-      }
-    } catch (err) {
-      tab?.close();
-      setNotice(serverError(err) ?? generic);
     }
   };
 
@@ -274,20 +313,18 @@ export default function RoihuSessionCard() {
   } else if (session.state === 'running') {
     status = (
       <StatusCard
-        icon={CircleCheck}
+        icon={connectFailed ? Server : Loader2}
+        spin={!connectFailed}
         title={localize('com_roihu_running_title')}
-        body={
-          until
-            ? localize('com_roihu_running_body', { 0: session.project ?? '', 1: until })
-            : localize('com_roihu_running_body_no_end', { 0: session.project ?? '' })
-        }
+        body={localize(connectFailed ? 'com_roihu_connect_failed' : 'com_roihu_connecting')}
       >
-        {session.message && <p className="text-text-secondary mt-2 text-sm">{session.message}</p>}
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button ref={openRef} type="button" size="sm" onClick={open}>
-            <ExternalLink className="h-3.5 w-3.5" aria-hidden={true} />
-            {localize('com_roihu_open')}
-          </Button>
+          {connectFailed && (
+            <Button type="button" size="sm" onClick={connect}>
+              <RotateCw className="h-3.5 w-3.5" aria-hidden={true} />
+              {localize('com_roihu_retry')}
+            </Button>
+          )}
           {stopButton}
         </div>
       </StatusCard>
@@ -307,128 +344,166 @@ export default function RoihuSessionCard() {
     status = <p className="text-text-secondary mb-4 text-sm">{session.message}</p>;
   }
 
+  if (session?.state === 'running' && connected) {
+    const details = [
+      localize('com_roihu_bar_details', {
+        0: session.project ?? '',
+        1: String(session.cores ?? ''),
+        2: String(session.memory ?? ''),
+      }),
+      until ? localize('com_roihu_bar_until', { 0: until }) : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    return (
+      <div className="border-border-light flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-sm">
+        <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-status-success inline-flex items-center gap-1.5">
+            <CircleCheck className="h-4 w-4" aria-hidden={true} />
+            {localize('com_roihu_bar_running')}
+          </span>
+          <span className="text-text-secondary">{details}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {notice && (
+            <p className="text-text-destructive text-sm" role="alert">
+              {notice}
+            </p>
+          )}
+          {stopButton}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <section
-      aria-labelledby={`${uid}-title`}
-      className="border-border-light bg-surface-primary mx-auto w-full max-w-xl rounded-2xl border p-6 text-left shadow-md"
-    >
-      <div className="mb-1 flex items-center gap-2">
-        <Server className="text-text-secondary h-5 w-5" aria-hidden={true} />
-        <h2 id={`${uid}-title`} className="text-text-primary text-base font-semibold">
-          {localize('com_roihu_title')}
-        </h2>
-      </div>
-      <p className="text-text-secondary mb-5 text-sm">{localize('com_roihu_intro')}</p>
+    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+      <section
+        aria-labelledby={`${uid}-title`}
+        className="border-border-light bg-surface-primary mx-auto w-full max-w-xl rounded-2xl border p-6 text-left shadow-md"
+      >
+        <div className="mb-1 flex items-center gap-2">
+          <Server className="text-text-secondary h-5 w-5" aria-hidden={true} />
+          <h2 id={`${uid}-title`} className="text-text-primary text-base font-semibold">
+            {localize('com_roihu_title')}
+          </h2>
+        </div>
+        <p className="text-text-secondary mb-5 text-sm">{localize('com_roihu_intro')}</p>
 
-      <div role="status" aria-live="polite">
-        {status}
-        {notice && (
-          <p className="text-text-destructive mb-4 text-sm" role="alert">
-            {notice}
-          </p>
+        <div role="status" aria-live="polite">
+          {status}
+          {notice && (
+            <p className="text-text-destructive mb-4 text-sm" role="alert">
+              {notice}
+            </p>
+          )}
+        </div>
+
+        {openUrl && (
+          <iframe src={openUrl} title={localize('com_roihu_frame_title')} className="hidden" />
         )}
-      </div>
 
-      {session != null && !active && (
-        <form noValidate onSubmit={launch} aria-describedby={`${uid}-required`}>
-          <p id={`${uid}-required`} className="text-text-secondary mb-3 text-xs">
-            {localize('com_roihu_required')}
-          </p>
-          <TextField
-            id={`${uid}-project`}
-            label={localize('com_roihu_project')}
-            placeholder="project_1234567"
-            autoComplete="off"
-            spellCheck={false}
-            value={values.project}
-            onChange={setField('project')}
-            error={errors.project}
-            inputRef={(el) => (refs.current.project = el)}
-            hint={localize('com_roihu_project_hint')}
-          />
-          <fieldset className="mb-1">
-            <legend className="text-text-primary mb-2 text-sm font-medium">
-              {localize('com_roihu_resources')}
-            </legend>
-            <div className="grid grid-cols-3 gap-3">
-              <TextField
-                id={`${uid}-cores`}
-                label={localize('com_roihu_cores')}
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={8}
-                step={1}
-                value={values.cores}
-                onChange={setField('cores')}
-                error={errors.cores}
-                inputRef={(el) => (refs.current.cores = el)}
-                hint={localize('com_roihu_cores_hint')}
-              />
-              <TextField
-                id={`${uid}-memory`}
-                label={localize('com_roihu_memory')}
-                type="number"
-                inputMode="numeric"
-                min={2}
-                max={64}
-                step={1}
-                value={values.memory}
-                onChange={setField('memory')}
-                error={errors.memory}
-                inputRef={(el) => (refs.current.memory = el)}
-                hint={localize('com_roihu_memory_hint')}
-              />
-              <TextField
-                id={`${uid}-hours`}
-                label={localize('com_roihu_hours')}
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={36}
-                step={1}
-                value={values.hours}
-                onChange={setField('hours')}
-                error={errors.hours}
-                inputRef={(el) => (refs.current.hours = el)}
-                hint={localize('com_roihu_hours_hint')}
-              />
+        {session != null && !active && (
+          <form noValidate onSubmit={launch} aria-describedby={`${uid}-required`}>
+            <p id={`${uid}-required`} className="text-text-secondary mb-3 text-xs">
+              {localize('com_roihu_required')}
+            </p>
+            <TextField
+              id={`${uid}-project`}
+              label={localize('com_roihu_project')}
+              placeholder="project_1234567"
+              autoComplete="off"
+              spellCheck={false}
+              value={values.project}
+              onChange={setField('project')}
+              error={errors.project}
+              inputRef={(el) => (refs.current.project = el)}
+              hint={localize('com_roihu_project_hint')}
+            />
+            <fieldset className="mb-1">
+              <legend className="text-text-primary mb-2 text-sm font-medium">
+                {localize('com_roihu_resources')}
+              </legend>
+              <div className="grid grid-cols-3 gap-3">
+                <TextField
+                  id={`${uid}-cores`}
+                  label={localize('com_roihu_cores')}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={8}
+                  step={1}
+                  value={values.cores}
+                  onChange={setField('cores')}
+                  error={errors.cores}
+                  inputRef={(el) => (refs.current.cores = el)}
+                  hint={localize('com_roihu_cores_hint')}
+                />
+                <TextField
+                  id={`${uid}-memory`}
+                  label={localize('com_roihu_memory')}
+                  type="number"
+                  inputMode="numeric"
+                  min={2}
+                  max={64}
+                  step={1}
+                  value={values.memory}
+                  onChange={setField('memory')}
+                  error={errors.memory}
+                  inputRef={(el) => (refs.current.memory = el)}
+                  hint={localize('com_roihu_memory_hint')}
+                />
+                <TextField
+                  id={`${uid}-hours`}
+                  label={localize('com_roihu_hours')}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={36}
+                  step={1}
+                  value={values.hours}
+                  onChange={setField('hours')}
+                  error={errors.hours}
+                  inputRef={(el) => (refs.current.hours = el)}
+                  hint={localize('com_roihu_hours_hint')}
+                />
+              </div>
+            </fieldset>
+            <TextField
+              id={`${uid}-token`}
+              label={localize('com_roihu_token')}
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={localize('com_roihu_token_placeholder')}
+              value={values.token}
+              onChange={setField('token')}
+              error={errors.token}
+              inputRef={(el) => (refs.current.token = el)}
+              hint={
+                <>
+                  {localize('com_roihu_token_hint')}{' '}
+                  <a
+                    href="https://my.csc.fi/firecrest-token"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="focus-visible:ring-focus-control underline focus-visible:ring-2 focus-visible:outline-none"
+                  >
+                    {localize('com_roihu_token_link')}
+                  </a>
+                </>
+              }
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <Button type="submit" disabled={busy}>
+                {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden={true} />}
+                {localize('com_roihu_launch')}
+              </Button>
+              <span className="text-text-secondary text-xs">{localize('com_roihu_keys_note')}</span>
             </div>
-          </fieldset>
-          <TextField
-            id={`${uid}-token`}
-            label={localize('com_roihu_token')}
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder={localize('com_roihu_token_placeholder')}
-            value={values.token}
-            onChange={setField('token')}
-            error={errors.token}
-            inputRef={(el) => (refs.current.token = el)}
-            hint={
-              <>
-                {localize('com_roihu_token_hint')}{' '}
-                <a
-                  href="https://my.csc.fi/firecrest-token"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="focus-visible:ring-focus-control underline focus-visible:ring-2 focus-visible:outline-none"
-                >
-                  {localize('com_roihu_token_link')}
-                </a>
-              </>
-            }
-          />
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <Button type="submit" disabled={busy}>
-              {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden={true} />}
-              {localize('com_roihu_launch')}
-            </Button>
-            <span className="text-text-secondary text-xs">{localize('com_roihu_keys_note')}</span>
-          </div>
-        </form>
-      )}
-    </section>
+          </form>
+        )}
+      </section>
+    </div>
   );
 }

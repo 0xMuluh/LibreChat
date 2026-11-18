@@ -39,7 +39,7 @@ function categorizeFile(
   ) {
     return 'skipped';
   }
-  if (isWorkspaceDataFileAttachment(file)) {
+  if (file.filename != null && isWorkspaceDataFileAttachment({ filename: file.filename })) {
     return 'skipped';
   }
 
