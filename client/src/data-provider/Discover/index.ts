@@ -100,23 +100,15 @@ export const studyPrompt = (study: DiscoverStudy) =>
     ? `Download the data files from Zenodo record ${study.id} (${study.name}), import the abundance table into a TreeSummarizedExperiment and give me an overview.`
     : `Use MGnifyR to look up MGnify study ${study.accession} (${study.name}). Show the sample metadata first, then fetch the taxonomic profiles for a small subset of its analyses and give me an overview of the samples and their composition.`;
 
+/** Drawn once per page load. */
+const PAGE_SEED = Math.floor(Math.random() * 2_147_483_646) + 1;
+
 /**
- * One random seed per browser session: the order is random on each visit and
- * stays the same while paging.
+ * One random seed per page load: the examples come in a new order on every
+ * visit or reload, and keep that order while paging within the page.
  */
 export function discoverSeed(): number {
-  const key = 'omicsbase:discover-seed';
-  try {
-    const saved = Number(sessionStorage.getItem(key));
-    if (Number.isInteger(saved) && saved > 0) {
-      return saved;
-    }
-    const seed = Math.floor(Math.random() * 2_147_483_646) + 1;
-    sessionStorage.setItem(key, String(seed));
-    return seed;
-  } catch {
-    return Math.floor(Date.now() / 86_400_000);
-  }
+  return PAGE_SEED;
 }
 
 export function useDiscoverExamples(params: DiscoverExamplesParams) {

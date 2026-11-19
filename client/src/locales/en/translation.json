@@ -571,7 +571,7 @@
   "com_discover_node_microbiome_item2": "Diversity",
   "com_discover_node_microbiome_item2_detail": "Alpha, beta and ordination",
   "com_discover_node_microbiome_item3": "Differential abundance",
-  "com_discover_node_microbiome_item3_detail": "MaAsLin3, ANCOM-BC2, ALDEx2",
+  "com_discover_node_microbiome_item3_detail": "LimROTS, MaAsLin3, ANCOM-BC2, ALDEx2",
   "com_discover_node_microbiome_item4": "Networks",
   "com_discover_node_microbiome_item4_detail": "Who grows with whom",
   "com_discover_node_microbiome_tagline": "Understanding microbiomes",

@@ -165,6 +165,30 @@ describe('applyPublicPageMeta', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('tags the welcome page like the front page, with one canonical URL and a preview image', async () => {
+    global.fetch = jest.fn();
+    const res = makeRes();
+    const html = await applyPublicPageMeta(req('/welcome'), res, SHELL);
+    expect(res.headers['X-Robots-Tag']).toBeUndefined();
+    expect(html).toContain('<link rel="canonical" href="https://omicsbase.utu.fi/" />');
+    expect(html).toContain(
+      '<meta property="og:image" content="https://omicsbase.utu.fi/assets/og-image.png" />',
+    );
+    expect(html).toContain('open-source AI workspace for biological data analysis');
+  });
+
+  it('keeps underscores in a note description', async () => {
+    const share = {
+      ...PUBLIC_SHARE,
+      messages: [{ isCreatedByUser: true, text: 'Load HMP_2012_16S_gingival_V13.' }],
+    };
+    global.fetch = jest.fn(async (url) =>
+      url.includes('/cells') ? json(200, CELLS) : json(200, share),
+    );
+    const html = await applyPublicPageMeta(req(`/share/${fresh()}`), makeRes(), SHELL);
+    expect(html).toContain('content="Load HMP_2012_16S_gingival_V13."');
+  });
+
   it('answers HEAD like GET', async () => {
     global.fetch = jest.fn();
     const res = makeRes();

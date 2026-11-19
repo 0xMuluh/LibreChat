@@ -31,10 +31,10 @@ import { useChatSettings } from '~/Providers/ChatSettingsContext';
 import ApprovalProvider from './Messages/Content/ApprovalContext';
 import ConversationStarters from './Input/ConversationStarters';
 import { pendingApprovalActionFamily } from './approval/state';
-import StartStrip from '~/components/Discover/StartStrip';
 import ProjectBadge from '~/components/Projects/ProjectBadge';
 import { composerLiftFamily } from './Input/Composer/state';
 import { OwnerTextProvider } from './Messages/PrivateText';
+import StartStrip from '~/components/Discover/StartStrip';
 import { useGetMessagesByConvoId } from '~/data-provider';
 import { AskAnswerHostProvider } from './ask/state';
 import MessagesView from './Messages/MessagesView';
@@ -196,7 +196,7 @@ function ChatView({
             <ChatContext.Provider value={chatHelpers}>
               <AddedChatContext.Provider value={addedChatHelpers}>
                 <ApprovalProvider pendingAction={pendingAction}>
-                  <Presentation routePending={routePending}>
+                  <Presentation routePending={routePending} helix={isLandingPage}>
                     <TraceSurface conversationId={conversationId}>
                       <h1 className="sr-only">{pageHeading}</h1>
                       {/* Marks the header's controls as this pane's, so a pane-scoped
