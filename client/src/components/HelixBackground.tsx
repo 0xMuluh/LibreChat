@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
+import { cn } from '~/utils';
 
 /**
  * OmicsBase: a slowly turning DNA double helix drawn behind the signed-out
@@ -55,6 +56,7 @@ function drawHelix(
   pointer: { x: number; y: number },
   p: Palette,
   scroll: number,
+  speed: number,
 ) {
   ctx.clearRect(0, 0, w, h);
   const radius = Math.min(w, h) * 0.19;
@@ -62,7 +64,7 @@ function drawHelix(
   /* As in the landing reference, scrolling turns the helix and flies along it. */
   const tiltZ = Math.atan2(w * 0.85, h) - scroll * 0.12 + pointer.x * 0.1;
   const tiltX = 0.24 + pointer.y * 0.2;
-  const spin = time * 0.00055 + scroll * Math.PI * 3.2;
+  const spin = time * 0.00055 * speed + scroll * Math.PI * 3.2;
   const flight = scroll * 14;
   const step = Math.floor(flight);
   const frac = flight % 1;
@@ -162,10 +164,21 @@ function drawHelix(
 type Props = {
   /** A scrolling element whose position turns the helix, as on the landing page. */
   scrollRef?: RefObject<HTMLElement>;
+  /** Rotation speed; 1 is the welcome page's, one turn in about eleven seconds. */
+  speed?: number;
+  /** Fades the helix out when false and stops drawing it once the fade is over. */
+  visible?: boolean;
 };
 
-export default function HelixBackground({ scrollRef }: Props) {
+/** Length of the fade, in ms; matches the duration class on the wrapper. */
+const FADE_MS = 700;
+
+export default function HelixBackground({ scrollRef, speed = 1, visible = true }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
+  const shown = useRef({ visible, hiddenAt: 0 });
+  const restart = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -191,7 +204,8 @@ export default function HelixBackground({ scrollRef }: Props) {
     };
     const draw = (time: number) => {
       scroll += (scrollTarget() - scroll) * 0.08;
-      drawHelix(ctx, w, h, time, pointer, root.classList.contains('dark') ? DARK : LIGHT, scroll);
+      const palette = root.classList.contains('dark') ? DARK : LIGHT;
+      drawHelix(ctx, w, h, time, pointer, palette, scroll, speedRef.current);
     };
 
     const resize = () => {
@@ -204,9 +218,11 @@ export default function HelixBackground({ scrollRef }: Props) {
       draw(performance.now());
     };
 
+    /* Once hidden and faded out, the helix stops drawing until it is shown again. */
     const tick = (time: number) => {
       draw(time);
-      frame = requestAnimationFrame(tick);
+      const { visible: on, hiddenAt } = shown.current;
+      frame = on || time - hiddenAt < FADE_MS ? requestAnimationFrame(tick) : 0;
     };
     const start = () => {
       cancelAnimationFrame(frame);
@@ -229,6 +245,7 @@ export default function HelixBackground({ scrollRef }: Props) {
     sizeObserver.observe(canvas);
     window.addEventListener('pointermove', onPointer, { passive: true });
     still.addEventListener('change', start);
+    restart.current = start;
     resize();
     start();
 
@@ -241,8 +258,21 @@ export default function HelixBackground({ scrollRef }: Props) {
     };
   }, [scrollRef]);
 
+  useEffect(() => {
+    shown.current = { visible, hiddenAt: visible ? 0 : performance.now() };
+    if (visible) {
+      restart.current();
+    }
+  }, [visible]);
+
   return (
-    <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden="true">
+    <div
+      className={cn(
+        'pointer-events-none absolute inset-0 z-0 overflow-hidden transition-opacity duration-700',
+        !visible && 'opacity-0',
+      )}
+      aria-hidden="true"
+    >
       <canvas ref={canvasRef} className="h-full w-full" />
     </div>
   );

@@ -13,6 +13,7 @@ import UndockedArtifacts from '~/components/Artifacts/UndockedArtifacts';
 import { activeSubagentPanel } from '~/components/Chat/Subagents/state';
 import { artifactsUndocked } from '~/components/Artifacts/state';
 import { EditorProvider, ArtifactsProvider } from '~/Providers';
+import HelixBackground from '~/components/HelixBackground';
 import { SidePanelGroup } from '~/components/SidePanel';
 import AppChatSurface from '~/components/Chat/Surface';
 import { lazyWithRecovery } from '~/lib/assets/lazy';
@@ -28,9 +29,12 @@ const SubagentThreadPanel = lazyWithRecovery(
 export default function Presentation({
   children,
   routePending = false,
+  helix,
 }: {
   children: React.ReactNode;
   routePending?: boolean;
+  /** OmicsBase: a slow helix behind an empty note, faded out once it has messages; absent elsewhere. */
+  helix?: boolean;
 }) {
   const artifacts = useRecoilValue(store.artifactsState);
   const artifactsVisibility = useRecoilValue(store.artifactsVisibility);
@@ -174,6 +178,7 @@ export default function Presentation({
         <div className="omicsbase-aurora-glow" />
         <div className="omicsbase-aurora-vignette" />
       </div>
+      {helix !== undefined && <HelixBackground speed={0.2} visible={helix} />}
       <AppChatSurface>
         {/* The editor buffer belongs to the pane's session, not to the window
             it happens to be in: hoisted, an undock keeps unsaved edits. */}

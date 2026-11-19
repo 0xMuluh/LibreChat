@@ -16,8 +16,12 @@ const { logger } = require('@librechat/data-schemas');
 
 const SITE_NAME = 'OmicsBase';
 const SITE_DESCRIPTION =
-  'Analyse microbiome, single-cell, spatial and mass spectrometry data in R with an AI assistant. ' +
-  'Every note keeps its code, output and figures together.';
+  'The open-source AI workspace for biological data analysis in R and Bioconductor.';
+const SITE_TITLE = `${SITE_NAME}: the open-source AI workspace for biological data analysis`;
+/** The front page and the welcome page it opens for signed-out visitors share one canonical URL. */
+const FRONT_PATHS = new Set(['/', '/welcome']);
+/** Preview image for the front page, served from the client's public assets. */
+const SITE_IMAGE = '/assets/og-image.png';
 const SHARE_PATH = /^\/share\/([A-Za-z0-9_-]{6,64})\/?$/;
 const PUBLIC_TTL_MS = 60 * 60 * 1000;
 const NOT_PUBLIC_TTL_MS = 10 * 60 * 1000;
@@ -47,7 +51,8 @@ function summarize(text, max = 160) {
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/[`*_>#]/g, '')
+    /* Underscores stay: they are part of dataset and function names. */
+    .replace(/[`*>#]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
   if (plain.length <= max) {
@@ -260,13 +265,13 @@ async function applyPublicPageMeta(req, res, html) {
     return html;
   }
   try {
-    if (req.path === '/') {
+    if (FRONT_PATHS.has(req.path)) {
       res.removeHeader('X-Robots-Tag');
       return withTags(html, {
-        title: `${SITE_NAME}: omics analysis in R with an AI assistant`,
+        title: SITE_TITLE,
         description: SITE_DESCRIPTION,
         url: `${canonicalOrigin}/`,
-        image: null,
+        image: `${canonicalOrigin}${SITE_IMAGE}`,
         type: 'website',
       });
     }

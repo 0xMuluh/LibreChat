@@ -4,6 +4,7 @@ import { request } from 'librechat-data-provider';
 import { Server, Clock, Square, Loader2, CircleCheck, RotateCw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { TranslationKeys } from '~/hooks';
+import HelixBackground from '~/components/HelixBackground';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
@@ -377,10 +378,11 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+    <div className="relative min-h-0 flex-1 overflow-y-auto px-6 py-6">
+      <HelixBackground speed={0.2} />
       <section
         aria-labelledby={`${uid}-title`}
-        className="border-border-light bg-surface-primary mx-auto w-full max-w-xl rounded-2xl border p-6 text-left shadow-md"
+        className="border-border-light bg-surface-primary relative z-[1] mx-auto w-full max-w-xl rounded-2xl border p-6 text-left shadow-md"
       >
         <div className="mb-1 flex items-center gap-2">
           <Server className="text-text-secondary h-5 w-5" aria-hidden={true} />
