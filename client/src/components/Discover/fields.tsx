@@ -198,10 +198,16 @@ export const FIELD_NODES: FieldNode[] = [
 ];
 
 /** Translation keys of a node's card: a tagline, then items each with a detail line. */
-export const nodeText = (node: FieldNode) => ({
+export const nodeText = (node: FieldNode, localReports = false) => ({
   tagline: `com_discover_node_${node.id}_tagline` as TranslationKeys,
   items: Array.from({ length: node.items }, (_, i) => ({
     title: `com_discover_node_${node.id}_item${i + 1}` as TranslationKeys,
-    detail: `com_discover_node_${node.id}_item${i + 1}_detail` as TranslationKeys,
+    detail: (localReports && node.id === 'reports' && i === 0
+      ? 'com_discover_node_reports_item1_detail_local'
+      : `com_discover_node_${node.id}_item${i + 1}_detail`) as TranslationKeys,
   })),
 });
+
+/** The network label; Reports on this machine is not on Roihu. */
+export const nodeShort = (node: FieldNode, localReports = false): TranslationKeys =>
+  localReports && node.id === 'reports' ? 'com_discover_node_reports_short_local' : node.short;

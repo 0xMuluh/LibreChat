@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TranslationKeys } from '~/hooks';
-import { discoverSeed, useDiscoverExamples } from '~/data-provider';
+import { discoverSeed, useDiscoverExamples, useGetStartupConfig } from '~/data-provider';
 import { FIELD_NODES, HUB_NODE } from './fields';
 import FieldCarousel from './FieldCarousel';
 import FieldNetwork from './FieldNetwork';
@@ -27,6 +27,8 @@ type Props = {
 
 export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
   const localize = useLocalize();
+  const { data: startupConfig } = useGetStartupConfig();
+  const localReports = startupConfig?.reportsMode === 'local';
   const [q, setQ] = useState('');
   /** The network node chosen as a filter; '' is all. */
   const [node, setNode] = useState('');
@@ -166,9 +168,10 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
               inView={inView}
               onSelect={chooseNode}
               onHover={setHovered}
+              localReports={localReports}
             />
           </div>
-          <NodeCard node={lit} />
+          <NodeCard node={lit} localReports={localReports} />
         </div>
 
         {searching ? (

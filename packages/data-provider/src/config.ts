@@ -3398,6 +3398,8 @@ export type TStartupConfig = {
   projects?: TChatProjectsConfig;
   modelDescriptions?: Record<string, Record<string, string>>;
   sharedLinksEnabled: boolean;
+  /** OmicsBase: Reports in a container on this machine (`local`) or as the user's Roihu job. */
+  reportsMode?: 'local' | 'roihu';
   publicSharedLinksEnabled: boolean;
   /** Whether shared links snapshot conversation files (gates the per-link "share files" checkbox). */
   sharedLinksSnapshotFilesEnabled?: boolean;

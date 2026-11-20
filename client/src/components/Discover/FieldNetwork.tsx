@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FieldNode } from './fields';
-import { FIELD_NODES, HUB_NODE } from './fields';
+import { FIELD_NODES, HUB_NODE, nodeShort } from './fields';
 import { useLocalize } from '~/hooks';
 
 const NODES = [HUB_NODE, ...FIELD_NODES];
@@ -29,6 +29,8 @@ type Props = {
   onSelect: (field: string) => void;
   /** Called with the hovered or focused node, '' when none. */
   onHover?: (node: string) => void;
+  /** Reports runs on this machine, not on Roihu. */
+  localReports?: boolean;
 };
 
 /** Canvas height in CSS pixels, as in the landing reference. */
@@ -157,7 +159,13 @@ function glyph(ctx: CanvasRenderingContext2D, kind: string, r: number) {
  * button on top, so the network works with a keyboard and a screen reader, and
  * choosing a node filters the examples.
  */
-export default function FieldNetwork({ selected, inView = '', onSelect, onHover }: Props) {
+export default function FieldNetwork({
+  selected,
+  inView = '',
+  onSelect,
+  onHover,
+  localReports = false,
+}: Props) {
   const localize = useLocalize();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hovered, setHoveredState] = useState('');
@@ -169,7 +177,9 @@ export default function FieldNetwork({ selected, inView = '', onSelect, onHover 
   state.current = { selected, inView, hovered };
   const redraw = useRef<() => void>(() => undefined);
   const labelsRef = useRef<Record<string, string>>({});
-  labelsRef.current = Object.fromEntries(NODES.map((n) => [n.id, localize(n.short)]));
+  labelsRef.current = Object.fromEntries(
+    NODES.map((n) => [n.id, localize(nodeShort(n, localReports))]),
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
