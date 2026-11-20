@@ -1,8 +1,8 @@
 import jwt from 'jsonwebtoken';
-import { workspaceURLs } from './deployment';
 import { isValidObjectIdString } from '@librechat/data-schemas';
 import type { ChatProjectMethods } from '@librechat/data-schemas';
 import type { Request, Response } from 'express';
+import { workspaceURLs } from './deployment';
 
 interface WorkspaceRequest extends Request {
   user?: { id: string; _id?: { toString(): string } };
@@ -35,7 +35,13 @@ export function createWorkspaceHandler(
         audience: 'omicsbase-openhands',
         subject: userId,
       };
-      const session = jwt.sign({ purpose: 'project', project_id: projectId }, secret, { ...options, expiresIn: '1h' });
+      // The project cookie goes to the notes engine, the launch ticket to Reports; each
+      // is signed with that service's own secret.
+      const engineSecret = process.env.OMICSBASE_ENGINE_SECRET || secret;
+      const session = jwt.sign({ purpose: 'project', project_id: projectId }, engineSecret, {
+        ...options,
+        expiresIn: '1h',
+      });
       const ticket = jwt.sign({ purpose: 'launch', project_id: projectId }, secret, {
         ...options,
         expiresIn: '2m',

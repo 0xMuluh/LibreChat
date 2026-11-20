@@ -1,5 +1,5 @@
-import jwt from 'jsonwebtoken';
 import express from 'express';
+import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { createWorkspaceHandler } from './workspace';
 
@@ -48,6 +48,24 @@ describe('workspace identity bridge', () => {
     expect(response.headers['set-cookie'][0]).toMatch(/HttpOnly/);
     expect(response.headers['set-cookie'][0]).toMatch(/SameSite=Lax/);
     expect(response.headers['cache-control']).toBe('no-store');
+  });
+
+  it('signs the engine cookie with the engine secret and the ticket with the Reports one', async () => {
+    process.env.OMICSBASE_ENGINE_SECRET = 'engine-test-secret';
+    try {
+      const response = await request(appFor(owner).app).post(`/projects/${project}/workspace`);
+      const cookie = response.headers['set-cookie'][0].split(';')[0].split('=')[1];
+      const verify = { audience: 'omicsbase-openhands', issuer: 'librechat' };
+      expect(jwt.verify(cookie, 'engine-test-secret', verify)).toMatchObject({
+        purpose: 'project',
+      });
+      expect(() => jwt.verify(cookie, 'workspace-test-secret', verify)).toThrow();
+      expect(jwt.verify(response.body.ticket, 'workspace-test-secret', verify)).toMatchObject({
+        purpose: 'launch',
+      });
+    } finally {
+      delete process.env.OMICSBASE_ENGINE_SECRET;
+    }
   });
 
   it('does not issue credentials for another user’s project', async () => {

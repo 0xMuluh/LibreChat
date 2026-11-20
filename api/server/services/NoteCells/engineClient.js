@@ -5,7 +5,11 @@ const ENGINE_URL = (
   process.env.ENGINE_URL ||
   'http://engine:8001'
 ).replace(/\/$/, '');
-const INTERNAL_SECRET = process.env.OMICSBASE_AUTH_SECRET || process.env.JWT_SECRET || '';
+const INTERNAL_SECRET =
+  process.env.OMICSBASE_ENGINE_SECRET ||
+  process.env.OMICSBASE_AUTH_SECRET ||
+  process.env.JWT_SECRET ||
+  '';
 
 /**
  * Call NoteKernel HTTP execute (server-side only).
