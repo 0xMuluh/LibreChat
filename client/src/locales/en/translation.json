@@ -3917,5 +3917,12 @@
   "com_roihu_offline_body": "Start it again on that computer: docker start omicsbase-reports",
   "com_roihu_bar_machine": "Running on {{0}}",
   "com_roihu_disconnect": "Disconnect",
-  "com_roihu_disconnect_confirm": "Disconnect this computer? Its files stay on it, but it can no longer reach OmicsBase until you pair it again."
+  "com_roihu_disconnect_confirm": "Disconnect this computer? Its files stay on it, but it can no longer reach OmicsBase until you pair it again.",
+  "com_roihu_local_bar": "Reports runs on this computer.",
+  "com_roihu_local_title": "Reports on your own computer",
+  "com_roihu_local_intro": "OmicsBase connects to the computer you attached. Your files stay on it.",
+  "com_roihu_link_intro": "On a computer this one can reach (a server, a lab workstation or a cloud machine), run this with that computer's name or IP address, and let this computer reach its port 8443:",
+  "com_roihu_link_then": "Then run docker logs omicsbase-reports there and paste the line that starts with omicsbase-machine: here.",
+  "com_roihu_link_label": "Pairing string",
+  "com_roihu_link_connect": "Connect"
 }

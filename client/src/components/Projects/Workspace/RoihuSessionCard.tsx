@@ -29,12 +29,18 @@ interface SessionView {
   machine?: string;
 }
 
-/** A one-time pairing code and the command that uses it. */
+/**
+ * How to attach a machine: with the relay, a one-time code and the command that uses it; in a
+ * local install, the command that makes the machine print a pairing string to paste here.
+ */
 interface Pairing {
-  code: string;
-  expires: number;
   command: string;
+  code?: string;
+  expires?: number;
 }
+
+/** Where the session's open page was served, so a disconnect can undo it there. */
+const OPEN_ORIGIN_KEY = 'omicsbase_reports_open_origin';
 
 type Field = 'project' | 'cores' | 'memory' | 'hours' | 'token';
 const FIELDS: Field[] = ['project', 'cores', 'memory', 'hours', 'token'];
@@ -132,6 +138,13 @@ function StatusCard({ icon: Icon, spin, title, body, children }: StatusCardProps
 interface RoihuSessionCardProps {
   /** Whether this browser is connected to the running session, so the workspace can use it. */
   onConnectedChange: (connected: boolean) => void;
+  /**
+   * A local install, where Reports runs on this computer unless the user links a machine of
+   * their own: the card is a bar above the local Reports while there is no session.
+   */
+  local?: boolean;
+  /** Whether Reports goes to a session of the user's (null while unknown). */
+  onSessionChange?: (active: boolean | null) => void;
 }
 
 /**
@@ -141,7 +154,11 @@ interface RoihuSessionCardProps {
  * open link sets the routing cookie for openhands.omicsbase.utu.fi); the card then shrinks to
  * a bar above the workspace. One session serves all of the user's reports.
  */
-export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCardProps) {
+export default function RoihuSessionCard({
+  onConnectedChange,
+  local = false,
+  onSessionChange,
+}: RoihuSessionCardProps) {
   const uid = useId();
   const localize = useLocalize();
   const [session, setSession] = useState<SessionView | null>(null);
@@ -161,6 +178,8 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
   const [connectFailed, setConnectFailed] = useState(false);
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [copied, setCopied] = useState(false);
+  const [linkText, setLinkText] = useState('');
+  const [closeUrl, setCloseUrl] = useState<string | null>(null);
 
   const generic = localize('com_roihu_err_generic');
 
@@ -231,6 +250,7 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
     const origin = new URL(openUrl).origin;
     const onMessage = (e: MessageEvent) => {
       if (e.origin === origin && e.data?.type === 'omicsbase:roihu-open') {
+        localStorage.setItem(OPEN_ORIGIN_KEY, origin);
         setConnected(true);
         setOpenUrl(null);
       }
@@ -249,6 +269,30 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
   useEffect(() => {
     onConnectedChange(running && connected);
   }, [running, connected, onConnectedChange]);
+
+  // After a disconnect the open page is undone (its route cookie and the session's backend in
+  // the Reports page's settings) before the workspace goes back to the Reports on this computer.
+  useEffect(() => {
+    if (!closeUrl) {
+      return;
+    }
+    const origin = new URL(closeUrl).origin;
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin === origin && e.data?.type === 'omicsbase:roihu-closed') {
+        setCloseUrl(null);
+      }
+    };
+    const timer = window.setTimeout(() => setCloseUrl(null), CONNECT_MS);
+    window.addEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      window.clearTimeout(timer);
+    };
+  }, [closeUrl]);
+
+  useEffect(() => {
+    onSessionChange?.(session === null ? null : ACTIVE.includes(session.state) || closeUrl != null);
+  }, [session, closeUrl, onSessionChange]);
 
   const setField = (field: Field) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setValues((v) => ({ ...v, [field]: e.target.value }));
@@ -301,6 +345,22 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
     }
   };
 
+  const submitLink = async () => {
+    setNotice('');
+    setBusy(true);
+    try {
+      setSession(
+        (await request.post('/api/roihu/attach/link', { pairing: linkText.trim() })) as SessionView,
+      );
+      setPairing(null);
+      setLinkText('');
+    } catch (err) {
+      setNotice(serverError(err) ?? generic);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const copyCommand = async () => {
     if (!pairing) {
       return;
@@ -324,6 +384,10 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
     setBusy(true);
     try {
       setSession(await request.delete<SessionView>('/api/roihu/session'));
+      const origin = localStorage.getItem(OPEN_ORIGIN_KEY);
+      if (origin) {
+        setCloseUrl(`${origin}/roihu/close`);
+      }
     } catch (err) {
       setNotice(serverError(err) ?? generic);
     } finally {
@@ -458,6 +522,86 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
     );
   }
 
+  const closeFrame = closeUrl && (
+    <iframe src={closeUrl} title={localize('com_roihu_frame_title')} className="hidden" />
+  );
+  const copyButton = pairing && (
+    <Button type="button" size="sm" onClick={copyCommand}>
+      <Copy className="h-3.5 w-3.5" aria-hidden={true} />
+      {localize(copied ? 'com_roihu_attach_copied' : 'com_roihu_attach_copy')}
+    </Button>
+  );
+
+  // A local install without a session: Reports runs on this computer, below this bar.
+  if (local && session != null && !active) {
+    return (
+      <div className="border-border-light border-b px-4 py-2 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-text-secondary">
+            {session.message ?? localize('com_roihu_local_bar')}
+          </p>
+          {!pairing && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={startPairing}
+              disabled={busy}
+            >
+              <Laptop className="h-3.5 w-3.5" aria-hidden={true} />
+              {localize('com_roihu_attach_start')}
+            </Button>
+          )}
+        </div>
+        {notice && (
+          <p className="text-text-destructive mt-2 text-sm" role="alert">
+            {notice}
+          </p>
+        )}
+        {pairing && (
+          <div className="mt-3 max-w-3xl pb-2">
+            <p className="text-text-primary mb-2">{localize('com_roihu_link_intro')}</p>
+            <pre className="bg-surface-secondary text-text-primary mb-2 overflow-x-auto rounded-lg p-3 text-xs break-all whitespace-pre-wrap">
+              <code>{pairing.command}</code>
+            </pre>
+            <div className="mb-3">{copyButton}</div>
+            <p className="text-text-secondary mb-2">{localize('com_roihu_link_then')}</p>
+            <label
+              htmlFor={`${uid}-pairing`}
+              className="text-text-primary mb-1 block text-sm font-medium"
+            >
+              {localize('com_roihu_link_label')}
+            </label>
+            <textarea
+              id={`${uid}-pairing`}
+              rows={3}
+              spellCheck={false}
+              autoComplete="off"
+              className={cn(inputClass, 'mb-3 font-mono text-xs')}
+              value={linkText}
+              onChange={(e) => setLinkText(e.target.value)}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={submitLink}
+                disabled={busy || !linkText.trim()}
+              >
+                {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden={true} />}
+                {localize('com_roihu_link_connect')}
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setPairing(null)}>
+                {localize('com_roihu_attach_cancel')}
+              </Button>
+            </div>
+          </div>
+        )}
+        {closeFrame}
+      </div>
+    );
+  }
+
   return (
     <div className="relative min-h-0 flex-1 overflow-y-auto px-6 py-6">
       <HelixBackground speed={0.2} />
@@ -468,10 +612,12 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
         <div className="mb-1 flex items-center gap-2">
           <Server className="text-text-secondary h-5 w-5" aria-hidden={true} />
           <h2 id={`${uid}-title`} className="text-text-primary text-base font-semibold">
-            {localize('com_roihu_title')}
+            {localize(local ? 'com_roihu_local_title' : 'com_roihu_title')}
           </h2>
         </div>
-        <p className="text-text-secondary mb-5 text-sm">{localize('com_roihu_intro')}</p>
+        <p className="text-text-secondary mb-5 text-sm">
+          {localize(local ? 'com_roihu_local_intro' : 'com_roihu_intro')}
+        </p>
 
         <div role="status" aria-live="polite">
           {status}
@@ -485,6 +631,7 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
         {openUrl && (
           <iframe src={openUrl} title={localize('com_roihu_frame_title')} className="hidden" />
         )}
+        {closeFrame}
 
         {pairing && (
           <div className="border-border-light rounded-xl border p-4">
@@ -493,10 +640,7 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
               <code>{pairing.command}</code>
             </pre>
             <div className="flex flex-wrap items-center gap-3">
-              <Button type="button" size="sm" onClick={copyCommand}>
-                <Copy className="h-3.5 w-3.5" aria-hidden={true} />
-                {localize(copied ? 'com_roihu_attach_copied' : 'com_roihu_attach_copy')}
-              </Button>
+              {copyButton}
               <Button type="button" variant="outline" size="sm" onClick={() => setPairing(null)}>
                 {localize('com_roihu_attach_cancel')}
               </Button>
@@ -508,7 +652,7 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
           </div>
         )}
 
-        {session != null && !active && !pairing && (
+        {session != null && !active && !pairing && !local && (
           <form noValidate onSubmit={launch} aria-describedby={`${uid}-required`}>
             <p id={`${uid}-required`} className="text-text-secondary mb-3 text-xs">
               {localize('com_roihu_required')}
@@ -609,7 +753,7 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
           </form>
         )}
 
-        {session != null && !active && !pairing && (
+        {session != null && !active && !pairing && !local && (
           <div className="border-border-light mt-6 border-t pt-5">
             <h3 className="text-text-primary mb-1 flex items-center gap-2 text-sm font-semibold">
               <Laptop className="text-text-secondary h-4 w-4" aria-hidden={true} />
