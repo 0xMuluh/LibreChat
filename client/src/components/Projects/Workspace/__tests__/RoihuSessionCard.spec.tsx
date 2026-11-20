@@ -135,4 +135,43 @@ describe('RoihuSessionCard', () => {
       'https://openhands.example/roihu/open?c=def',
     );
   });
+
+  it('shows the pairing command for a computer of their own, then follows the paired machine', async () => {
+    mockGet.mockResolvedValue({ state: 'none' });
+    const command = 'docker run ... https://omicsbase.example --pair ABCDE-FGHJK';
+    mockPost.mockResolvedValue({ code: 'ABCDE-FGHJK', expires: 2e9, command });
+    jest.useFakeTimers({ advanceTimers: true });
+    try {
+      render(<RoihuSessionCard onConnectedChange={jest.fn()} />);
+      const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+      await user.click(await screen.findByRole('button', { name: 'com_roihu_attach_start' }));
+      expect(mockPost).toHaveBeenCalledWith('/api/roihu/attach', undefined);
+      expect(await screen.findByText(command)).toBeInTheDocument();
+      expect(screen.getByText('com_roihu_attach_waiting')).toBeInTheDocument();
+      expect(screen.queryByLabelText('com_roihu_project')).not.toBeInTheDocument();
+
+      mockGet.mockResolvedValue({ state: 'offline', machine: 'lab-pc' });
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(await screen.findByText('com_roihu_offline_title lab-pc')).toBeInTheDocument();
+      expect(screen.queryByText(command)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'com_roihu_disconnect' })).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('names the attached machine in the session bar', async () => {
+    mockGet.mockResolvedValue({ state: 'running', machine: 'lab-pc' });
+    mockPost.mockResolvedValue({ url: 'https://openhands.example/roihu/open?c=abc' });
+    render(<RoihuSessionCard onConnectedChange={jest.fn()} />);
+    await screen.findByTitle('com_roihu_frame_title');
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: 'https://openhands.example',
+        data: { type: 'omicsbase:roihu-open' },
+      }),
+    );
+    expect(await screen.findByText('com_roihu_bar_machine lab-pc')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'com_roihu_disconnect' })).toBeInTheDocument();
+  });
 });

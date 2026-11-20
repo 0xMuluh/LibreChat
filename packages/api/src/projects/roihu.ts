@@ -18,6 +18,8 @@ export interface RoihuConfig {
   relayUrl: string;
   relayFingerprint: string;
   scriptsDir: string;
+  /** This OmicsBase's address, which an attached machine connects to. */
+  appUrl: string;
 }
 
 /** Reads the configuration; null when Reports on Roihu is not set up on this deployment. */
@@ -42,6 +44,7 @@ export function roihuConfig(env: NodeJS.ProcessEnv = process.env): RoihuConfig |
     relayUrl: env.ROIHU_RELAY_URL as string,
     relayFingerprint: env.ROIHU_RELAY_FINGERPRINT as string,
     scriptsDir: env.ROIHU_SCRIPTS_DIR as string,
+    appUrl: (env.DOMAIN_CLIENT || '').replace(/\/$/, ''),
   };
 }
 
@@ -98,7 +101,9 @@ export type SessionState =
   | 'starting'
   | 'running'
   | 'ended'
-  | 'unknown';
+  | 'unknown'
+  /** An attached machine whose tunnel is down (switched off, or its container stopped). */
+  | 'offline';
 
 export interface SessionView {
   state: SessionState;
@@ -108,9 +113,33 @@ export interface SessionView {
   hours?: number;
   endsAt?: number;
   message?: string;
+  /** Name of the user's own machine, for an attached session. */
+  machine?: string;
 }
 
-interface RouteMeta {
+/** A one-time code and the command that pairs a machine with it. */
+export interface PairingView {
+  code: string;
+  expires: number;
+  command: string;
+}
+
+/** What a newly paired machine needs to connect: the relay and its own session key. */
+export interface AttachSettings {
+  relayUrl: string;
+  relayFingerprint: string;
+  relayRemote: string;
+  relayAuth: string;
+  sessionKey: string;
+}
+
+interface AttachedMeta {
+  kind: 'attached';
+  name: string;
+}
+
+interface JobMeta {
+  kind?: undefined;
   project: string;
   cscUser: string;
   cores: number;
@@ -121,6 +150,8 @@ interface RouteMeta {
   token: string;
 }
 
+type RouteMeta = JobMeta | AttachedMeta;
+
 interface JobInfo {
   state: string;
   end?: number;
@@ -128,7 +159,8 @@ interface JobInfo {
 
 interface RouterRoute {
   route: string;
-  expires: number;
+  /** null for an attached machine, whose route does not expire. */
+  expires: number | null;
   meta: RouteMeta;
   connected: boolean;
 }
@@ -183,6 +215,8 @@ export interface RoihuClient {
   launch(userId: string, input: LaunchInput): Promise<SessionView>;
   openLink(userId: string): Promise<string>;
   stop(userId: string): Promise<SessionView>;
+  pair(userId: string): Promise<PairingView>;
+  claim(code: string, name: string): Promise<AttachSettings>;
 }
 
 type Handler = (req: AuthedRequest, res: Response) => Promise<Response>;
@@ -192,6 +226,9 @@ export interface RoihuHandlers {
   launchSession: Handler;
   openSession: Handler;
   stopSession: Handler;
+  startPairing: Handler;
+  /** Public: an attached machine has no OmicsBase login; the one-time code is its credential. */
+  claimPairing: Handler;
 }
 
 export function createRoihuClient(deps: RoihuDeps): RoihuClient {
@@ -282,6 +319,9 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
       return { state: 'none' };
     }
     const m = r.meta;
+    if (m.kind === 'attached') {
+      return { state: r.connected ? 'running' : 'offline', machine: m.name };
+    }
     const base = { project: m.project, cores: m.cores, memory: m.memory, hours: m.hours };
     let token: string;
     try {
@@ -338,7 +378,7 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
   async function launch(userId: string, input: LaunchInput): Promise<SessionView> {
     const c = config();
     if (await liveRoute(userId)) {
-      throw new UserFacingError(409, 'You already have a Reports session on Roihu. Stop it first.');
+      throw new UserFacingError(409, 'You already have a Reports session. Stop it first.');
     }
     const info = await firecrest(input.token, 'GET', '/status/{system}/userinfo');
     const user = (info.data?.user as { name?: string } | undefined)?.name;
@@ -501,6 +541,13 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     if (!r) {
       return { state: 'none' };
     }
+    if (r.meta.kind === 'attached') {
+      await removeRoute(userId, r.route);
+      return {
+        state: 'ended',
+        message: `${r.meta.name} is disconnected and can no longer reach OmicsBase. Remove its container there: docker rm -f omicsbase-reports`,
+      };
+    }
     try {
       const token = await decrypt(r.meta.token);
       for (const id of [r.meta.jobId, r.meta.prepJobId]) {
@@ -523,7 +570,56 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     return { state: 'ended', message: 'Your session was stopped.' };
   }
 
-  return { view: view, launch: launch, openLink: openLink, stop: stop };
+  async function pair(userId: string): Promise<PairingView> {
+    const c = config();
+    if (await liveRoute(userId)) {
+      throw new UserFacingError(409, 'You already have a Reports session. Stop it first.');
+    }
+    const { status, data } = await router('POST', '/pairings', { user: userId });
+    if (status !== 201 || !data?.code) {
+      throw new Error(`router answered ${status} to a pairing request`);
+    }
+    const code = data.code as string;
+    const command = [
+      'docker run -d --restart unless-stopped --name omicsbase-reports',
+      '-v omicsbase-reports:/home/openhands -v omicsbase-projects:/projects',
+      `ghcr.io/0xmuluh/omicsbase-reports:${c.imageTag}`,
+      `${c.appUrl} --pair ${code} --name "$(hostname)"`,
+    ].join(' ');
+    return { code, expires: data.expires as number, command };
+  }
+
+  async function claim(code: string, name: string): Promise<AttachSettings> {
+    const c = config();
+    const { status, data } = await router('POST', '/pairings/claim', { code, name });
+    if (status === 404) {
+      throw new UserFacingError(404, 'This pairing code is unknown, used or expired.');
+    }
+    if (status === 409) {
+      throw new UserFacingError(409, 'This account already has a Reports session running.');
+    }
+    if (status !== 201 || !data?.session_key) {
+      throw new Error(`router answered ${status} to a pairing claim`);
+    }
+    return {
+      relayUrl: c.relayUrl,
+      relayFingerprint: c.relayFingerprint,
+      relayRemote: data.relay_remote as string,
+      relayAuth: data.relay_auth as string,
+      sessionKey: data.session_key as string,
+    };
+  }
+
+  return { view, launch, openLink, stop, pair, claim };
+}
+
+/** Sends a UserFacingError's own message; anything else is logged and kept generic. */
+function sendError(res: Response, e: unknown): Response {
+  if (e instanceof UserFacingError) {
+    return res.status(e.status).json({ error: e.message });
+  }
+  logger.error('[roihu] request failed', { error: (e as Error).message });
+  return res.status(500).json({ error: 'Something went wrong. Try again in a moment.' });
 }
 
 export function createRoihuHandlers(deps: RoihuDeps): RoihuHandlers {
@@ -540,11 +636,7 @@ export function createRoihuHandlers(deps: RoihuDeps): RoihuHandlers {
       try {
         return res.json(await fn(userId, req));
       } catch (e) {
-        if (e instanceof UserFacingError) {
-          return res.status(e.status).json({ error: e.message });
-        }
-        logger.error('[roihu] request failed', { error: (e as Error).message });
-        return res.status(500).json({ error: 'Something went wrong. Try again in a moment.' });
+        return sendError(res, e);
       }
     };
 
@@ -560,5 +652,19 @@ export function createRoihuHandlers(deps: RoihuDeps): RoihuHandlers {
     },
     openSession: wrap(async (userId) => ({ url: await client.openLink(userId) })),
     stopSession: wrap((userId) => client.stop(userId)),
+    startPairing: wrap((userId) => client.pair(userId)),
+    claimPairing: async (req: AuthedRequest, res: Response): Promise<Response> => {
+      res.setHeader('Cache-Control', 'no-store');
+      const { code, name } = (req.body ?? {}) as { code?: unknown; name?: unknown };
+      if (typeof code !== 'string' || !code.trim() || code.length > 32) {
+        return res.status(400).json({ error: 'A pairing code is required.' });
+      }
+      try {
+        const machine = typeof name === 'string' ? name.slice(0, 64) : '';
+        return res.status(201).json(await client.claim(code, machine));
+      } catch (e) {
+        return sendError(res, e);
+      }
+    },
   };
 }
