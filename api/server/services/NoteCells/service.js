@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const { createNoteService } = require('@librechat/api');
 const models = require('./models');
-const { executeOnEngine, fetchArtifactFromEngine, signalCancel, INTERNAL_SECRET } = require('./engineClient');
+const { executeOnEngine, fetchArtifactFromEngine, signalCancel } = require('./engineClient');
 const { bridgeConversationFiles } = require('./noteDataBridge');
 
 module.exports = createNoteService({
@@ -11,6 +11,5 @@ module.exports = createNoteService({
   executeOnEngine,
   fetchArtifactFromEngine,
   signalCancel,
-  internalSecret: INTERNAL_SECRET,
   bridgeConversationFiles,
 });

@@ -52,6 +52,8 @@ jest.mock('./Config/mcp', () => ({
   updateMCPServerTools: jest.fn(),
 }));
 
+jest.mock('./NoteCells/service', () => ({ runAgentCell: jest.fn() }));
+
 jest.mock('./MCPAuthorizationFenceRetry', () => ({
   startMCPAuthorizationFenceRetryWorker: jest.fn(),
 }));

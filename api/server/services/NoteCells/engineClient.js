@@ -141,7 +141,6 @@ module.exports = {
   noteHasDataFile,
   uploadNoteDataFile,
   ENGINE_URL,
-  INTERNAL_SECRET,
   executeOnEngine,
   fetchArtifactFromEngine,
 };

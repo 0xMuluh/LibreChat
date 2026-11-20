@@ -233,3 +233,98 @@ export function createNoteAgentLifecycle(models: {
     },
   };
 }
+
+/** Runs one cell the agent wrote and returns what the agent reads. */
+export type AgentCellRunner = (input: {
+  conversationId: string;
+  code: string;
+  cellId?: string;
+}) => Promise<string>;
+
+/** As long as the engine lets a cell run. */
+const AGENT_CELL_TIMEOUT_SECONDS = 600;
+
+/**
+ * Runs a cell the agent wrote: saves it, runs it on the engine and saves the result. The
+ * engine never calls back, so it can run on another machine. Returns what the agent reads.
+ */
+export function createAgentCellRunner(deps: {
+  lifecycle: AgentLifecycle;
+  resolveUser: (conversationId: string) => Promise<string | null>;
+  bridgeConversationFiles: (conversationId: string, userId: string) => Promise<void>;
+  executeOnEngine: (input: {
+    code: string;
+    threadId: string;
+    executionId: string;
+    timeoutSeconds: number;
+  }) => Promise<NoteEngineResult>;
+}): AgentCellRunner {
+  return async function runAgentCell({
+    conversationId,
+    code,
+    cellId,
+  }: {
+    conversationId: string;
+    code: string;
+    cellId?: string;
+  }): Promise<string> {
+    let ids: AgentCellIds;
+    try {
+      const user = conversationId ? await deps.resolveUser(conversationId) : null;
+      if (!user) {
+        throw new Error('the note was not found');
+      }
+      await deps.bridgeConversationFiles(conversationId, user);
+      ids = await deps.lifecycle.start(
+        conversationId,
+        user,
+        code,
+        AGENT_CELL_TIMEOUT_SECONDS,
+        cellId?.trim() || undefined,
+      );
+    } catch (error) {
+      return `Could not save the code cell; R was not executed: ${(error as Error).message}`;
+    }
+
+    let result: NoteEngineResult;
+    try {
+      result = await deps.executeOnEngine({
+        code,
+        threadId: conversationId,
+        executionId: ids.executionId,
+        timeoutSeconds: AGENT_CELL_TIMEOUT_SECONDS,
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      result = {
+        success: false,
+        timed_out: (error as { code?: string }).code === 'TIMED_OUT',
+        error: message,
+        markdown: `Execution failed: ${message}`,
+      };
+    }
+
+    let status: Status;
+    let warning = '';
+    try {
+      ({ status } = await deps.lifecycle.finish(conversationId, ids.executionId, result));
+    } catch (error) {
+      const message = (error as Error).message;
+      warning = `\n\nResult could not be saved: ${message}. R has already run; do not rerun automatically.`;
+      // Close the cell with a small result so it is never left running.
+      ({ status } = await deps.lifecycle
+        .finish(conversationId, ids.executionId, {
+          success: false,
+          error: `The result could not be saved: ${message}`,
+          markdown: `R ran, but its result could not be saved: ${message}`,
+          cell_id: result.cell_id,
+          engine_run_dir: result.engine_run_dir,
+        })
+        .catch(() => ({ status: 'failed' as Status })));
+    }
+    return (
+      `<!-- noteCell cellId=${ids.cellId} executionId=${ids.executionId} status=${status} -->\n` +
+      `[cell_id: "${ids.cellId}"]\n${result.markdown ?? ''}${warning}`
+    );
+  };
+}

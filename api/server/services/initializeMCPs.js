@@ -19,6 +19,7 @@ const {
   updateMCPServerTools,
 } = require('./Config/mcp');
 const { createMCPServersRegistry, createMCPManager } = require('~/config');
+const { runAgentCell } = require('~/server/services/NoteCells/service');
 
 /**
  * Resolves the current request's effective MCP allowlists from the merged (tenant-scoped)
@@ -147,6 +148,7 @@ async function initializeMCPs() {
       catalogRecoveryMaxDetachedDiscoveries:
         appConfig?.mcpSettings?.catalogRecovery?.maxDetachedDiscoveries,
       appBindingCodec: createMCPAppBindingCodec(process.env.JWT_SECRET),
+      agentCellRunner: runAgentCell,
     });
     startMCPAuthorizationFenceRetryWorker(invalidateCachedTools, {
       intervalMs: appConfig?.mcpSettings?.catalogRecovery?.authorizationFenceRetryIntervalMs,

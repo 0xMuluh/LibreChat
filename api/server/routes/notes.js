@@ -2,8 +2,6 @@ const express = require('express');
 const optionalJwtAuth = require('~/server/middleware/optionalJwtAuth');
 const noteCells = require('~/server/services/NoteCells/service');
 
-const { bridgeConversationFiles } = require('~/server/services/NoteCells/noteDataBridge');
-
 const router = express.Router({ mergeParams: true });
 
 const getUserId = (req) => req.user?.id ?? req.user?._id?.toString() ?? '';
@@ -30,50 +28,6 @@ function withArtifactUrls(conversationId, cellId, executionId, payload) {
   }
   return payload;
 }
-
-router.post(
-  '/:conversationId/internal/start',
-  asyncHandler(async (req, res) => {
-    if (!noteCells.verifyInternalSecret(req.get('X-Internal-Secret'))) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    const { conversationId } = req.params;
-    const userId = await noteCells.resolveUserForConversation(conversationId);
-    if (!userId) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
-    await bridgeConversationFiles(conversationId, userId);
-    const result = await noteCells.agentLifecycle.start(
-      conversationId,
-      userId,
-      req.body?.code ?? '',
-      Number(req.body?.timeout_seconds) || 180,
-      req.body?.cell_id,
-    );
-    res.json(result);
-  }),
-);
-
-router.post(
-  '/:conversationId/internal/finish/:executionId',
-  asyncHandler(async (req, res) => {
-    if (!noteCells.verifyInternalSecret(req.get('X-Internal-Secret'))) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    try {
-      const result = await noteCells.agentLifecycle.finish(
-        req.params.conversationId,
-        req.params.executionId,
-        req.body,
-      );
-      res.json(
-        withArtifactUrls(req.params.conversationId, result.cellId, req.params.executionId, result),
-      );
-    } catch (err) {
-      return sendError(res, err);
-    }
-  }),
-);
 
 const authed = express.Router({ mergeParams: true });
 authed.use(optionalJwtAuth);
