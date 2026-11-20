@@ -1,14 +1,22 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Button } from '@librechat/client';
 import { request } from 'librechat-data-provider';
-import { Server, Clock, Square, Loader2, CircleCheck, RotateCw } from 'lucide-react';
+import { Copy, Clock, Laptop, Server, Square, Loader2, RotateCw, CircleCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { TranslationKeys } from '~/hooks';
 import HelixBackground from '~/components/HelixBackground';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
-type SessionState = 'none' | 'preparing' | 'queued' | 'starting' | 'running' | 'ended' | 'unknown';
+type SessionState =
+  | 'none'
+  | 'preparing'
+  | 'queued'
+  | 'starting'
+  | 'running'
+  | 'ended'
+  | 'unknown'
+  | 'offline';
 
 interface SessionView {
   state: SessionState;
@@ -17,6 +25,15 @@ interface SessionView {
   memory?: number;
   endsAt?: number;
   message?: string;
+  /** The user's own machine, for an attached session. */
+  machine?: string;
+}
+
+/** A one-time pairing code and the command that uses it. */
+interface Pairing {
+  code: string;
+  expires: number;
+  command: string;
 }
 
 type Field = 'project' | 'cores' | 'memory' | 'hours' | 'token';
@@ -38,8 +55,10 @@ const ERROR_KEY: Record<Field, TranslationKeys> = {
   token: 'com_roihu_err_token',
 };
 
-const ACTIVE: SessionState[] = ['preparing', 'queued', 'starting', 'running', 'unknown'];
+const ACTIVE: SessionState[] = ['preparing', 'queued', 'starting', 'running', 'unknown', 'offline'];
 const POLL_MS = 10_000;
+/** While a pairing command is shown, so the page notices the machine soon after it connects. */
+const PAIRING_POLL_MS = 5_000;
 /** How long the hidden open page may take to report back. */
 const CONNECT_MS = 30_000;
 
@@ -116,8 +135,9 @@ interface RoihuSessionCardProps {
 }
 
 /**
- * Reports on Roihu: start the user's own Reports agent as a job in their CSC project and
- * follow it until it runs. A running session is connected in a hidden frame (its one-time
+ * Reports on Roihu, or on the user's own computer: start the user's own Reports agent as a job
+ * in their CSC project and follow it until it runs, or pair a machine of theirs with a one-time
+ * command (it dials out to OmicsBase and stays paired until disconnected). A running session is connected in a hidden frame (its one-time
  * open link sets the routing cookie for openhands.omicsbase.utu.fi); the card then shrinks to
  * a bar above the workspace. One session serves all of the user's reports.
  */
@@ -139,6 +159,8 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
   const [openUrl, setOpenUrl] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [connectFailed, setConnectFailed] = useState(false);
+  const [pairing, setPairing] = useState<Pairing | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const generic = localize('com_roihu_err_generic');
 
@@ -163,7 +185,22 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
     return () => window.clearInterval(timer);
   }, [session, refresh]);
 
+  // While the pairing command is shown, look for the machine more often; once it has
+  // connected (or was paired and is offline), the session view takes over.
+  useEffect(() => {
+    if (!pairing) {
+      return;
+    }
+    if (session && ACTIVE.includes(session.state)) {
+      setPairing(null);
+      return;
+    }
+    const timer = window.setInterval(refresh, PAIRING_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [pairing, session, refresh]);
+
   const running = session?.state === 'running';
+  const attached = session?.machine != null;
 
   const connect = useCallback(async () => {
     setConnectFailed(false);
@@ -251,8 +288,37 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
     }
   };
 
+  const startPairing = async () => {
+    setNotice('');
+    setCopied(false);
+    setBusy(true);
+    try {
+      setPairing((await request.post('/api/roihu/attach')) as Pairing);
+    } catch (err) {
+      setNotice(serverError(err) ?? generic);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyCommand = async () => {
+    if (!pairing) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(pairing.command);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+
   const stop = async () => {
-    if (!window.confirm(localize('com_roihu_stop_confirm'))) {
+    if (
+      !window.confirm(
+        localize(attached ? 'com_roihu_disconnect_confirm' : 'com_roihu_stop_confirm'),
+      )
+    ) {
       return;
     }
     setBusy(true);
@@ -272,7 +338,7 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
   const stopButton = (
     <Button type="button" variant="outline" size="sm" onClick={stop} disabled={busy}>
       <Square className="h-3.5 w-3.5" aria-hidden={true} />
-      {localize('com_roihu_stop')}
+      {localize(attached ? 'com_roihu_disconnect' : 'com_roihu_stop')}
     </Button>
   );
 
@@ -341,29 +407,44 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
         <div className="mt-3">{stopButton}</div>
       </StatusCard>
     );
+  } else if (session.state === 'offline') {
+    status = (
+      <StatusCard
+        icon={Laptop}
+        title={localize('com_roihu_offline_title', { 0: session.machine ?? '' })}
+        body={localize('com_roihu_offline_body')}
+      >
+        <div className="mt-3">{stopButton}</div>
+      </StatusCard>
+    );
   } else if (session.state === 'ended' && session.message) {
     status = <p className="text-text-secondary mb-4 text-sm">{session.message}</p>;
   }
 
   if (session?.state === 'running' && connected) {
-    const details = [
-      localize('com_roihu_bar_details', {
-        0: session.project ?? '',
-        1: String(session.cores ?? ''),
-        2: String(session.memory ?? ''),
-      }),
-      until ? localize('com_roihu_bar_until', { 0: until }) : '',
-    ]
-      .filter(Boolean)
-      .join(' · ');
+    const label = attached
+      ? localize('com_roihu_bar_machine', { 0: session.machine ?? '' })
+      : localize('com_roihu_bar_running');
+    const details = attached
+      ? ''
+      : [
+          localize('com_roihu_bar_details', {
+            0: session.project ?? '',
+            1: String(session.cores ?? ''),
+            2: String(session.memory ?? ''),
+          }),
+          until ? localize('com_roihu_bar_until', { 0: until }) : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
     return (
       <div className="border-border-light flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-sm">
         <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="text-status-success inline-flex items-center gap-1.5">
             <CircleCheck className="h-4 w-4" aria-hidden={true} />
-            {localize('com_roihu_bar_running')}
+            {label}
           </span>
-          <span className="text-text-secondary">{details}</span>
+          {details && <span className="text-text-secondary">{details}</span>}
         </div>
         <div className="flex items-center gap-2">
           {notice && (
@@ -405,7 +486,29 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
           <iframe src={openUrl} title={localize('com_roihu_frame_title')} className="hidden" />
         )}
 
-        {session != null && !active && (
+        {pairing && (
+          <div className="border-border-light rounded-xl border p-4">
+            <p className="text-text-primary mb-2 text-sm">{localize('com_roihu_attach_command')}</p>
+            <pre className="bg-surface-secondary text-text-primary mb-3 overflow-x-auto rounded-lg p-3 text-xs break-all whitespace-pre-wrap">
+              <code>{pairing.command}</code>
+            </pre>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="button" size="sm" onClick={copyCommand}>
+                <Copy className="h-3.5 w-3.5" aria-hidden={true} />
+                {localize(copied ? 'com_roihu_attach_copied' : 'com_roihu_attach_copy')}
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setPairing(null)}>
+                {localize('com_roihu_attach_cancel')}
+              </Button>
+              <span className="text-text-secondary inline-flex items-center gap-1.5 text-xs">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden={true} />
+                {localize('com_roihu_attach_waiting')}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {session != null && !active && !pairing && (
           <form noValidate onSubmit={launch} aria-describedby={`${uid}-required`}>
             <p id={`${uid}-required`} className="text-text-secondary mb-3 text-xs">
               {localize('com_roihu_required')}
@@ -504,6 +607,19 @@ export default function RoihuSessionCard({ onConnectedChange }: RoihuSessionCard
               <span className="text-text-secondary text-xs">{localize('com_roihu_keys_note')}</span>
             </div>
           </form>
+        )}
+
+        {session != null && !active && !pairing && (
+          <div className="border-border-light mt-6 border-t pt-5">
+            <h3 className="text-text-primary mb-1 flex items-center gap-2 text-sm font-semibold">
+              <Laptop className="text-text-secondary h-4 w-4" aria-hidden={true} />
+              {localize('com_roihu_attach_or')}
+            </h3>
+            <p className="text-text-secondary mb-3 text-sm">{localize('com_roihu_attach_intro')}</p>
+            <Button type="button" variant="outline" onClick={startPairing} disabled={busy}>
+              {localize('com_roihu_attach_start')}
+            </Button>
+          </div>
         )}
       </section>
     </div>

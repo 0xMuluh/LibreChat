@@ -3904,5 +3904,18 @@
   "com_roihu_retry": "Try again",
   "com_roihu_bar_running": "Roihu session running",
   "com_roihu_bar_details": "{{0}} · {{1}} cores · {{2}} GiB",
-  "com_roihu_bar_until": "until {{0}}"
+  "com_roihu_bar_until": "until {{0}}",
+  "com_roihu_attach_or": "Or use your own computer",
+  "com_roihu_attach_intro": "Any machine with Docker: a laptop, a lab workstation or a cloud server. It connects out to OmicsBase, so it needs no open ports, and your files stay on it.",
+  "com_roihu_attach_start": "Use my own computer",
+  "com_roihu_attach_command": "Run this on that computer. The code works once, within 10 minutes.",
+  "com_roihu_attach_copy": "Copy command",
+  "com_roihu_attach_copied": "Copied",
+  "com_roihu_attach_waiting": "Waiting for your computer to connect…",
+  "com_roihu_attach_cancel": "Cancel",
+  "com_roihu_offline_title": "{{0}} is not connected",
+  "com_roihu_offline_body": "Start it again on that computer: docker start omicsbase-reports",
+  "com_roihu_bar_machine": "Running on {{0}}",
+  "com_roihu_disconnect": "Disconnect",
+  "com_roihu_disconnect_confirm": "Disconnect this computer? Its files stay on it, but it can no longer reach OmicsBase until you pair it again."
 }

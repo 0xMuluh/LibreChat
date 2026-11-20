@@ -10,6 +10,7 @@ const config: RoihuConfig = {
   relayUrl: 'https://relay',
   relayFingerprint: 'fp',
   scriptsDir: '/scripts',
+  appUrl: 'https://omicsbase.example',
 };
 
 const goodInput = { project: 'project_2010578', cores: 2, memory: 8, hours: 4, token: 'tok' };
@@ -20,8 +21,9 @@ function fakeWorld(
 ) {
   const routes: Record<
     string,
-    { user: string; expires: number; meta: Record<string, unknown>; connected: boolean }
+    { user: string; expires: number | null; meta: Record<string, unknown>; connected: boolean }
   > = {};
+  const pairings: Record<string, string> = {};
   const jobs: Record<string, { state: string; end?: number; body: Record<string, unknown> }> = {};
   const calls: string[] = [];
   let nextJob = 100;
@@ -50,7 +52,7 @@ function fakeWorld(
           }));
         return reply(200, { routes: mine });
       }
-      if (method === 'POST' && parts.length === 1) {
+      if (method === 'POST' && parts.join('/') === 'routes') {
         const id = `r${Object.keys(routes).length + 1}`;
         routes[id] = { user: body.user, expires: 2e9, meta: body.meta, connected: false };
         return reply(201, {
@@ -59,6 +61,36 @@ function fakeWorld(
           relay_remote: 'R:127.0.0.1:18100',
           relay_auth: `job-${id}:pw`,
           session_key: 'sk',
+        });
+      }
+      if (method === 'POST' && parts.join('/') === 'pairings') {
+        const code = `CODE${Object.keys(pairings).length + 1}`;
+        pairings[code] = body.user;
+        return reply(201, { code, expires: 2e9 });
+      }
+      if (method === 'POST' && parts.join('/') === 'pairings/claim') {
+        const user = pairings[body.code];
+        delete pairings[body.code];
+        if (!user) {
+          return reply(404);
+        }
+        if (Object.values(routes).some((r) => r.user === user)) {
+          return reply(409);
+        }
+        const id = `r${Object.keys(routes).length + 1}`;
+        routes[id] = {
+          user,
+          expires: null,
+          meta: { kind: 'attached', name: body.name },
+          connected: false,
+        };
+        return reply(201, {
+          route: id,
+          expires: null,
+          relay_remote: 'R:127.0.0.1:18101',
+          relay_auth: `job-${id}:pw`,
+          session_key: 'attached-key',
+          user,
         });
       }
       if (method === 'PUT' && parts[2] === 'meta') {
@@ -273,5 +305,40 @@ describe('createRoihuClient', () => {
     await w.client.launch('u1', goodInput);
     expect(await w.client.openLink('u1')).toBe('https://relay/roihu/open?c=once');
     await expect(w.client.openLink('u2')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('a pairing code attaches one machine, which shows by name until it is disconnected', async () => {
+    const w = fakeWorld();
+    const pairing = await w.client.pair('u1');
+    expect(pairing.command).toBe(
+      'docker run -d --restart unless-stopped --name omicsbase-reports ' +
+        '-v omicsbase-reports:/home/openhands -v omicsbase-projects:/projects ' +
+        'ghcr.io/0xmuluh/omicsbase-reports:v1.41.0-roihu1 ' +
+        `https://omicsbase.example --pair ${pairing.code} --name "$(hostname)"`,
+    );
+    expect(await w.client.claim(pairing.code, 'lab-pc')).toEqual({
+      relayUrl: 'https://relay',
+      relayFingerprint: 'fp',
+      relayRemote: 'R:127.0.0.1:18101',
+      relayAuth: 'job-r1:pw',
+      sessionKey: 'attached-key',
+    });
+    await expect(w.client.claim(pairing.code, 'lab-pc')).rejects.toMatchObject({ status: 404 });
+    expect(await w.client.view('u1')).toEqual({ state: 'offline', machine: 'lab-pc' });
+    w.routes.r1.connected = true;
+    expect(await w.client.view('u1')).toEqual({ state: 'running', machine: 'lab-pc' });
+    expect(await w.client.openLink('u1')).toBe('https://relay/roihu/open?c=once');
+    expect((await w.client.stop('u1')).state).toBe('ended');
+    expect(w.routes).toEqual({});
+    expect(w.calls.some((call) => call.includes('/compute/'))).toBe(false);
+  });
+
+  it('one session per user across Roihu and attached machines', async () => {
+    const w = fakeWorld({ imageExists: true });
+    await w.client.launch('u1', goodInput);
+    await expect(w.client.pair('u1')).rejects.toMatchObject({ status: 409 });
+    const other = await w.client.pair('u2');
+    await w.client.claim(other.code, 'pc');
+    await expect(w.client.launch('u2', goodInput)).rejects.toMatchObject({ status: 409 });
   });
 });
