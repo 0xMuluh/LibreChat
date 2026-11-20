@@ -24,7 +24,7 @@ const { logViolation } = require('../../cache');
  * for connections from this machine that carry the internal engine secret.
  */
 function isRecorder(req) {
-  const secret = process.env.OMICSBASE_AUTH_SECRET;
+  const secret = process.env.OMICSBASE_ENGINE_SECRET || process.env.OMICSBASE_AUTH_SECRET;
   const provided = req.headers['x-internal-secret'];
   if (
     process.env.OMICSBASE_RECORDER_ENABLED !== 'true' ||
