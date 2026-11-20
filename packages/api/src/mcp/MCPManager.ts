@@ -1,4 +1,3 @@
-import { bindNoteThread } from '~/notes/mcp';
 import pick from 'lodash/pick';
 import { logger } from '@librechat/data-schemas';
 import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
@@ -19,6 +18,7 @@ import type { MCPClientCapabilityProfile } from './capabilities';
 import type { AuthIdentityContext } from '~/utils/identity';
 import type { GraphTokenResolver } from '~/utils/graph';
 import type { FlowStateManager } from '~/flow/manager';
+import type { AgentCellRunner } from '~/notes/agent';
 import type { MCPOAuthTokens } from './oauth';
 import type { RequestBody } from '~/types';
 import type * as t from './types';
@@ -77,6 +77,7 @@ import { MCPServerInspector } from './registry/MCPServerInspector';
 import { MCPServersRegistry } from './registry/MCPServersRegistry';
 import { UserConnectionManager } from './UserConnectionManager';
 import { ConnectionsRepository } from './ConnectionsRepository';
+import { bindNoteThread, isAgentCellTool } from '~/notes/mcp';
 import { MCPConnectionFactory } from './MCPConnectionFactory';
 import { processMCPEnv, isPluginSourced } from '~/utils/env';
 import { OAuthLifecycleRelay } from './oauth/pending';
@@ -161,6 +162,8 @@ export class MCPManager extends UserConnectionManager {
     catalogRecoveryMaxStateEntries?: number,
     catalogRecoveryMaxDetachedDiscoveries?: number,
     private readonly appBindingCodec: MCPAppBindingCodec | undefined = undefined,
+    /** Runs the agent's R cells, so the notes engine never calls back. */
+    private readonly agentCellRunner: AgentCellRunner | undefined = undefined,
   ) {
     super();
     this.catalogRecoveryTracker = new MCPServerCatalogRecoveryTracker(
@@ -189,6 +192,7 @@ export class MCPManager extends UserConnectionManager {
       catalogRecoveryMaxStateEntries?: number;
       catalogRecoveryMaxDetachedDiscoveries?: number;
       appBindingCodec?: MCPAppBindingCodec;
+      agentCellRunner?: AgentCellRunner;
     },
   ): Promise<MCPManager> {
     if (MCPManager.instance) throw new Error('MCPManager has already been initialized.');
@@ -196,6 +200,7 @@ export class MCPManager extends UserConnectionManager {
       options?.catalogRecoveryMaxStateEntries,
       options?.catalogRecoveryMaxDetachedDiscoveries,
       options?.appBindingCodec,
+      options?.agentCellRunner,
     );
     await MCPManager.instance.initialize(configs);
     return MCPManager.instance;
@@ -1482,7 +1487,24 @@ Please follow these instructions when using tools from the respective MCP server
     onOAuthCredentialsChanging?: t.UserConnectionContext['onOAuthCredentialsChanging'];
     mcpApps?: TMCPAppsPolicy;
   }): Promise<t.FormattedToolResponse> {
-    toolArguments = bindNoteThread(serverName, toolName, toolArguments, requestBody?.conversationId);
+    toolArguments = bindNoteThread(
+      serverName,
+      toolName,
+      toolArguments,
+      requestBody?.conversationId,
+    );
+    if (this.agentCellRunner && isAgentCellTool(serverName, toolName)) {
+      const text = await this.agentCellRunner({
+        conversationId: requestBody?.conversationId ?? '',
+        code: String(toolArguments?.code ?? ''),
+        cellId: toolArguments?.cell_id == null ? undefined : String(toolArguments.cell_id),
+      });
+      return formatToolContent({ content: [{ type: 'text', text }] }, provider, {
+        serverName,
+        toolName,
+        mcpApps,
+      });
+    }
     if (scheduledBearerInvocation) requestScopedConnections = scheduledBearerInvocation.context;
     const userId = user?.id;
     const enforceSchedule =

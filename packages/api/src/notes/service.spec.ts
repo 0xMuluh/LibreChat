@@ -1,9 +1,10 @@
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import models from '../../../../api/server/services/NoteCells/models';
-import { createNoteService } from './service';
-import { bindNoteThread } from './mcp';
+import type { NoteDependencies } from './serviceTypes';
 import type { NoteEngineResult } from './contracts';
+import models from '../../../../api/server/services/NoteCells/models';
+import { bindNoteThread, isAgentCellTool } from './mcp';
+import { createNoteService } from './service';
 
 let mongo: MongoMemoryServer;
 const bridge = jest.fn(async () => {});
@@ -17,7 +18,6 @@ const service = createNoteService({
   executeOnEngine: execute,
   fetchArtifactFromEngine: artifact,
   signalCancel: cancel,
-  internalSecret: 'test-secret',
 });
 
 beforeAll(async () => {
@@ -25,7 +25,10 @@ beforeAll(async () => {
   await mongoose.connect(mongo.getUri());
   await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
 }, 60000);
-afterAll(async () => { await mongoose.disconnect(); await mongo?.stop(); });
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongo?.stop();
+});
 afterEach(async () => {
   await Promise.all(Object.values(mongoose.models).map((model) => model.deleteMany({})));
   jest.clearAllMocks();
@@ -33,45 +36,101 @@ afterEach(async () => {
 });
 
 test('preserves cell identity, revisions, durable results and console artifact access', async () => {
-  const cell = await service.findOrCreateCell({ conversationId: 'chat', userId: 'alice', messageId: 'msg', blockKey: 'block', content: 'print(42)' });
-  const same = await service.findOrCreateCell({ conversationId: 'chat', userId: 'alice', messageId: 'msg', blockKey: 'block', content: 'ignored' });
+  const cell = await service.findOrCreateCell({
+    conversationId: 'chat',
+    userId: 'alice',
+    messageId: 'msg',
+    blockKey: 'block',
+    content: 'print(42)',
+  });
+  const same = await service.findOrCreateCell({
+    conversationId: 'chat',
+    userId: 'alice',
+    messageId: 'msg',
+    blockKey: 'block',
+    content: 'ignored',
+  });
   expect(same.id).toBe(cell.id);
-  const revision = await service.appendRevision({ conversationId: 'chat', userId: 'alice', cellId: cell.id, content: '42' });
+  const revision = await service.appendRevision({
+    conversationId: 'chat',
+    userId: 'alice',
+    cellId: cell.id,
+    content: '42',
+  });
   expect(revision.revision).toBe(2);
-  const execution = await service.executeCell({ conversationId: 'chat', userId: 'alice', cellId: cell.id });
+  const execution = await service.executeCell({
+    conversationId: 'chat',
+    userId: 'alice',
+    cellId: cell.id,
+  });
   await service.waitForExecution(execution.id);
   const result = await service.getExecution('chat', 'alice', cell.id, execution.id);
   expect(result.status).toBe('completed');
   expect(result.stdout).toBe('42');
   expect(bridge).toHaveBeenCalledWith('chat', 'alice');
-  const output = await service.getArtifactContent('chat', 'alice', cell.id, execution.id, result.artifacts[0].id);
+  const output = await service.getArtifactContent(
+    'chat',
+    'alice',
+    cell.id,
+    execution.id,
+    result.artifacts[0].id,
+  );
   expect(output.buffer.toString()).toBe('42');
   expect(artifact).not.toHaveBeenCalled();
-  await expect(service.getExecution('chat', 'bob', cell.id, execution.id)).rejects.toMatchObject({ status: 404 });
+  await expect(service.getExecution('chat', 'bob', cell.id, execution.id)).rejects.toMatchObject({
+    status: 404,
+  });
 });
 
 test('cancellation remains authoritative when engine success arrives afterward', async () => {
-  let release: (result: NoteEngineResult) => void = () => { throw new Error('Engine not started'); };
+  let release: (result: NoteEngineResult) => void = () => {
+    throw new Error('Engine not started');
+  };
   let entered: () => void = () => {};
-  const started = new Promise<void>((resolve) => { entered = resolve; });
-  execute.mockImplementation(() => new Promise<NoteEngineResult>((resolve) => { release = resolve; entered(); }));
-  const cell = await service.createCell({ conversationId: 'chat', userId: 'alice', content: 'Sys.sleep(10)' });
-  const execution = await service.executeCell({ conversationId: 'chat', userId: 'alice', cellId: cell.id });
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  execute.mockImplementation(
+    () =>
+      new Promise<NoteEngineResult>((resolve) => {
+        release = resolve;
+        entered();
+      }),
+  );
+  const cell = await service.createCell({
+    conversationId: 'chat',
+    userId: 'alice',
+    content: 'Sys.sleep(10)',
+  });
+  const execution = await service.executeCell({
+    conversationId: 'chat',
+    userId: 'alice',
+    cellId: cell.id,
+  });
   await started;
   await service.cancelExecution('chat', 'alice', cell.id, execution.id);
   expect(cancel).toHaveBeenCalledWith('chat', execution.id);
   release({ success: true, stdout: 'late result' });
   await service.waitForExecution(execution.id);
-  expect((await service.getExecution('chat', 'alice', cell.id, execution.id)).status).toBe('cancelled');
+  expect((await service.getExecution('chat', 'alice', cell.id, execution.id)).status).toBe(
+    'cancelled',
+  );
 });
 
 test('only the note execution tool receives the host conversation binding', () => {
   const input = { code: '42', thread_id: 'model-selected' };
-  expect(bindNoteThread('notethreads', 'execute_r_cell', input, 'host-chat')).toEqual({ code: '42', thread_id: 'host-chat' });
+  expect(bindNoteThread('notethreads', 'execute_r_cell', input, 'host-chat')).toEqual({
+    code: '42',
+    thread_id: 'host-chat',
+  });
   expect(bindNoteThread('another', 'execute_r_cell', input, 'host-chat')).toBe(input);
   expect(bindNoteThread('notethreads', 'other', input, 'host-chat')).toBe(input);
-  expect(service.verifyInternalSecret('test-secret')).toBe(true);
-  expect(service.verifyInternalSecret('wrong')).toBe(false);
+});
+
+test('only the note execution tool is run by OmicsBase itself', () => {
+  expect(isAgentCellTool('notethreads', 'execute_r_cell')).toBe(true);
+  expect(isAgentCellTool('notethreads', 'r_help')).toBe(false);
+  expect(isAgentCellTool('another', 'execute_r_cell')).toBe(false);
 });
 
 test('assertConversationAccess handles owner and read-only shared link resolution', async () => {
@@ -86,14 +145,14 @@ test('assertConversationAccess handles owner and read-only shared link resolutio
         },
       }),
     })),
-  } as any;
+  } as unknown as ReturnType<NoteDependencies['getConversationModel']>;
 
   const fakeSharedLinkModel = {
     findOne: jest.fn((query) => ({
       select: () => ({
         lean: async () => {
           const matches = query.$or?.some(
-            (c: any) =>
+            (c: { shareId?: string; conversationId?: string }) =>
               c.shareId === 'share123' ||
               c.conversationId === 'share123' ||
               c.conversationId === 'convo1',
@@ -105,7 +164,7 @@ test('assertConversationAccess handles owner and read-only shared link resolutio
         },
       }),
     })),
-  } as any;
+  } as unknown as ReturnType<NonNullable<NoteDependencies['getSharedLinkModel']>>;
 
   const authService = createNoteService({
     models,
@@ -115,7 +174,6 @@ test('assertConversationAccess handles owner and read-only shared link resolutio
     executeOnEngine: execute,
     fetchArtifactFromEngine: artifact,
     signalCancel: cancel,
-    internalSecret: 'test-secret',
   });
 
   // 1. Owner can access (read or write)

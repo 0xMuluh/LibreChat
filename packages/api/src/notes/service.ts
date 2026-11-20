@@ -1,7 +1,7 @@
 import type { NoteDependencies } from './serviceTypes';
+import { createAgentCellRunner, createNoteAgentLifecycle } from './agent';
 import { createExecutionStore } from './executions';
 import { serializeArtifact } from './serialization';
-import { createNoteAgentLifecycle } from './agent';
 import { createExecutionWorker } from './worker';
 import { createEventStore } from './events';
 import { createCellStore } from './cells';
@@ -12,22 +12,22 @@ export type NoteService = ReturnType<typeof createCellStore> &
   ReturnType<typeof createEventStore> &
   ReturnType<typeof createExecutionWorker> & {
     agentLifecycle: ReturnType<typeof createNoteAgentLifecycle>;
+    runAgentCell: ReturnType<typeof createAgentCellRunner>;
     assertConversationAccess(
       conversationId: string,
       userId?: string,
       options?: { readOnly?: boolean },
     ): Promise<{ conversationId: string; userId: string; isShared?: boolean }>;
     resolveUserForConversation(conversationId: string): Promise<string | null>;
-    verifyInternalSecret(headerValue: string | undefined): boolean;
     serializeArtifact: typeof serializeArtifact;
   };
 
 export function createNoteService(deps: NoteDependencies): NoteService {
-  const { internalSecret: INTERNAL_SECRET } = deps;
   const cells = createCellStore(deps.models);
   const events = createEventStore(deps.models);
   const worker = createExecutionWorker(deps, events.appendEvent);
   const executions = createExecutionStore(deps, events.appendEvent, worker.enqueueExecution);
+  const agentLifecycle = createNoteAgentLifecycle(deps.models);
   async function assertConversationAccess(
     conversationId: string,
     userId?: string,
@@ -87,13 +87,6 @@ export function createNoteService(deps: NoteDependencies): NoteService {
     return convo?.user ? String(convo.user) : null;
   }
 
-  function verifyInternalSecret(headerValue: string | undefined) {
-    if (!INTERNAL_SECRET) {
-      return false;
-    }
-    return headerValue === INTERNAL_SECRET;
-  }
-
   return {
     createCell: cells.createCell,
     findOrCreateCell: cells.findOrCreateCell,
@@ -109,10 +102,15 @@ export function createNoteService(deps: NoteDependencies): NoteService {
     listEvents: events.listEvents,
     enqueueExecution: worker.enqueueExecution,
     waitForExecution: worker.waitForExecution,
-    agentLifecycle: createNoteAgentLifecycle(deps.models),
+    agentLifecycle,
+    runAgentCell: createAgentCellRunner({
+      lifecycle: agentLifecycle,
+      resolveUser: resolveUserForConversation,
+      bridgeConversationFiles: deps.bridgeConversationFiles,
+      executeOnEngine: deps.executeOnEngine,
+    }),
     assertConversationAccess,
     resolveUserForConversation,
-    verifyInternalSecret,
     serializeArtifact,
   };
 }

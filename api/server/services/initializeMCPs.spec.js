@@ -32,6 +32,8 @@ const mockMergeAppTools = jest.fn();
 const mockInvalidateCachedTools = jest.fn();
 const mockStartMCPAuthorizationFenceRetryWorker = jest.fn();
 
+jest.mock('./NoteCells/service', () => ({ runAgentCell: jest.fn() }));
+
 jest.mock('./MCPAuthorizationFenceRetry', () => ({
   get startMCPAuthorizationFenceRetryWorker() {
     return mockStartMCPAuthorizationFenceRetryWorker;
@@ -337,6 +339,7 @@ describe('initializeMCPs', () => {
           catalogRecoveryMaxStateEntries: undefined,
           catalogRecoveryMaxDetachedDiscoveries: undefined,
           appBindingCodec: mockAppBindingCodec,
+          agentCellRunner: expect.any(Function),
         },
       );
     });
@@ -354,6 +357,7 @@ describe('initializeMCPs', () => {
         catalogRecoveryMaxStateEntries: undefined,
         catalogRecoveryMaxDetachedDiscoveries: undefined,
         appBindingCodec: mockAppBindingCodec,
+        agentCellRunner: expect.any(Function),
       });
     });
 
@@ -379,6 +383,7 @@ describe('initializeMCPs', () => {
           catalogRecoveryMaxStateEntries: 2500,
           catalogRecoveryMaxDetachedDiscoveries: 8,
           appBindingCodec: mockAppBindingCodec,
+          agentCellRunner: expect.any(Function),
         },
       );
       expect(mockStartMCPAuthorizationFenceRetryWorker).toHaveBeenCalledWith(
@@ -570,6 +575,7 @@ describe('initializeMCPs', () => {
           catalogRecoveryMaxStateEntries: undefined,
           catalogRecoveryMaxDetachedDiscoveries: undefined,
           appBindingCodec: mockAppBindingCodec,
+          agentCellRunner: expect.any(Function),
         },
       );
     });

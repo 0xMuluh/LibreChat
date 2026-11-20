@@ -26,7 +26,6 @@ export interface NoteDependencies {
     relativePath: string,
   ) => Promise<{ buffer: Buffer; contentType: string }>;
   signalCancel: (conversationId: string, executionId: string) => Promise<void>;
-  internalSecret: string;
 }
 export interface CellInput {
   conversationId: string;

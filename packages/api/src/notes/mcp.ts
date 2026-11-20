@@ -9,3 +9,8 @@ export function bindNoteThread<T extends object>(
     ? { ...args, thread_id: conversationId }
     : args;
 }
+
+/** The agent's R cells run through OmicsBase rather than the engine's own tool. */
+export function isAgentCellTool(server: string, tool: string): boolean {
+  return server === 'notethreads' && tool === 'execute_r_cell';
+}
