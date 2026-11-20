@@ -16,5 +16,6 @@ router.post('/session', handlers.launchSession);
 router.post('/session/open', handlers.openSession);
 router.delete('/session', handlers.stopSession);
 router.post('/attach', handlers.startPairing);
+router.post('/attach/link', handlers.linkMachine);
 
 module.exports = router;

@@ -9,6 +9,10 @@ import type { Request, Response } from 'express';
  * route on the OmicsBase relay (deployment/roihu in the omicsbase repo).
  */
 
+/**
+ * The router is all a local install needs (it links users' machines); Roihu jobs and
+ * machines that dial out to the relay need the rest, which is empty when not set.
+ */
 export interface RoihuConfig {
   routerUrl: string;
   routerSecret: string;
@@ -22,28 +26,20 @@ export interface RoihuConfig {
   appUrl: string;
 }
 
-/** Reads the configuration; null when Reports on Roihu is not set up on this deployment. */
+/** Reads the configuration; null when no router is set up on this deployment. */
 export function roihuConfig(env: NodeJS.ProcessEnv = process.env): RoihuConfig | null {
-  const required = [
-    'ROIHU_ROUTER_URL',
-    'ROIHU_ROUTER_SECRET',
-    'ROIHU_IMAGE_TAG',
-    'ROIHU_RELAY_URL',
-    'ROIHU_RELAY_FINGERPRINT',
-    'ROIHU_SCRIPTS_DIR',
-  ];
-  if (required.some((name) => !env[name])) {
+  if (!env.ROIHU_ROUTER_URL || !env.ROIHU_ROUTER_SECRET) {
     return null;
   }
   return {
-    routerUrl: env.ROIHU_ROUTER_URL as string,
-    routerSecret: env.ROIHU_ROUTER_SECRET as string,
+    routerUrl: env.ROIHU_ROUTER_URL,
+    routerSecret: env.ROIHU_ROUTER_SECRET,
     firecrestUrl: env.ROIHU_FIRECREST_URL || 'https://api.roihu.csc.fi/v1',
     system: env.ROIHU_FIRECREST_SYSTEM || 'cpu',
-    imageTag: env.ROIHU_IMAGE_TAG as string,
-    relayUrl: env.ROIHU_RELAY_URL as string,
-    relayFingerprint: env.ROIHU_RELAY_FINGERPRINT as string,
-    scriptsDir: env.ROIHU_SCRIPTS_DIR as string,
+    imageTag: env.ROIHU_IMAGE_TAG || '',
+    relayUrl: env.ROIHU_RELAY_URL || '',
+    relayFingerprint: env.ROIHU_RELAY_FINGERPRINT || '',
+    scriptsDir: env.ROIHU_SCRIPTS_DIR || '',
     appUrl: (env.DOMAIN_CLIENT || '').replace(/\/$/, ''),
   };
 }
@@ -117,11 +113,14 @@ export interface SessionView {
   machine?: string;
 }
 
-/** A one-time code and the command that pairs a machine with it. */
+/**
+ * How to attach a machine here: with the relay, a one-time code and the command that uses it;
+ * in a local install, the command that makes the machine print a pairing string to paste.
+ */
 export interface PairingView {
-  code: string;
-  expires: number;
   command: string;
+  code?: string;
+  expires?: number;
 }
 
 /** What a newly paired machine needs to connect: the relay and its own session key. */
@@ -133,8 +132,10 @@ export interface AttachSettings {
   sessionKey: string;
 }
 
+/** A machine of the user's own: it dialled out to the relay ("attached"), or a local install
+ * dials out to it ("linked"). */
 interface AttachedMeta {
-  kind: 'attached';
+  kind: 'attached' | 'linked';
   name: string;
 }
 
@@ -217,6 +218,7 @@ export interface RoihuClient {
   stop(userId: string): Promise<SessionView>;
   pair(userId: string): Promise<PairingView>;
   claim(code: string, name: string): Promise<AttachSettings>;
+  link(userId: string, pairing: string): Promise<SessionView>;
 }
 
 type Handler = (req: AuthedRequest, res: Response) => Promise<Response>;
@@ -229,6 +231,7 @@ export interface RoihuHandlers {
   startPairing: Handler;
   /** Public: an attached machine has no OmicsBase login; the one-time code is its credential. */
   claimPairing: Handler;
+  linkMachine: Handler;
 }
 
 export function createRoihuClient(deps: RoihuDeps): RoihuClient {
@@ -319,7 +322,7 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
       return { state: 'none' };
     }
     const m = r.meta;
-    if (m.kind === 'attached') {
+    if (m.kind === 'attached' || m.kind === 'linked') {
       return { state: r.connected ? 'running' : 'offline', machine: m.name };
     }
     const base = { project: m.project, cores: m.cores, memory: m.memory, hours: m.hours };
@@ -375,8 +378,22 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     return { ...base, state: 'unknown' };
   }
 
-  async function launch(userId: string, input: LaunchInput): Promise<SessionView> {
+  /** The settings `what` needs, or a 503 naming what is missing here. */
+  function configFor(what: string, fields: Array<keyof RoihuConfig>): RoihuConfig {
     const c = config();
+    if (fields.some((field) => !c[field])) {
+      throw new UserFacingError(503, `${what} is not set up on this server.`);
+    }
+    return c;
+  }
+
+  async function launch(userId: string, input: LaunchInput): Promise<SessionView> {
+    const c = configFor('Reports on Roihu', [
+      'imageTag',
+      'scriptsDir',
+      'relayUrl',
+      'relayFingerprint',
+    ]);
     if (await liveRoute(userId)) {
       throw new UserFacingError(409, 'You already have a Reports session. Stop it first.');
     }
@@ -548,6 +565,13 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
         message: `${r.meta.name} is disconnected and can no longer reach OmicsBase. Remove its container there: docker rm -f omicsbase-reports`,
       };
     }
+    if (r.meta.kind === 'linked') {
+      await removeRoute(userId, r.route);
+      return {
+        state: 'ended',
+        message: `Disconnected from ${r.meta.name}. Its container keeps running there; remove it with docker rm -f omicsbase-reports.`,
+      };
+    }
     try {
       const token = await decrypt(r.meta.token);
       for (const id of [r.meta.jobId, r.meta.prepJobId]) {
@@ -571,10 +595,26 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
   }
 
   async function pair(userId: string): Promise<PairingView> {
-    const c = config();
     if (await liveRoute(userId)) {
       throw new UserFacingError(409, 'You already have a Reports session. Stop it first.');
     }
+    if (!config().relayUrl) {
+      const local = configFor('Using your own computer', ['imageTag']);
+      return {
+        command: [
+          'docker run -d --restart unless-stopped --name omicsbase-reports -p 8443:8443',
+          '-v omicsbase-reports:/home/openhands -v omicsbase-projects:/projects',
+          `ghcr.io/0xmuluh/omicsbase-reports:${local.imageTag}`,
+          'serve --address <name or IP of that computer>',
+        ].join(' '),
+      };
+    }
+    const c = configFor('Pairing a computer', [
+      'imageTag',
+      'relayUrl',
+      'relayFingerprint',
+      'appUrl',
+    ]);
     const { status, data } = await router('POST', '/pairings', { user: userId });
     if (status !== 201 || !data?.code) {
       throw new Error(`router answered ${status} to a pairing request`);
@@ -590,7 +630,7 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
   }
 
   async function claim(code: string, name: string): Promise<AttachSettings> {
-    const c = config();
+    const c = configFor('Pairing a computer', ['relayUrl', 'relayFingerprint']);
     const { status, data } = await router('POST', '/pairings/claim', { code, name });
     if (status === 404) {
       throw new UserFacingError(404, 'This pairing code is unknown, used or expired.');
@@ -610,7 +650,28 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     };
   }
 
-  return { view, launch, openLink, stop, pair, claim };
+  /** A local install dials out to the user's machine, which printed this pairing string. */
+  async function link(userId: string, pairing: string): Promise<SessionView> {
+    if (await liveRoute(userId)) {
+      throw new UserFacingError(409, 'You already have a Reports session. Stop it first.');
+    }
+    const { status } = await router('POST', '/links', { user: userId, pairing });
+    if (status === 400) {
+      throw new UserFacingError(
+        400,
+        'That is not a pairing string. Copy the whole line that starts with omicsbase-machine:',
+      );
+    }
+    if (status === 409) {
+      throw new UserFacingError(409, 'You already have a Reports session. Stop it first.');
+    }
+    if (status !== 201) {
+      throw new Error(`router answered ${status} to a link request`);
+    }
+    return view(userId);
+  }
+
+  return { view, launch, openLink, stop, pair, claim, link };
 }
 
 /** Sends a UserFacingError's own message; anything else is logged and kept generic. */
@@ -653,6 +714,14 @@ export function createRoihuHandlers(deps: RoihuDeps): RoihuHandlers {
     openSession: wrap(async (userId) => ({ url: await client.openLink(userId) })),
     stopSession: wrap((userId) => client.stop(userId)),
     startPairing: wrap((userId) => client.pair(userId)),
+    linkMachine: async (req: AuthedRequest, res: Response): Promise<Response> => {
+      const { pairing } = (req.body ?? {}) as { pairing?: unknown };
+      if (typeof pairing !== 'string' || !pairing.trim() || pairing.length > 4096) {
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(400).json({ error: 'Paste the pairing string your computer printed.' });
+      }
+      return wrap((userId) => client.link(userId, pairing))(req, res);
+    },
     claimPairing: async (req: AuthedRequest, res: Response): Promise<Response> => {
       res.setHeader('Cache-Control', 'no-store');
       const { code, name } = (req.body ?? {}) as { code?: unknown; name?: unknown };

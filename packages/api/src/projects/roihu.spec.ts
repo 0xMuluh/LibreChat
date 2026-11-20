@@ -1,5 +1,5 @@
 import type { RoihuConfig } from './roihu';
-import { createRoihuClient, validateLaunch, UserFacingError } from './roihu';
+import { createRoihuClient, roihuConfig, validateLaunch, UserFacingError } from './roihu';
 
 const config: RoihuConfig = {
   routerUrl: 'http://router',
@@ -17,7 +17,12 @@ const goodInput = { project: 'project_2010578', cores: 2, memory: 8, hours: 4, t
 
 /** In-memory stand-ins for the router's private interface and FirecREST. */
 function fakeWorld(
-  opts: { imageExists?: boolean; groups?: string[]; failJobSubmit?: boolean } = {},
+  opts: {
+    imageExists?: boolean;
+    groups?: string[];
+    failJobSubmit?: boolean;
+    config?: RoihuConfig;
+  } = {},
 ) {
   const routes: Record<
     string,
@@ -62,6 +67,22 @@ function fakeWorld(
           relay_auth: `job-${id}:pw`,
           session_key: 'sk',
         });
+      }
+      if (method === 'POST' && parts.join('/') === 'links') {
+        if (!String(body.pairing).startsWith('omicsbase-machine:')) {
+          return reply(400, { error: 'not a pairing string' });
+        }
+        if (Object.values(routes).some((r) => r.user === body.user)) {
+          return reply(409);
+        }
+        const id = `r${Object.keys(routes).length + 1}`;
+        routes[id] = {
+          user: body.user,
+          expires: null,
+          meta: { kind: 'linked', name: 'lab.example.org' },
+          connected: true,
+        };
+        return reply(201, { route: id, expires: null });
       }
       if (method === 'POST' && parts.join('/') === 'pairings') {
         const code = `CODE${Object.keys(pairings).length + 1}`;
@@ -155,7 +176,7 @@ function fakeWorld(
   }) as unknown as typeof fetch;
 
   const client = createRoihuClient({
-    config: () => config,
+    config: () => opts.config ?? config,
     fetch: fetchFake,
     encrypt: async (v) => `enc(${v})`,
     decrypt: async (v) => v.replace(/^enc\((.*)\)$/, '$1'),
@@ -340,5 +361,53 @@ describe('createRoihuClient', () => {
     const other = await w.client.pair('u2');
     await w.client.claim(other.code, 'pc');
     await expect(w.client.launch('u2', goodInput)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('a local install links the machine whose pairing string the user pasted', async () => {
+    const local = roihuConfig({
+      ROIHU_ROUTER_URL: 'http://router',
+      ROIHU_ROUTER_SECRET: 'router-secret',
+    });
+    const w = fakeWorld({ config: local! });
+    await expect(w.client.link('u1', 'hello')).rejects.toMatchObject({ status: 400 });
+    expect(await w.client.link('u1', 'omicsbase-machine:abc')).toEqual({
+      state: 'running',
+      machine: 'lab.example.org',
+    });
+    await expect(w.client.link('u1', 'omicsbase-machine:abc')).rejects.toMatchObject({
+      status: 409,
+    });
+    const stopped = await w.client.stop('u1');
+    expect(stopped.state).toBe('ended');
+    expect(stopped.message).toContain('Disconnected from lab.example.org');
+    expect(w.routes).toEqual({});
+  });
+
+  it('a local install has no Roihu launch or relay pairing', async () => {
+    const local = roihuConfig({
+      ROIHU_ROUTER_URL: 'http://router',
+      ROIHU_ROUTER_SECRET: 'router-secret',
+    });
+    expect(roihuConfig({ ROIHU_IMAGE_TAG: 'x' })).toBeNull();
+    const w = fakeWorld({ config: local! });
+    await expect(w.client.launch('u1', goodInput)).rejects.toMatchObject({ status: 503 });
+    await expect(w.client.pair('u1')).rejects.toMatchObject({ status: 503 });
+    expect(w.calls.every((call) => call === 'GET /routes')).toBe(true);
+  });
+
+  it('a local install gives the command that makes a machine print its pairing string', async () => {
+    const local = roihuConfig({
+      ROIHU_ROUTER_URL: 'http://router',
+      ROIHU_ROUTER_SECRET: 'router-secret',
+      ROIHU_IMAGE_TAG: 'v1.41.0-roihu4',
+    });
+    const w = fakeWorld({ config: local! });
+    expect(await w.client.pair('u1')).toEqual({
+      command:
+        'docker run -d --restart unless-stopped --name omicsbase-reports -p 8443:8443 ' +
+        '-v omicsbase-reports:/home/openhands -v omicsbase-projects:/projects ' +
+        'ghcr.io/0xmuluh/omicsbase-reports:v1.41.0-roihu4 ' +
+        'serve --address <name or IP of that computer>',
+    });
   });
 });

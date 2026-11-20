@@ -1,6 +1,6 @@
 import React from 'react';
 import userEvent from '@testing-library/user-event';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import RoihuSessionCard from '../RoihuSessionCard';
 
@@ -173,5 +173,58 @@ describe('RoihuSessionCard', () => {
     );
     expect(await screen.findByText('com_roihu_bar_machine lab-pc')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'com_roihu_disconnect' })).toBeInTheDocument();
+  });
+
+  it('in a local install, links a machine from its pairing string', async () => {
+    mockGet.mockResolvedValue({ state: 'none' });
+    const command = 'docker run ... serve --address <name or IP of that computer>';
+    mockPost.mockImplementation(async (url: string) =>
+      url === '/api/roihu/attach' ? { command } : { state: 'offline', machine: 'lab.example.org' },
+    );
+    const onSessionChange = jest.fn();
+    render(
+      <RoihuSessionCard local onConnectedChange={jest.fn()} onSessionChange={onSessionChange} />,
+    );
+    const user = userEvent.setup();
+    expect(await screen.findByText('com_roihu_local_bar')).toBeInTheDocument();
+    expect(onSessionChange).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByLabelText('com_roihu_project')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'com_roihu_attach_start' }));
+    expect(await screen.findByText(command)).toBeInTheDocument();
+    const connect = screen.getByRole('button', { name: 'com_roihu_link_connect' });
+    expect(connect).toBeDisabled();
+    await user.type(screen.getByLabelText('com_roihu_link_label'), '  omicsbase-machine:abc  ');
+    await user.click(connect);
+    expect(mockPost).toHaveBeenLastCalledWith('/api/roihu/attach/link', {
+      pairing: 'omicsbase-machine:abc',
+    });
+    expect(await screen.findByText('com_roihu_offline_title lab.example.org')).toBeInTheDocument();
+    expect(onSessionChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('after a disconnect, undoes the open page before Reports goes back to this computer', async () => {
+    localStorage.setItem('omicsbase_reports_open_origin', 'http://localhost:3001');
+    mockGet.mockResolvedValue({ state: 'offline', machine: 'lab.example.org' });
+    mockDelete.mockResolvedValue({ state: 'ended', message: 'Disconnected from lab.example.org.' });
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    const onSessionChange = jest.fn();
+    render(
+      <RoihuSessionCard local onConnectedChange={jest.fn()} onSessionChange={onSessionChange} />,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'com_roihu_disconnect' }));
+    expect(await screen.findByText('Disconnected from lab.example.org.')).toBeInTheDocument();
+    expect(screen.getByTitle('com_roihu_frame_title')).toHaveAttribute(
+      'src',
+      'http://localhost:3001/roihu/close',
+    );
+    expect(onSessionChange).toHaveBeenLastCalledWith(true);
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: 'http://localhost:3001',
+        data: { type: 'omicsbase:roihu-closed' },
+      }),
+    );
+    await waitFor(() => expect(onSessionChange).toHaveBeenLastCalledWith(false));
+    expect(screen.queryByTitle('com_roihu_frame_title')).not.toBeInTheDocument();
   });
 });

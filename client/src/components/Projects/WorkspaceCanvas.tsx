@@ -32,9 +32,11 @@ export default function WorkspaceCanvas({
   const { data: startupConfig } = useGetStartupConfig();
   /** Reports runs in a container on this machine: there is no session to start. */
   const localReports = startupConfig?.reportsMode === 'local';
-  /** The user's Reports session on Roihu is running and this browser is connected to it. */
+  /** The user's Reports session (on Roihu or their own computer) is running and this browser is connected to it. */
   const [roihuConnected, setRoihuConnected] = useState(false);
-  const reportsReady = localReports || roihuConnected;
+  /** Whether Reports goes to a session of the user's rather than this computer (null while unknown). */
+  const [ownSession, setOwnSession] = useState<boolean | null>(null);
+  const reportsReady = localReports ? ownSession === false || roihuConnected : roihuConnected;
   const [conversationId, setConversationId] = useState<string | null>(() => {
     return localStorage.getItem(storageKey);
   });
@@ -361,8 +363,13 @@ export default function WorkspaceCanvas({
         onSelectEngine={handleSelectAndSwitchEngine}
       />
 
-      {/* On Roihu: the session card until the session is connected, then a bar above the workspace. */}
-      {!localReports && <RoihuSessionCard onConnectedChange={setRoihuConnected} />}
+      {/* The session card until a session is connected, then a bar above the workspace. In a
+          local install, a bar above the Reports on this computer until the user links a machine. */}
+      <RoihuSessionCard
+        local={localReports}
+        onConnectedChange={setRoihuConnected}
+        onSessionChange={setOwnSession}
+      />
 
       {/* Main Canvas Body */}
       {reportsReady && (
