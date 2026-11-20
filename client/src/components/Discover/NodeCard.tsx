@@ -6,9 +6,15 @@ import { nodeText } from './fields';
  * OmicsBase: what a node of the fields network covers, laid out like a menu
  * column — a marker, the title and a tagline, then items with a detail line.
  */
-export default function NodeCard({ node }: { node: FieldNode }) {
+export default function NodeCard({
+  node,
+  localReports = false,
+}: {
+  node: FieldNode;
+  localReports?: boolean;
+}) {
   const localize = useLocalize();
-  const text = nodeText(node);
+  const text = nodeText(node, localReports);
 
   return (
     <section

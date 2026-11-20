@@ -13,6 +13,7 @@ import AgentLauncherCard from './Workspace/AgentLauncherCard';
 import AgentCanvasFrame from './Workspace/AgentCanvasFrame';
 import RoihuSessionCard from './Workspace/RoihuSessionCard';
 import WorkspaceHeader from './Workspace/WorkspaceHeader';
+import { useGetStartupConfig } from '~/data-provider';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { cn } from '~/utils';
 
@@ -28,8 +29,12 @@ export default function WorkspaceCanvas({
   const storageKey = `omicsbase_workspace_session_v2_${user?.id}_${projectId}`;
 
   const [workspaceAuthorized, setWorkspaceAuthorized] = useState(false);
+  const { data: startupConfig } = useGetStartupConfig();
+  /** Reports runs in a container on this machine: there is no session to start. */
+  const localReports = startupConfig?.reportsMode === 'local';
   /** The user's Reports session on Roihu is running and this browser is connected to it. */
-  const [roihuReady, setRoihuReady] = useState(false);
+  const [roihuConnected, setRoihuConnected] = useState(false);
+  const reportsReady = localReports || roihuConnected;
   const [conversationId, setConversationId] = useState<string | null>(() => {
     return localStorage.getItem(storageKey);
   });
@@ -65,7 +70,7 @@ export default function WorkspaceCanvas({
     let cancelled = false;
     setWorkspaceAuthorized(false);
     setConversationId(localStorage.getItem(storageKey));
-    if (!roihuReady) {
+    if (!reportsReady) {
       return;
     }
     const authorize = async () => {
@@ -124,11 +129,12 @@ export default function WorkspaceCanvas({
       clearInterval(refresh);
       window.removeEventListener('focus', authorize);
     };
-  }, [projectId, storageKey, roihuReady]);
+  }, [projectId, storageKey, reportsReady]);
 
-  // Report status from the gateway in the user's Roihu session
+  // Report status from the Reports gateway
   const fetchProjectStatus = useCallback(async () => {
-    if (!roihuReady || !openhandsBaseUrl) {
+    // Only once the gateway session (and its cookie) exists.
+    if (!workspaceAuthorized || !openhandsBaseUrl) {
       return;
     }
     try {
@@ -141,7 +147,7 @@ export default function WorkspaceCanvas({
     } catch {
       // the session may be reconnecting
     }
-  }, [roihuReady, openhandsBaseUrl, projectId]);
+  }, [workspaceAuthorized, openhandsBaseUrl, projectId]);
 
   useEffect(() => {
     fetchProjectStatus();
@@ -355,11 +361,11 @@ export default function WorkspaceCanvas({
         onSelectEngine={handleSelectAndSwitchEngine}
       />
 
-      {/* The session card until the session is connected, then a bar above the workspace. */}
-      <RoihuSessionCard onConnectedChange={setRoihuReady} />
+      {/* On Roihu: the session card until the session is connected, then a bar above the workspace. */}
+      {!localReports && <RoihuSessionCard onConnectedChange={setRoihuConnected} />}
 
       {/* Main Canvas Body */}
-      {roihuReady && (
+      {reportsReady && (
         <div className="relative flex-1 overflow-hidden">
           {viewMode === 'agent' ? (
             agentView

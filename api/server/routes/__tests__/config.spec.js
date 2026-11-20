@@ -391,6 +391,22 @@ describe('GET /api/config', () => {
       expect(anonymous.body).not.toHaveProperty('ragEnabled');
     });
 
+    it('tells the client where Reports runs, before and after sign-in', async () => {
+      mockGetAppConfig.mockResolvedValue(baseAppConfig);
+      const app = createApp(mockUser);
+      const original = process.env.OMICSBASE_REPORTS_MODE;
+      try {
+        delete process.env.OMICSBASE_REPORTS_MODE;
+        expect((await request(app).get('/api/config')).body.reportsMode).toBe('roihu');
+        process.env.OMICSBASE_REPORTS_MODE = 'local';
+        expect((await request(app).get('/api/config')).body.reportsMode).toBe('local');
+        expect((await request(createApp()).get('/api/config')).body.reportsMode).toBe('local');
+      } finally {
+        if (original === undefined) delete process.env.OMICSBASE_REPORTS_MODE;
+        else process.env.OMICSBASE_REPORTS_MODE = original;
+      }
+    });
+
     it('should call getAppConfig with role, userId, and tenantId', async () => {
       mockGetAppConfig.mockResolvedValue(baseAppConfig);
       mockGetTenantId.mockReturnValue('fallback-tenant');
