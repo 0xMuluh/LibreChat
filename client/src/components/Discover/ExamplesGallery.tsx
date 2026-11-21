@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { useMediaQuery } from '@librechat/client';
 import type { TranslationKeys } from '~/hooks';
 import { discoverSeed, useDiscoverExamples, useGetStartupConfig } from '~/data-provider';
 import { FIELD_NODES, HUB_NODE } from './fields';
 import FieldCarousel from './FieldCarousel';
 import FieldNetwork from './FieldNetwork';
 import ExampleCard from './ExampleCard';
+import FieldChips from './FieldChips';
 import { useLocalize } from '~/hooks';
 import NodeCard from './NodeCard';
 import { cn } from '~/utils';
@@ -38,6 +40,9 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
   const [columns, setColumns] = useState(4);
   /** Without a search the fields show as carousels; the paged grid shows search results. */
   const searching = q !== '';
+  /** Side by side, the network stays in view and follows the rows; stacked, it would scroll
+   * away, so narrow screens get a row of field buttons instead. */
+  const wide = useMediaQuery('(min-width: 980px)');
   const gridRef = useRef<HTMLDivElement>(null);
   const sectionRef = useRef<HTMLDivElement>(null);
 
@@ -161,18 +166,30 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
       </div>
 
       <div className="grid gap-6 min-[980px]:grid-cols-[minmax(0,0.94fr)_minmax(0,1.1fr)]">
-        <div className="flex flex-col gap-4 min-[980px]:sticky min-[980px]:top-[74px] min-[980px]:self-start">
-          <div className="border-border-medium bg-surface-primary/80 overflow-hidden rounded-2xl border shadow-lg backdrop-blur-xl">
-            <FieldNetwork
+        {wide ? (
+          <div className="sticky top-[74px] flex flex-col gap-4 self-start">
+            <div className="border-border-medium bg-surface-primary/80 overflow-hidden rounded-2xl border shadow-lg backdrop-blur-xl">
+              <FieldNetwork
+                selected={node}
+                inView={inView}
+                onSelect={chooseNode}
+                onHover={setHovered}
+                localReports={localReports}
+              />
+            </div>
+            <NodeCard node={lit} localReports={localReports} />
+          </div>
+        ) : (
+          <div className="flex min-w-0 flex-col gap-4">
+            <NodeCard node={HUB_NODE} localReports={localReports} />
+            <FieldChips
+              nodes={rows}
               selected={node}
-              inView={inView}
               onSelect={chooseNode}
-              onHover={setHovered}
               localReports={localReports}
             />
           </div>
-          <NodeCard node={lit} localReports={localReports} />
-        </div>
+        )}
 
         {searching ? (
           <div className="flex flex-col gap-4">

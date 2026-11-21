@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { disabledFillClasses } from '@librechat/client';
 import { buildLoginRedirectUrl } from 'librechat-data-provider';
 import { ArrowUp, Database, LayoutGrid, Mic, Plus, SquarePen } from 'lucide-react';
-import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type { DiscoverModel } from '~/data-provider';
 import { useDiscoverFooter, useDiscoverModels, useGetStartupConfig } from '~/data-provider';
 import { useAuthContext, useDocumentTitle, useLocalize } from '~/hooks';
@@ -131,12 +131,12 @@ export default function Landing() {
           <p className="text-text-secondary text-1xs leading-snug">
             {localize('com_discover_sidebar_login_hint')}
           </p>
-          <a
-            href={loginUrl()}
+          <Link
+            to={loginUrl()}
             className="border-border-medium text-text-primary hover:bg-surface-hover rounded-full border px-3 py-1.5 text-center text-sm font-medium"
           >
             {localize('com_discover_log_in')}
-          </a>
+          </Link>
         </div>
       </aside>
 
@@ -146,18 +146,18 @@ export default function Landing() {
             <ModelMenu models={models ?? []} selected={model} onSelect={setChosen} />
             <div className="flex items-center gap-2">
               <ThemeToggle />
-              <a
-                href={loginUrl()}
+              <Link
+                to={loginUrl()}
                 className="bg-accent-primary text-surface-primary hover:bg-accent-primary-hover rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap"
               >
                 {localize('com_discover_log_in')}
-              </a>
-              <a
-                href={loginUrl()}
+              </Link>
+              <Link
+                to={loginUrl()}
                 className="border-border-medium text-text-primary hover:bg-surface-hover hidden rounded-full border px-3.5 py-1.5 text-sm font-medium whitespace-nowrap sm:inline-block"
               >
                 {localize('com_discover_sign_up')}
-              </a>
+              </Link>
             </div>
           </header>
           <div className="mx-auto flex max-w-6xl flex-col px-4 pb-16 sm:px-6">
@@ -173,14 +173,14 @@ export default function Landing() {
                     submit();
                   }}
                 >
-                  <a
-                    href={loginUrl()}
+                  <Link
+                    to={loginUrl()}
                     aria-label={localize('com_discover_add_data')}
                     title={localize('com_discover_log_in_to_add_data')}
                     className="text-text-secondary hover:bg-surface-hover flex size-9 flex-none items-center justify-center rounded-full"
                   >
                     <Plus className="size-5" aria-hidden="true" />
-                  </a>
+                  </Link>
                   <textarea
                     ref={promptRef}
                     rows={1}
@@ -196,14 +196,14 @@ export default function Landing() {
                     aria-label={localize('com_discover_message')}
                     className="text-text-primary placeholder:text-text-tertiary max-h-[200px] flex-1 resize-none bg-transparent py-2 text-base outline-none"
                   />
-                  <a
-                    href={loginUrl()}
+                  <Link
+                    to={loginUrl()}
                     aria-label={localize('com_discover_voice_input')}
                     title={localize('com_discover_log_in_to_use_voice')}
                     className="text-text-secondary hover:bg-surface-hover flex size-9 flex-none items-center justify-center rounded-full"
                   >
                     <Mic className="size-5" aria-hidden="true" />
-                  </a>
+                  </Link>
                   <button
                     type="submit"
                     aria-label={localize('com_discover_send')}
