@@ -652,6 +652,13 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
 
   /** A local install dials out to the user's machine, which printed this pairing string. */
   async function link(userId: string, pairing: string): Promise<SessionView> {
+    /* With a relay, machines dial out to it; never let a user point this server elsewhere. */
+    if (config().relayUrl) {
+      throw new UserFacingError(
+        404,
+        'Pairing strings are for local installs. Use the pairing code instead.',
+      );
+    }
     if (await liveRoute(userId)) {
       throw new UserFacingError(409, 'You already have a Reports session. Stop it first.');
     }

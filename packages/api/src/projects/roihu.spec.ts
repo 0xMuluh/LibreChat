@@ -363,6 +363,14 @@ describe('createRoihuClient', () => {
     await expect(w.client.launch('u2', goodInput)).rejects.toMatchObject({ status: 409 });
   });
 
+  it('with a relay, a pasted pairing string is refused without reaching the router', async () => {
+    const w = fakeWorld();
+    await expect(w.client.link('u1', 'omicsbase-machine:abc')).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(w.calls.some((call) => call.includes('/links'))).toBe(false);
+  });
+
   it('a local install links the machine whose pairing string the user pasted', async () => {
     const local = roihuConfig({
       ROIHU_ROUTER_URL: 'http://router',
