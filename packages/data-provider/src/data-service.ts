@@ -297,6 +297,10 @@ export function getUserBalance(): Promise<t.TBalanceResponse> {
   return request.get(endpoints.balance());
 }
 
+export function getImpacts(conversationId?: string): Promise<t.TImpactsResponse> {
+  return request.get(endpoints.impacts(conversationId));
+}
+
 export const login = (payload: t.TLoginUser): Promise<t.TLoginResponse> => {
   return request.post(endpoints.login(), payload);
 };

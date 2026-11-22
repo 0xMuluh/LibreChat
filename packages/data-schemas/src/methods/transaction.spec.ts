@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import type { IBalance } from '..';
+import type { IBalance, TransactionImpacts } from '..';
 import type { ITransaction } from '~/schema/transaction';
 import type { TxData } from './transaction';
 import { createTxMethods, tokenValues, premiumTokenValues, defaultRate } from './tx';
@@ -33,6 +33,8 @@ let releaseBalanceReservation: ReturnType<
 let findBalanceByUser: ReturnType<typeof createTransactionMethods>['findBalanceByUser'];
 let upsertBalanceFields: ReturnType<typeof createTransactionMethods>['upsertBalanceFields'];
 let updateBalance: ReturnType<typeof createTransactionMethods>['updateBalance'];
+let getImpactsTotals: ReturnType<typeof createTransactionMethods>['getImpactsTotals'];
+let bulkInsertTransactions: ReturnType<typeof createTransactionMethods>['bulkInsertTransactions'];
 let getMultiplier: ReturnType<typeof createTxMethods>['getMultiplier'];
 let getCacheMultiplier: ReturnType<typeof createTxMethods>['getCacheMultiplier'];
 
@@ -64,6 +66,8 @@ beforeAll(async () => {
   findBalanceByUser = transactionMethods.findBalanceByUser;
   upsertBalanceFields = transactionMethods.upsertBalanceFields;
   updateBalance = transactionMethods.updateBalance;
+  getImpactsTotals = transactionMethods.getImpactsTotals;
+  bulkInsertTransactions = transactionMethods.bulkInsertTransactions;
 
   const spendMethods = createSpendTokensMethods(mongoose, {
     createTransaction: transactionMethods.createTransaction,
@@ -1845,6 +1849,91 @@ describe('Balance Reservations', () => {
 
       expect((await readState(user))?.pendingRefill).toBeUndefined();
       expect(await Transaction.countDocuments({ user, context: 'autoRefill' })).toBe(1);
+    });
+  });
+});
+
+describe('Transaction impacts', () => {
+  const range = (min: number, max: number) => ({ min, max });
+  const estimate = (energy: number, gwp: number) => ({
+    energy: range(energy, energy * 3),
+    gwp: range(gwp, gwp * 3),
+    adpe: range(1e-9, 3e-9),
+    pe: range(0.02, 0.06),
+    wcf: range(0.005, 0.02),
+    warnings: ['model-arch-not-released'],
+  });
+  const completion = (
+    user: mongoose.Types.ObjectId,
+    conversationId: string,
+    impacts?: TransactionImpacts,
+  ) => ({
+    user: user.toString(),
+    conversationId,
+    tokenType: 'completion',
+    model: 'openai/gpt-6-luna',
+    rawAmount: -50,
+    ...(impacts && { impacts }),
+  });
+
+  test('stores the impacts sub-document without ids and reads it back', async () => {
+    const user = new mongoose.Types.ObjectId();
+    await bulkInsertTransactions([completion(user, 'note-1', estimate(0.002, 0.001))]);
+
+    const [stored] = await Transaction.find({ user }).lean();
+    expect(stored.impacts).toEqual(estimate(0.002, 0.001));
+  });
+
+  test('stores the unmapped marker with no empty ranges, and nothing when absent', async () => {
+    const user = new mongoose.Types.ObjectId();
+    await bulkInsertTransactions([
+      completion(user, 'note-1', { unmapped: true }),
+      completion(user, 'note-1'),
+    ]);
+
+    const stored = await Transaction.find({ user }).sort({ _id: 1 }).lean();
+    expect(stored[0].impacts).toEqual({ unmapped: true });
+    expect(stored[1].impacts).toBeUndefined();
+  });
+
+  test('getImpactsTotals sums min and max per note and per account', async () => {
+    const user = new mongoose.Types.ObjectId();
+    const other = new mongoose.Types.ObjectId();
+    await bulkInsertTransactions([
+      completion(user, 'note-1', estimate(0.002, 0.001)),
+      completion(user, 'note-1', estimate(0.001, 0.0005)),
+      completion(user, 'note-2', estimate(0.01, 0.004)),
+      completion(user, 'note-2', { unmapped: true }),
+      completion(user, 'note-2'),
+      completion(other, 'note-1', estimate(5, 5)),
+    ]);
+
+    const note = await getImpactsTotals({ user: user.toString(), conversationId: 'note-1' });
+    expect(note.energy.min).toBeCloseTo(0.003);
+    expect(note.energy.max).toBeCloseTo(0.009);
+    expect(note.gwp.min).toBeCloseTo(0.0015);
+    expect(note.gwp.max).toBeCloseTo(0.0045);
+    expect(note.partial).toBe(false);
+
+    const partialNote = await getImpactsTotals({ user, conversationId: 'note-2' });
+    expect(partialNote.energy.min).toBeCloseTo(0.01);
+    expect(partialNote.partial).toBe(true);
+
+    const account = await getImpactsTotals({ user: user.toString() });
+    expect(account.energy.min).toBeCloseTo(0.013);
+    expect(account.energy.max).toBeCloseTo(0.039);
+    expect(account.gwp.max).toBeCloseTo(0.0165);
+    expect(account.partial).toBe(true);
+  });
+
+  test('getImpactsTotals returns zeros when nothing was estimated', async () => {
+    const user = new mongoose.Types.ObjectId();
+    await bulkInsertTransactions([completion(user, 'note-1')]);
+
+    expect(await getImpactsTotals({ user: user.toString(), conversationId: 'note-1' })).toEqual({
+      energy: { min: 0, max: 0 },
+      gwp: { min: 0, max: 0 },
+      partial: false,
     });
   });
 });

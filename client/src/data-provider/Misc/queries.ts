@@ -18,6 +18,25 @@ export const useGetBannerQuery = (
   });
 };
 
+/** Energy estimate totals: the account's and, with a conversation id, that note's. */
+export const useGetImpactsQuery = (
+  conversationId?: string,
+  config?: UseQueryOptions<t.TImpactsResponse>,
+): QueryObserverResult<t.TImpactsResponse> => {
+  const queriesEnabled = useRecoilValue<boolean>(store.queriesEnabled);
+  return useQuery<t.TImpactsResponse>(
+    [QueryKeys.impacts, conversationId ?? ''],
+    () => dataService.getImpacts(conversationId),
+    {
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      refetchOnMount: true,
+      ...config,
+      enabled: (config?.enabled ?? true) === true && queriesEnabled,
+    },
+  );
+};
+
 export const useGetUserBalance = (
   config?: UseQueryOptions<t.TBalanceResponse>,
 ): QueryObserverResult<t.TBalanceResponse> => {

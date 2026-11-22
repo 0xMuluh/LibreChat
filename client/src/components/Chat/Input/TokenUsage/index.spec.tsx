@@ -1,7 +1,7 @@
 import { Provider, createStore } from 'jotai';
 import userEvent from '@testing-library/user-event';
 import { render, screen, within } from '@testing-library/react';
-import type { TBalanceResponse, TConversation } from 'librechat-data-provider';
+import type { TBalanceResponse, TConversation, TImpactsTotals } from 'librechat-data-provider';
 import type { TokenUsageView } from '~/hooks/Chat/useTokenUsage';
 import { TokenCredits, AutoRefill } from '~/components/Nav/Settings/BillingControls';
 import { contextBreakdownExpandedAtom } from './store';
@@ -11,6 +11,7 @@ const mockStartupConfig = jest.fn();
 const mockBalance = jest.fn();
 const mockTokenUsage = jest.fn();
 const mockBalanceQuery = jest.fn();
+const mockImpacts = jest.fn();
 
 jest.mock('~/data-provider', () => ({
   useGetStartupConfig: () => ({ data: mockStartupConfig() }),
@@ -19,6 +20,8 @@ jest.mock('~/data-provider', () => ({
       ? { data: undefined, isError: false, isFetched: false }
       : (mockBalanceQuery() ?? { data: mockBalance(), isError: false, isFetched: true }),
   useGetLangfuseSessionLinkQuery: () => ({ data: undefined }),
+  useGetImpactsQuery: (conversationId?: string, config?: { enabled?: boolean }) =>
+    config?.enabled === false ? { data: undefined } : { data: mockImpacts(conversationId) },
 }));
 
 jest.mock('~/hooks/AuthContext', () => ({
@@ -85,6 +88,7 @@ describe('TokenUsage gauge', () => {
     mockBalance.mockReturnValue(balance);
     mockTokenUsage.mockReturnValue(usage(0));
     mockBalanceQuery.mockReset();
+    mockImpacts.mockReset();
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -230,6 +234,74 @@ describe('TokenUsage gauge', () => {
       }
     },
   );
+
+  const impactsTotals = (energy: number, gwp: number, partial = false): TImpactsTotals => ({
+    energy: { min: energy, max: energy * 3 },
+    gwp: { min: gwp, max: gwp * 3 },
+    partial,
+  });
+
+  it('shows the energy estimate of the note in the card, not the account total', async () => {
+    mockStartupConfig.mockReturnValue(config());
+    mockTokenUsage.mockReturnValue(usage(83_200));
+    mockImpacts.mockReturnValue({
+      account: impactsTotals(0.4, 0.15),
+      note: impactsTotals(0.002, 0.001),
+    });
+    renderGauge();
+    const card = await openCard();
+    expect(mockImpacts).toHaveBeenCalledWith('convo-1');
+    expect(within(card).getByTestId('impacts-note')).toHaveTextContent(
+      'This note: about 2–6 Wh, 1–3 g CO₂e (estimate)',
+    );
+    expect(within(card).queryByTestId('impacts-account')).not.toBeInTheDocument();
+  });
+
+  it('marks the note estimate partial when a model had none', async () => {
+    mockStartupConfig.mockReturnValue(config({ balanceEnabled: false }));
+    mockTokenUsage.mockReturnValue(usage(83_200));
+    mockImpacts.mockReturnValue({
+      account: impactsTotals(0.4, 0.15),
+      note: impactsTotals(0.002, 0.001, true),
+    });
+    renderGauge();
+    const card = await openCard();
+    expect(within(card).getByTestId('impacts-note')).toHaveTextContent('Partial');
+  });
+
+  it('reads no estimate for a note that is not saved yet', async () => {
+    mockStartupConfig.mockReturnValue(config());
+    mockImpacts.mockReturnValue({ account: impactsTotals(0.4, 0.15) });
+    render(
+      <TokenUsage
+        index={0}
+        conversation={{ conversationId: 'new', endpoint: 'openAI' } as TConversation}
+        isSubmitting={false}
+      />,
+    );
+    const card = await openCard();
+    expect(mockImpacts).not.toHaveBeenCalled();
+    expect(within(card).queryByTestId('impacts-note')).not.toBeInTheDocument();
+  });
+
+  it('shows the account total under the balance in settings', () => {
+    mockStartupConfig.mockReturnValue(config());
+    mockImpacts.mockReturnValue({ account: impactsTotals(0.4, 0.15) });
+    const settings = render(<TokenCredits />);
+    expect(mockImpacts).toHaveBeenCalledWith(undefined);
+    const line = within(settings.container).getByTestId('impacts-account');
+    expect(line).toHaveTextContent('All your notes: about 0.4–1 kWh, 150–450 g CO₂e (estimate)');
+    const summary = within(settings.container).getByTestId('balance-summary');
+    expect(summary.compareDocumentPosition(line)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('shows no account total when balance is off', () => {
+    mockStartupConfig.mockReturnValue(config({ balanceEnabled: false }));
+    mockImpacts.mockReturnValue({ account: impactsTotals(0.4, 0.15) });
+    const settings = render(<TokenCredits />);
+    expect(mockImpacts).not.toHaveBeenCalled();
+    expect(settings.container).toBeEmptyDOMElement();
+  });
 
   it.each(['credits', 'currency', 'percent'] as const)(
     'shows the same %s reading in the gauge and in settings',

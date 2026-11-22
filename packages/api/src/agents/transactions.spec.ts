@@ -400,6 +400,52 @@ describe('bulkWriteTransactions (real DB)', () => {
   });
 });
 
+describe('bulkWriteTransactions impacts (real DB)', () => {
+  const impacts = {
+    energy: { min: 0.002, max: 0.006 },
+    gwp: { min: 0.001, max: 0.003 },
+    adpe: { min: 1e-9, max: 3e-9 },
+    pe: { min: 0.02, max: 0.06 },
+    wcf: { min: 0.005, max: 0.02 },
+    warnings: ['model-arch-not-released'],
+  };
+
+  const write = async (completionImpacts?: PreparedEntry['doc']['impacts']) => {
+    const entries = prepareTokenSpend(
+      baseTxData,
+      { promptTokens: 100, completionTokens: 50 },
+      mockPricing,
+    );
+    const completion = entries.find((entry) => entry.doc.tokenType === 'completion');
+    if (completion && completionImpacts) {
+      completion.doc.impacts = completionImpacts;
+    }
+    await bulkWriteTransactions(
+      { user: testUserId, docs: entries },
+      { insertMany: dbMethods.bulkInsertTransactions, updateBalance: dbMethods.updateBalance },
+    );
+    return Transaction.find({}).lean<
+      Array<{ tokenType: string; impacts?: Record<string, unknown> }>
+    >();
+  };
+
+  it('persists the estimate on the completion transaction', async () => {
+    const docs = await write(impacts);
+    expect(docs.find((doc) => doc.tokenType === 'completion')?.impacts).toEqual(impacts);
+    expect(docs.find((doc) => doc.tokenType === 'prompt')?.impacts).toBeUndefined();
+  });
+
+  it('persists the unmapped marker alone', async () => {
+    const docs = await write({ unmapped: true });
+    expect(docs.find((doc) => doc.tokenType === 'completion')?.impacts).toEqual({ unmapped: true });
+  });
+
+  it('leaves the field out when there is no estimate', async () => {
+    const docs = await write();
+    expect(docs.every((doc) => doc.impacts === undefined)).toBe(true);
+  });
+});
+
 describe('end-to-end: prepare → bulk write → verify', () => {
   it('should prepare, write, and correctly update balance for standard tokens', async () => {
     await Balance.create({ user: testUserId, tokenCredits: 10000 });

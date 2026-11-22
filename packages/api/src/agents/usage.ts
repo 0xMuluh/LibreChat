@@ -27,6 +27,7 @@ import { collectDetachedSubagentUsage } from './subagentTaskContext';
 import Tokenizer, { type EncodingName } from '~/utils/tokenizer';
 import { getSafeErrorMetadata } from '~/utils/errors';
 import { countRetainedToolTokens } from './client';
+import { estimateImpacts } from './impacts';
 
 type SpendTokensFn = (txData: TxMetadata, tokenUsage: TokenUsage) => Promise<unknown>;
 type SpendStructuredTokensFn = (
@@ -792,6 +793,29 @@ export interface RecordUsageResult {
   output_tokens: number;
 }
 
+/**
+ * Attaches the energy estimate of one model call to its completion transaction.
+ * A model without an estimate is marked `unmapped` so totals can report that
+ * they are partial. A failure stores nothing and never reaches billing.
+ */
+function attachImpacts(
+  entries: PreparedEntry[],
+  call: { model?: string; outputTokens: number; latencySeconds?: number },
+): void {
+  const completion = entries.find((entry) => entry.doc.tokenType === 'completion');
+  if (completion == null || call.outputTokens <= 0) {
+    return;
+  }
+  try {
+    completion.doc.impacts = estimateImpacts(call) ?? { unmapped: true };
+  } catch (err) {
+    logger.warn(
+      '[packages/api #recordCollectedUsage] Error estimating impacts',
+      getSafeErrorMetadata(err),
+    );
+  }
+}
+
 export interface DetachedSubagentUsageRecorderParams {
   user: string;
   conversationId: string;
@@ -916,6 +940,11 @@ export async function recordCollectedUsage(
                 },
                 pricing,
               );
+        attachImpacts(entries, {
+          model: txMetadata.model,
+          outputTokens: completion,
+          latencySeconds: usage.latencySeconds,
+        });
         docs.push(...entries);
         continue;
       }

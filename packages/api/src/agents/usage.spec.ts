@@ -21,7 +21,15 @@ import {
   resolveRetainedToolTokens,
 } from './usage';
 import { runWithDetachedSubagentUsage } from './subagentTaskContext';
+import { estimateImpacts } from './impacts';
 import Tokenizer from '~/utils/tokenizer';
+
+jest.mock('./impacts', () => {
+  const actual = jest.requireActual('./impacts');
+  return { ...actual, estimateImpacts: jest.fn(actual.estimateImpacts) };
+});
+
+const mockEstimateImpacts = estimateImpacts as jest.MockedFunction<typeof estimateImpacts>;
 
 describe('resolveRetainedToolTokens', () => {
   const toolPart = (id: string, output: string) => ({
@@ -2773,5 +2781,168 @@ describe('hasRecordedPrimaryUsage', () => {
     expect(hasRecordedPrimaryUsage([{ input_tokens: 0, output_tokens: 0 }])).toBe(false);
     expect(hasRecordedPrimaryUsage([])).toBe(false);
     expect(hasRecordedPrimaryUsage(undefined)).toBe(false);
+  });
+});
+
+describe('recordCollectedUsage energy estimate', () => {
+  let mockInsertMany: jest.Mock;
+  let mockSpendTokens: jest.Mock;
+  let bulkDeps: RecordUsageDeps;
+
+  const baseParams: Omit<RecordUsageParams, 'collectedUsage'> = {
+    user: 'user-123',
+    conversationId: 'convo-123',
+    model: 'openai/gpt-6-luna',
+    context: 'message',
+    balance: { enabled: true },
+    transactions: { enabled: true },
+  };
+
+  type Doc = { tokenType: string; context: string; model?: string; impacts?: unknown };
+  const insertedDocs = (): Doc[] => mockInsertMany.mock.calls[0][0];
+  const completions = () => insertedDocs().filter((doc) => doc.tokenType === 'completion');
+
+  beforeEach(() => {
+    mockEstimateImpacts.mockClear();
+    mockInsertMany = jest.fn().mockResolvedValue(undefined);
+    mockSpendTokens = jest.fn().mockResolvedValue(undefined);
+    bulkDeps = {
+      spendTokens: mockSpendTokens,
+      spendStructuredTokens: jest.fn().mockResolvedValue(undefined),
+      pricing: {
+        getMultiplier: jest.fn().mockReturnValue(1),
+        getCacheMultiplier: jest.fn().mockReturnValue(null),
+      },
+      bulkWriteOps: { insertMany: mockInsertMany, updateBalance: jest.fn().mockResolvedValue({}) },
+    };
+  });
+
+  it('stores the estimate on the completion transaction only', async () => {
+    await recordCollectedUsage(bulkDeps, {
+      ...baseParams,
+      collectedUsage: [{ input_tokens: 100, output_tokens: 50, latencySeconds: 4 }],
+    });
+
+    expect(mockEstimateImpacts).toHaveBeenCalledWith({
+      model: 'openai/gpt-6-luna',
+      outputTokens: 50,
+      latencySeconds: 4,
+    });
+    const [prompt] = insertedDocs().filter((doc) => doc.tokenType === 'prompt');
+    expect(prompt.impacts).toBeUndefined();
+    expect(completions()[0].impacts).toEqual(
+      expect.objectContaining({
+        energy: { min: expect.any(Number), max: expect.any(Number) },
+        gwp: { min: expect.any(Number), max: expect.any(Number) },
+        adpe: { min: expect.any(Number), max: expect.any(Number) },
+        pe: { min: expect.any(Number), max: expect.any(Number) },
+        wcf: { min: expect.any(Number), max: expect.any(Number) },
+      }),
+    );
+  });
+
+  it('stores it on the completion transaction of a cached call too', async () => {
+    await recordCollectedUsage(bulkDeps, {
+      ...baseParams,
+      collectedUsage: [
+        {
+          input_tokens: 100,
+          output_tokens: 50,
+          input_token_details: { cache_creation: 20, cache_read: 10 },
+        },
+      ],
+    });
+
+    expect(completions()[0].impacts).toEqual(
+      expect.objectContaining({ energy: expect.anything() }),
+    );
+  });
+
+  it('estimates each call with the model that produced it', async () => {
+    await recordCollectedUsage(bulkDeps, {
+      ...baseParams,
+      collectedUsage: [
+        { input_tokens: 100, output_tokens: 50, latencySeconds: 4 },
+        { input_tokens: 100, output_tokens: 70, model: 'Qwen/Qwen3.8-27B', latencySeconds: 2 },
+      ],
+    });
+
+    expect(mockEstimateImpacts).toHaveBeenNthCalledWith(1, {
+      model: 'openai/gpt-6-luna',
+      outputTokens: 50,
+      latencySeconds: 4,
+    });
+    expect(mockEstimateImpacts).toHaveBeenNthCalledWith(2, {
+      model: 'Qwen/Qwen3.8-27B',
+      outputTokens: 70,
+      latencySeconds: 2,
+    });
+  });
+
+  it('marks a model without an estimate as unmapped', async () => {
+    await recordCollectedUsage(bulkDeps, {
+      ...baseParams,
+      collectedUsage: [{ input_tokens: 100, output_tokens: 50, model: 'glm-5.3-flash' }],
+    });
+
+    expect(completions()[0].impacts).toEqual({ unmapped: true });
+  });
+
+  it('covers titles, summaries and subagents, the last without a latency', async () => {
+    await recordCollectedUsage(bulkDeps, {
+      ...baseParams,
+      context: 'title',
+      collectedUsage: [
+        { input_tokens: 100, output_tokens: 20, latencySeconds: 1 },
+        { input_tokens: 100, output_tokens: 30, usage_type: 'summarization' },
+        { input_tokens: 100, output_tokens: 40, usage_type: 'subagent' },
+      ],
+    });
+
+    expect(completions().map((doc) => doc.context)).toEqual(['title', 'summarization', 'subagent']);
+    for (const doc of completions()) {
+      expect(doc.impacts).toEqual(expect.objectContaining({ energy: expect.anything() }));
+    }
+    expect(mockEstimateImpacts).toHaveBeenLastCalledWith({
+      model: 'openai/gpt-6-luna',
+      outputTokens: 40,
+      latencySeconds: undefined,
+    });
+  });
+
+  it('stores nothing and still bills when the estimate throws', async () => {
+    mockEstimateImpacts.mockImplementationOnce(() => {
+      throw new Error('estimate failed');
+    });
+
+    const result = await recordCollectedUsage(bulkDeps, {
+      ...baseParams,
+      collectedUsage: [{ input_tokens: 100, output_tokens: 50 }],
+    });
+
+    expect(result).toEqual({ input_tokens: 100, output_tokens: 50 });
+    expect(insertedDocs()).toHaveLength(2);
+    expect(completions()[0].impacts).toBeUndefined();
+  });
+
+  it('stores nothing for a call without output tokens', async () => {
+    await recordCollectedUsage(bulkDeps, {
+      ...baseParams,
+      collectedUsage: [{ input_tokens: 100, output_tokens: 0 }],
+    });
+
+    expect(mockEstimateImpacts).not.toHaveBeenCalled();
+    expect(completions()[0].impacts).toBeUndefined();
+  });
+
+  it('estimates nothing when transactions are disabled', async () => {
+    await recordCollectedUsage(bulkDeps, {
+      ...baseParams,
+      transactions: { enabled: false },
+      collectedUsage: [{ input_tokens: 100, output_tokens: 50 }],
+    });
+
+    expect(mockEstimateImpacts).not.toHaveBeenCalled();
+    expect(mockInsertMany).not.toHaveBeenCalled();
   });
 });

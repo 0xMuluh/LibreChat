@@ -1268,6 +1268,22 @@ export type TBalanceResponse = {
   refillMode?: BalanceRefillMode;
 };
 
+export type TImpactRange = { min: number; max: number };
+
+/** Summed energy estimates: energy in kWh, gwp in kgCO2eq */
+export type TImpactsTotals = {
+  energy: TImpactRange;
+  gwp: TImpactRange;
+  /** True when at least one model call has no estimate */
+  partial: boolean;
+};
+
+export type TImpactsResponse = {
+  account: TImpactsTotals;
+  /** Present when a conversation was asked for */
+  note?: TImpactsTotals;
+};
+
 /* -------------------------------------------------------------------------- */
 /* Skill UI extensions (not yet persisted — phase 2 backend will fill these)  */
 /* -------------------------------------------------------------------------- */
