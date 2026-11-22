@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { datasetPrompt, discoverSeed, useDiscoverDatasets } from '~/data-provider';
 import OpenStudies from './OpenStudies';
+import StatusLine from './StatusLine';
 import { useLocalize } from '~/hooks';
 import { fieldIcon } from './fields';
 import { cn } from '~/utils';
@@ -72,7 +73,7 @@ export default function DatasetsGrid({ field = '', query = '', onPrompt }: Props
 
 function BuiltIn({ field = '', query = '', onPrompt }: Props) {
   const localize = useLocalize();
-  const { data = [] } = useDiscoverDatasets(discoverSeed());
+  const { data = [], isLoading, isError, refetch } = useDiscoverDatasets(discoverSeed());
   const q = query.trim().toLowerCase();
   const list = data.filter(
     (d) =>
@@ -81,15 +82,21 @@ function BuiltIn({ field = '', query = '', onPrompt }: Props) {
         [d.name, d.pkg, d.desc, d.domain, d.species, d.cls].join(' ').toLowerCase().includes(q)),
   );
 
+  if (isLoading) {
+    return <StatusLine text={localize('com_discover_datasets_loading')} />;
+  }
+
   let emptyText = localize('com_discover_datasets_empty');
-  if (q) {
+  if (isError) {
+    emptyText = localize('com_discover_datasets_error');
+  } else if (q) {
     emptyText = localize('com_discover_datasets_no_match', { 0: query.trim() });
   } else if (field) {
     emptyText = localize('com_discover_datasets_empty_field', { 0: field.split(',').join(', ') });
   }
 
   if (!list.length) {
-    return <p className="text-text-tertiary py-7 text-center text-sm">{emptyText}</p>;
+    return <StatusLine text={emptyText} onRetry={isError ? () => refetch() : undefined} />;
   }
 
   return (

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMediaQuery } from '@librechat/client';
+import type { ReactNode } from 'react';
 import type { TranslationKeys } from '~/hooks';
 import { discoverSeed, useDiscoverExamples, useGetStartupConfig } from '~/data-provider';
 import { FIELD_NODES, HUB_NODE } from './fields';
@@ -8,6 +9,7 @@ import FieldNetwork from './FieldNetwork';
 import ExampleCard from './ExampleCard';
 import FieldChips from './FieldChips';
 import { useLocalize } from '~/hooks';
+import StatusLine from './StatusLine';
 import NodeCard from './NodeCard';
 import { cn } from '~/utils';
 import Pager from './Pager';
@@ -76,7 +78,7 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
   useEffect(() => setPage(1), [q, field, mode]);
   useEffect(() => onFieldChange?.(field), [field, onFieldChange]);
 
-  const { data, isLoading, isError, isFetching } = useDiscoverExamples({
+  const { data, isLoading, isError, isFetching, refetch } = useDiscoverExamples({
     page,
     pageSize: searching ? pageSize : 1,
     field,
@@ -88,11 +90,18 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
   const fields = data?.fields ?? [];
   const rows = FIELD_NODES.filter((n) => n.fields.some((f) => fields.includes(f)));
 
-  let emptyText = localize('com_discover_examples_empty');
+  let emptyText = localize('com_discover_examples_none');
   if (isError) {
     emptyText = localize('com_discover_examples_error');
   } else if (q) {
     emptyText = localize('com_discover_examples_no_match', { 0: q });
+  }
+  const empty = searching ? (data?.total ?? 0) === 0 : !rows.length;
+  let status: ReactNode = null;
+  if (isLoading) {
+    status = <StatusLine text={localize('com_discover_examples_loading')} />;
+  } else if (empty) {
+    status = <StatusLine text={emptyText} onRetry={isError ? () => refetch() : undefined} />;
   }
 
   /* When the column count changes, stay near the first card that was on screen. */
@@ -205,9 +214,7 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
               ))}
             </div>
 
-            {!isLoading && (data?.total ?? 0) === 0 && (
-              <p className="text-text-tertiary py-7 text-center text-sm">{emptyText}</p>
-            )}
+            {status}
 
             {data && data.pages > 1 && (
               <Pager
@@ -222,6 +229,7 @@ export default function ExamplesGallery({ onFieldChange, query = '' }: Props) {
           </div>
         ) : (
           <div className="flex flex-col gap-4">
+            {status}
             {rows.map((row) => (
               <FieldCarousel
                 key={row.id}

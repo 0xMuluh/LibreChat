@@ -27,7 +27,7 @@ export default function Landing() {
   const { isAuthenticated } = useAuthContext();
   const { data: startupConfig } = useGetStartupConfig();
   const { data: footer } = useDiscoverFooter();
-  const { data: models } = useDiscoverModels();
+  const { data: models, isLoading: modelsLoading } = useDiscoverModels();
   const [text, setText] = useState(params.get('prompt') ?? '');
   const [field, setField] = useState('');
   const [query, setQuery] = useState('');
@@ -143,7 +143,12 @@ export default function Landing() {
       <div className="relative z-[1] min-w-0 flex-1">
         <div ref={scrollRef} className="h-full overflow-y-auto">
           <header className="bg-presentation/80 sticky top-0 z-10 flex items-center justify-between gap-3 px-3 py-2.5 backdrop-blur sm:px-4">
-            <ModelMenu models={models ?? []} selected={model} onSelect={setChosen} />
+            <ModelMenu
+              models={models}
+              loading={modelsLoading}
+              selected={model}
+              onSelect={setChosen}
+            />
             <div className="flex items-center gap-2">
               <ThemeToggle />
               <Link

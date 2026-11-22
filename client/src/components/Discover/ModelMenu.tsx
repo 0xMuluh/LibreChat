@@ -8,7 +8,10 @@ import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
 type Props = {
-  models: DiscoverModel[];
+  /** Undefined when the list could not be loaded. */
+  models?: DiscoverModel[];
+  /** The list is still loading. */
+  loading?: boolean;
   selected?: DiscoverModel;
   onSelect: (model: DiscoverModel) => void;
 };
@@ -26,7 +29,7 @@ const toSpec = (model: DiscoverModel) =>
  * The model picker as signed-in users see it, with the same provider logos;
  * the choice carries into the first note.
  */
-export default function ModelMenu({ models, selected, onSelect }: Props) {
+export default function ModelMenu({ models, loading = false, selected, onSelect }: Props) {
   const localize = useLocalize();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -35,7 +38,7 @@ export default function ModelMenu({ models, selected, onSelect }: Props) {
   const endpointsConfig = useMemo(
     () =>
       Object.fromEntries(
-        models
+        (models ?? [])
           .filter((m) => m.endpoint)
           .map((m) => [m.endpoint, { providerId: m.providerId, iconURL: m.endpointIconURL }]),
       ) as TEndpointsConfig,
@@ -66,17 +69,24 @@ export default function ModelMenu({ models, selected, onSelect }: Props) {
   const trigger =
     'my-1 flex h-9 max-w-full items-center gap-2 rounded-xl border border-border-light bg-presentation px-3 py-2 text-sm text-text-primary hover:bg-surface-active-alt';
 
-  if (!models.length) {
+  if (loading || !models?.length) {
+    /* No model specs (e.g. a local install): the models come with sign-in. */
+    let label = localize(
+      models ? 'com_discover_model_after_login' : 'com_discover_model_unavailable',
+    );
+    if (loading) {
+      label = localize('com_discover_model_loading');
+    }
     return (
       <span className={cn(trigger, 'text-text-tertiary hover:bg-presentation')}>
         <Sparkles className="size-4" aria-hidden="true" />
-        {localize('com_discover_model_unavailable')}
+        {label}
       </span>
     );
   }
 
   return (
-    <div className="relative min-w-0 max-w-[60vw] sm:max-w-xs" ref={rootRef}>
+    <div className="relative max-w-[60vw] min-w-0 sm:max-w-xs" ref={rootRef}>
       <button
         type="button"
         aria-haspopup="listbox"
@@ -96,7 +106,7 @@ export default function ModelMenu({ models, selected, onSelect }: Props) {
         <div
           role="listbox"
           aria-label={localize('com_discover_models')}
-          className="animate-popover absolute left-0 top-full z-40 mt-1 flex max-h-[min(450px,65vh)] w-max min-w-[300px] max-w-[calc(100vw-4rem)] flex-col overflow-auto rounded-xl border border-border-light bg-presentation px-3 py-2 text-sm text-text-primary shadow-lg sm:max-w-[400px]"
+          className="animate-popover border-border-light bg-presentation text-text-primary absolute top-full left-0 z-40 mt-1 flex max-h-[min(450px,65vh)] w-max max-w-[calc(100vw-4rem)] min-w-[300px] flex-col overflow-auto rounded-xl border px-3 py-2 text-sm shadow-lg sm:max-w-[400px]"
         >
           {models.map((model) => {
             const isSelected = model.name === selected?.name;
@@ -110,7 +120,7 @@ export default function ModelMenu({ models, selected, onSelect }: Props) {
                   onSelect(model);
                   setOpen(false);
                 }}
-                className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring-primary"
+                className="hover:bg-surface-hover focus-visible:ring-ring-primary flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
               >
                 <span
                   className={cn(
@@ -128,7 +138,7 @@ export default function ModelMenu({ models, selected, onSelect }: Props) {
                 </span>
                 {isSelected && (
                   <CheckCircle2
-                    className="size-4 shrink-0 self-center text-text-primary"
+                    className="text-text-primary size-4 shrink-0 self-center"
                     aria-hidden="true"
                   />
                 )}
