@@ -55,6 +55,9 @@ export function useRCell(
   const wasLive = useRef(isParentRunning);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const blobUrlsRef = useRef<string[]>([]);
+  // Set once the cell record holds a revision saved after its creation: from then on that
+  // revision, not the tool call's code, is what the cell shows and runs.
+  const hasSavedRevision = useRef(false);
   const [userEdited, setUserEdited] = useState(false);
 
   const isDirty = userEdited && code !== savedCode;
@@ -243,7 +246,9 @@ export function useRCell(
         setCellId(result.cellId);
         setExecution(result);
         setHistory([result]);
-        setSavedCode(initialCode.trim());
+        if (!hasSavedRevision.current) {
+          setSavedCode(initialCode.trim());
+        }
         setIsBootstrapping(false);
         await loadArtifacts(result);
         if (conversationId && conversationId !== 'new') {
@@ -298,7 +303,8 @@ export function useRCell(
         // Agent cells already have a saved revision from execute_r_cell — don't look "Unsaved".
         const display = (initialCode || revContent || '').trim();
         const canonical = (revContent || display).trim();
-        setCode(isAgentGenerated ? display || canonical : canonical);
+        hasSavedRevision.current = (cell.revision?.revision ?? 1) > 1;
+        setCode(isAgentGenerated && !hasSavedRevision.current ? display || canonical : canonical);
         setSavedCode(canonical || display);
         setUserEdited(false);
 
@@ -355,6 +361,9 @@ export function useRCell(
     if (!initialCode || !initialCode.trim() || isEditing || userEdited) {
       return;
     }
+    if (hasSavedRevision.current) {
+      return;
+    }
     const next = initialCode.trim();
     setCode(next);
     // Keep draft and saved in sync for streamed/agent updates unless the user edited.
@@ -383,6 +392,7 @@ export function useRCell(
     setIsSaving(true);
     try {
       await noteCellsApi.appendRevision(conversationId, cellId, code);
+      hasSavedRevision.current = true;
       setSavedCode(code);
       setUserEdited(false);
       showToast({ message: 'Cell saved', status: 'success' });
