@@ -111,6 +111,9 @@ export interface SessionView {
   message?: string;
   /** Name of the user's own machine, for an attached session. */
   machine?: string;
+  /** When the session was launched, and when its CSC token expires if the token says. */
+  launchedAt?: number;
+  tokenExpires?: number;
 }
 
 /**
@@ -149,12 +152,15 @@ interface JobMeta {
   jobId?: string;
   prepJobId?: string;
   token: string;
+  launchedAt?: number;
+  tokenExpires?: number;
 }
 
 type RouteMeta = JobMeta | AttachedMeta;
 
 interface JobInfo {
   state: string;
+  start?: number;
   end?: number;
 }
 
@@ -195,10 +201,28 @@ const ENDED = new Set([
   'DEADLINE',
 ]);
 
-const ENDED_MESSAGE: Record<string, string> = {
-  TIMEOUT: 'Your session reached its time limit.',
-  CANCELLED: 'Your session was stopped.',
-};
+function endedMessage(state: string, hours: number): string {
+  if (state === 'TIMEOUT') {
+    return `Your session reached its time limit of ${hours} hour${hours === 1 ? '' : 's'}.`;
+  }
+  if (state === 'CANCELLED') {
+    return 'Your session was stopped.';
+  }
+  return `Your session ended (${state.toLowerCase()}).`;
+}
+
+/** A route outlives its job by this much, so the end is still reported. */
+const ROUTE_GRACE_SECONDS = 15 * 60;
+
+/** The `exp` claim of a JWT access token, if it is one; the token itself is not kept. */
+function tokenExpiry(token: string): number | undefined {
+  try {
+    const { exp } = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+    return typeof exp === 'number' ? exp : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** First word of a Slurm state ("CANCELLED by 123" -> "CANCELLED"). */
 function slurmState(state: unknown): string {
@@ -291,7 +315,7 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     return (data?.routes?.[0] as RouterRoute) ?? null;
   }
 
-  /** Slurm state of a job and, once it runs, its end time (start plus time limit). */
+  /** Slurm state of a job and, once it runs, its start and end time (start plus time limit). */
   async function jobInfo(token: string, jobId?: string): Promise<JobInfo | null> {
     if (!jobId) {
       return null;
@@ -302,14 +326,21 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     }
     const job = (
       data?.jobs as
-        | Array<{ status?: { state?: string }; time?: { end?: number | null } }>
+        | Array<{
+            status?: { state?: string };
+            time?: { start?: number | null; end?: number | null };
+          }>
         | undefined
     )?.[0];
     if (!job) {
       return null;
     }
-    const end = job.time?.end;
-    return { state: slurmState(job.status?.state), end: end && end > 0 ? end : undefined };
+    const { start, end } = job.time ?? {};
+    return {
+      state: slurmState(job.status?.state),
+      start: start && start > 0 ? start : undefined,
+      end: end && end > 0 ? end : undefined,
+    };
   }
 
   async function removeRoute(userId: string, route: string) {
@@ -325,7 +356,14 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     if (m.kind === 'attached' || m.kind === 'linked') {
       return { state: r.connected ? 'running' : 'offline', machine: m.name };
     }
-    const base = { project: m.project, cores: m.cores, memory: m.memory, hours: m.hours };
+    const base = {
+      project: m.project,
+      cores: m.cores,
+      memory: m.memory,
+      hours: m.hours,
+      launchedAt: m.launchedAt,
+      tokenExpires: m.tokenExpires,
+    };
     let token: string;
     try {
       token = await decrypt(m.token);
@@ -352,19 +390,20 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     }
     const prep = prepInfo?.state ?? null;
     const job = jobInfoNow?.state ?? null;
-    if (job && ENDED.has(job)) {
+    // The session job waits on preparation, so it can never start: cancel it and clear the way.
+    if (prep && ENDED.has(prep) && prep !== 'COMPLETED') {
+      if (m.jobId) {
+        await firecrest(token, 'DELETE', `/compute/{system}/jobs/${m.jobId}`);
+      }
       await removeRoute(userId, r.route);
       return {
         state: 'ended',
-        message: ENDED_MESSAGE[job] ?? `Your session ended (${job.toLowerCase()}).`,
+        message: 'Preparing the Reports image failed. Launch again to retry.',
       };
     }
-    if (prep && ENDED.has(prep) && prep !== 'COMPLETED') {
-      return {
-        ...base,
-        state: 'ended',
-        message: 'Preparing the Reports image failed; stop and try again.',
-      };
+    if (job && ENDED.has(job)) {
+      await removeRoute(userId, r.route);
+      return { state: 'ended', message: endedMessage(job, m.hours) };
     }
     if (prep === 'PENDING' || prep === 'RUNNING') {
       return { ...base, state: 'preparing' };
@@ -373,6 +412,12 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
       return { ...base, state: 'queued' };
     }
     if (job === 'RUNNING') {
+      // The route was made before the job queued; from its start it lasts as long as the job.
+      const start = jobInfoNow?.start;
+      const expires = start && start + m.hours * 3600 + ROUTE_GRACE_SECONDS;
+      if (expires && r.expires !== expires) {
+        await router('PUT', `/routes/${r.route}/expires`, { user: userId, expires });
+      }
       return { ...base, endsAt: jobInfoNow?.end, state: r.connected ? 'running' : 'starting' };
     }
     return { ...base, state: 'unknown' };
@@ -448,12 +493,12 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
       memory: input.memory,
       hours: input.hours,
       token: await encrypt(input.token),
+      launchedAt: Math.floor(Date.now() / 1000),
+      tokenExpires: tokenExpiry(input.token),
     };
-    const created = await router('POST', '/routes', {
-      user: userId,
-      hours: Math.min(36, input.hours + (needsImage ? 1 : 0) + 0.25),
-      meta,
-    });
+    // The longest a route may last, so a long queue cannot outlast it; view() shortens it to
+    // the job's own end once the job starts.
+    const created = await router('POST', '/routes', { user: userId, hours: 36, meta });
     if (created.status !== 201) {
       throw new UserFacingError(503, 'No free Reports slot right now. Try again later.');
     }

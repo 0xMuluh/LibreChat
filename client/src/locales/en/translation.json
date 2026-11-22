@@ -3905,6 +3905,8 @@
   "com_roihu_bar_running": "Roihu session running",
   "com_roihu_bar_details": "{{0}} · {{1}} cores · {{2}} GiB",
   "com_roihu_bar_until": "until {{0}}",
+  "com_roihu_bar_token_until": "CSC token valid until {{0}}",
+  "com_roihu_bar_launched": "launched at {{0}}; a CSC token lasts 24 hours from when you got it",
   "com_roihu_attach_or": "Or use your own computer",
   "com_roihu_attach_intro": "Any machine with Docker: a laptop, a lab workstation or a cloud server. It connects out to OmicsBase, so it needs no open ports, and your files stay on it.",
   "com_roihu_attach_start": "Use my own computer",
@@ -3924,5 +3926,6 @@
   "com_roihu_link_intro": "On a computer this one can reach (a server, a lab workstation or a cloud machine), run this with that computer's name or IP address, and let this computer reach its port 8443:",
   "com_roihu_link_then": "Then run docker logs omicsbase-reports there and paste the line that starts with omicsbase-machine: here.",
   "com_roihu_link_label": "Pairing string",
-  "com_roihu_link_connect": "Connect"
+  "com_roihu_link_connect": "Connect",
+  "com_workspace_agent_starting": "Starting the agent…"
 }

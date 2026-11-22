@@ -27,6 +27,9 @@ interface SessionView {
   message?: string;
   /** The user's own machine, for an attached session. */
   machine?: string;
+  /** Unix times: the launch, and the CSC token's expiry when the token states it. */
+  launchedAt?: number;
+  tokenExpires?: number;
 }
 
 /**
@@ -67,6 +70,10 @@ const POLL_MS = 10_000;
 const PAIRING_POLL_MS = 5_000;
 /** How long the hidden open page may take to report back. */
 const CONNECT_MS = 30_000;
+
+/** A Unix time as the user's local clock time. */
+const clock = (t: number) =>
+  new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 /** The server's error text for the user, if any. */
 function serverError(e: unknown): string | undefined {
@@ -395,9 +402,13 @@ export default function RoihuSessionCard({
     }
   };
 
-  const until = session?.endsAt
-    ? new Date(session.endsAt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : '';
+  const until = session?.endsAt ? clock(session.endsAt) : '';
+  let token = '';
+  if (session?.tokenExpires) {
+    token = localize('com_roihu_bar_token_until', { 0: clock(session.tokenExpires) });
+  } else if (session?.launchedAt) {
+    token = localize('com_roihu_bar_launched', { 0: clock(session.launchedAt) });
+  }
   const active = session != null && ACTIVE.includes(session.state);
   const stopButton = (
     <Button type="button" variant="outline" size="sm" onClick={stop} disabled={busy}>
@@ -498,6 +509,7 @@ export default function RoihuSessionCard({
             2: String(session.memory ?? ''),
           }),
           until ? localize('com_roihu_bar_until', { 0: until }) : '',
+          token,
         ]
           .filter(Boolean)
           .join(' · ');

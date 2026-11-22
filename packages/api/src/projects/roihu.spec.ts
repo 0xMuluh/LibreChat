@@ -29,7 +29,10 @@ function fakeWorld(
     { user: string; expires: number | null; meta: Record<string, unknown>; connected: boolean }
   > = {};
   const pairings: Record<string, string> = {};
-  const jobs: Record<string, { state: string; end?: number; body: Record<string, unknown> }> = {};
+  const jobs: Record<
+    string,
+    { state: string; start?: number; end?: number; body: Record<string, unknown> }
+  > = {};
   const calls: string[] = [];
   let nextJob = 100;
   let tokenValid = true;
@@ -118,6 +121,10 @@ function fakeWorld(
         routes[parts[1]].meta = body.meta;
         return reply(204);
       }
+      if (method === 'PUT' && parts[2] === 'expires') {
+        routes[parts[1]].expires = body.expires;
+        return reply(204);
+      }
       if (method === 'POST' && parts[2] === 'link') {
         return reply(200, { url: 'https://relay/roihu/open?c=once' });
       }
@@ -163,7 +170,7 @@ function fakeWorld(
           {
             jobId: jobMatch[1],
             status: { state: jobs[jobMatch[1]].state },
-            time: { end: jobs[jobMatch[1]].end ?? 0 },
+            time: { start: jobs[jobMatch[1]].start ?? 0, end: jobs[jobMatch[1]].end ?? 0 },
           },
         ],
       });
@@ -291,15 +298,48 @@ describe('createRoihuClient', () => {
       memory: 8,
       hours: 4,
       endsAt: 1795000000,
+      launchedAt: expect.any(Number),
     });
 
     w.jobs['101'].state = 'TIMEOUT';
     expect(await w.client.view('u1')).toMatchObject({
       state: 'ended',
-      message: 'Your session reached its time limit.',
+      message: 'Your session reached its time limit of 4 hours.',
     });
     expect(w.routes).toEqual({});
     expect((await w.client.view('u1')).state).toBe('none');
+  });
+
+  it('a failed preparation cancels the waiting session job and frees the launch form', async () => {
+    const w = fakeWorld();
+    await w.client.launch('u1', goodInput);
+    w.jobs['100'].state = 'FAILED';
+    expect(await w.client.view('u1')).toEqual({
+      state: 'ended',
+      message: 'Preparing the Reports image failed. Launch again to retry.',
+    });
+    expect(w.jobs['101'].state).toBe('CANCELLED');
+    expect(w.routes).toEqual({});
+    expect((await w.client.launch('u1', goodInput)).state).toBe('preparing');
+  });
+
+  it('the route lasts from the job start for its hours, however long it queued', async () => {
+    const w = fakeWorld({ imageExists: true });
+    await w.client.launch('u1', goodInput);
+    w.jobs['100'].state = 'RUNNING';
+    w.jobs['100'].start = 1795000000;
+    await w.client.view('u1');
+    expect(w.routes.r1.expires).toBe(1795000000 + 4 * 3600 + 15 * 60);
+    const puts = w.calls.filter((c) => c === 'PUT /routes/r1/expires');
+    await w.client.view('u1');
+    expect(w.calls.filter((c) => c === 'PUT /routes/r1/expires')).toEqual(puts);
+  });
+
+  it("shows the token's expiry when the token is a JWT", async () => {
+    const w = fakeWorld({ imageExists: true });
+    const payload = Buffer.from(JSON.stringify({ exp: 1795086400 })).toString('base64url');
+    await w.client.launch('u1', { ...goodInput, token: `h.${payload}.s` });
+    expect(await w.client.view('u1')).toMatchObject({ tokenExpires: 1795086400 });
   });
 
   it('keeps a running session usable after the token expires, and says so', async () => {
