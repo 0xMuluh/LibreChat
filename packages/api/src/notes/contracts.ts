@@ -1,9 +1,13 @@
 import type { Types } from 'mongoose';
 
 export type Status = 'queued' | 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled';
-/** Where a run is. `preparing_files` is set by LibreChat, the rest by the engine. */
+/**
+ * Where a run is. `preparing_files` and `engine_not_answering` are set by LibreChat, the
+ * rest by the engine.
+ */
 export type Phase =
   | 'preparing_files'
+  | 'engine_not_answering'
   | 'waiting_for_slot'
   | 'starting_pod'
   | 'waiting_for_cell'

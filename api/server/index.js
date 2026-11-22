@@ -88,6 +88,7 @@ const { checkMigrations } = require('./services/start/migration');
 const optionalJwtAuth = require('./middleware/optionalJwtAuth');
 const initializeMCPs = require('./services/initializeMCPs');
 const noteCells = require('./services/NoteCells/service');
+const { checkEngineHealth, ENGINE_HOST } = require('./services/NoteCells/engineClient');
 const { configureSubagentTaskRouting } = require('./services/Endpoints/agents/subagentThreadStore');
 const configureSocialLogins = require('./socialLogins');
 const createSpaFallback = require('./utils/fallback');
@@ -553,6 +554,12 @@ const startServer = async () => {
       noteCells
         .sweepExecutions()
         .catch((err) => logger.error('[NoteCells] restart sweep failed:', err));
+      // Asked once and not awaited: a wrong ENGINE_URL shows in the log, not first in a cell.
+      checkEngineHealth().then((reason) =>
+        reason
+          ? logger.warn(`[NoteCells] The notes engine at ${ENGINE_HOST} does not answer: ${reason}`)
+          : logger.info(`[NoteCells] The notes engine at ${ENGINE_HOST} answers.`),
+      );
       await checkMigrations();
 
       const inspectFlags = process.execArgv.some((arg) => arg.startsWith('--inspect'));

@@ -31,6 +31,10 @@ interface SessionView {
   /** Unix times: the launch, and the CSC token's expiry when the token states it. */
   launchedAt?: number;
   tokenExpires?: number;
+  /** While queued: since when, Slurm's reason in its own words, and the start it expects. */
+  queuedAt?: number;
+  pendingReason?: string;
+  expectedStart?: number;
 }
 
 /**
@@ -89,6 +93,36 @@ const clock = (t: number) =>
 
 /** Seconds as m:ss. */
 const minutes = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+/** How often the time waited in the queue is brought up to date. */
+const WAITED_MS = 15_000;
+
+const JOB_LIMIT_REASONS = [
+  'QOSMaxJobsPerUserLimit',
+  'QOSMaxSubmitJobPerUserLimit',
+  'AssocMaxJobsLimit',
+];
+
+/** Plain words for Slurm's reason for a pending job, or null for one this card does not know. */
+function reasonKey(reason: string): TranslationKeys | null {
+  if (reason === 'Priority' || reason === 'Resources') {
+    return 'com_roihu_queued_reason_node';
+  }
+  if (JOB_LIMIT_REASONS.includes(reason)) {
+    return 'com_roihu_queued_reason_job_limit';
+  }
+  if (/^(Assoc|QOS)GrpBillingMinutes$/.test(reason)) {
+    return 'com_roihu_queued_reason_billing';
+  }
+  // Slurm may add the nodes or the reservation after a comma.
+  if (reason.startsWith('ReqNodeNotAvail')) {
+    return 'com_roihu_queued_reason_maintenance';
+  }
+  if (reason === 'Dependency') {
+    return 'com_roihu_queued_reason_dependency';
+  }
+  return null;
+}
 
 /** The server's error text for the user, if any. */
 function serverError(e: unknown): string | undefined {
@@ -154,6 +188,52 @@ function StatusCard({ icon: Icon, spin, title, body, children }: StatusCardProps
         {children}
       </div>
     </div>
+  );
+}
+
+interface QueuedCardProps {
+  session: SessionView;
+  children?: React.ReactNode;
+}
+
+/** A job in Roihu's queue: how long it has waited, why, and when Slurm expects to start it. */
+function QueuedCard({ session, children }: QueuedCardProps) {
+  const localize = useLocalize();
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now() / 1000), WAITED_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const { queuedAt, pendingReason, expectedStart } = session;
+  let title = localize('com_roihu_queued_title');
+  if (queuedAt) {
+    const minutes = Math.max(0, Math.floor((now - queuedAt) / 60));
+    title = localize('com_roihu_queued_waited', { 0: String(minutes) });
+    if (minutes < 1) {
+      title = localize('com_roihu_queued_waited_short');
+    } else if (minutes >= 60) {
+      title = localize('com_roihu_queued_waited_hours', {
+        0: String(Math.floor(minutes / 60)),
+        1: String(minutes % 60),
+      });
+    }
+  }
+  const key = pendingReason ? reasonKey(pendingReason) : null;
+  return (
+    <StatusCard icon={Clock} title={title} body={localize(key ?? 'com_roihu_queued_body')}>
+      {expectedStart != null && expectedStart > now && (
+        <p className="text-text-secondary mt-0.5 text-sm">
+          {localize('com_roihu_queued_expected', { 0: clock(expectedStart) })}
+        </p>
+      )}
+      {pendingReason && !key && (
+        <p className="text-text-secondary mt-0.5 text-xs">
+          {localize('com_roihu_queued_slurm_says', { 0: pendingReason })}
+        </p>
+      )}
+      {children}
+    </StatusCard>
   );
 }
 
@@ -463,13 +543,9 @@ export default function RoihuSessionCard({
     );
   } else if (session.state === 'queued') {
     status = (
-      <StatusCard
-        icon={Clock}
-        title={localize('com_roihu_queued_title')}
-        body={localize('com_roihu_queued_body')}
-      >
+      <QueuedCard session={session}>
         <div className="mt-3">{stopButton}</div>
-      </StatusCard>
+      </QueuedCard>
     );
   } else if (session.state === 'starting') {
     status = (

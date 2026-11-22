@@ -87,6 +87,8 @@ export function statusLine(
   switch (execution.phase ?? (execution.status === 'queued' ? 'preparing_files' : null)) {
     case 'preparing_files':
       return { kind: 'working', text: localize('com_ui_note_phase_preparing_files') };
+    case 'engine_not_answering':
+      return { kind: 'waiting', text: localize('com_ui_note_phase_engine_not_answering') };
     case 'waiting_for_slot':
       return {
         kind: 'waiting',

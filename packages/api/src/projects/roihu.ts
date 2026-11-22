@@ -116,6 +116,13 @@ export interface SessionView {
   /** When the session was launched, and when its CSC token expires if the token says. */
   launchedAt?: number;
   tokenExpires?: number;
+  /**
+   * While queued: since when the job waits for a node, Slurm's reason for the wait as Slurm
+   * words it, and the start time Slurm expects, when it gives one.
+   */
+  queuedAt?: number;
+  pendingReason?: string;
+  expectedStart?: number;
 }
 
 /**
@@ -169,8 +176,11 @@ type RouteMeta = JobMeta | AttachedMeta;
 
 interface JobInfo {
   state: string;
+  /** For a pending job, Slurm's estimate of the start, when it has one. */
   start?: number;
   end?: number;
+  /** Why Slurm has not started the job yet ("Priority", "Resources", ...). */
+  reason?: string;
 }
 
 interface RouterRoute {
@@ -241,6 +251,21 @@ function slurmState(state: unknown): string {
   return String(state ?? '')
     .split(/\s+/)[0]
     .toUpperCase();
+}
+
+/**
+ * A job time from FirecREST as a Unix time. Slurm has no time until the job starts or it has
+ * an estimate, which arrives as 0, null or "Unknown".
+ */
+function jobTime(value: unknown): number | undefined {
+  const seconds = Number(value ?? 0);
+  return Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : undefined;
+}
+
+/** Slurm's reason for a pending job; "None" is its word for no reason yet. */
+function pendingReason(value: unknown): string | undefined {
+  const reason = typeof value === 'string' ? value.trim().slice(0, 120) : '';
+  return reason && reason.toLowerCase() !== 'none' ? reason : undefined;
 }
 
 interface AuthedRequest extends Request {
@@ -327,7 +352,10 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     return (data?.routes?.[0] as RouterRoute) ?? null;
   }
 
-  /** Slurm state of a job and, once it runs, its start and end time (start plus time limit). */
+  /**
+   * Slurm state of a job and, once it runs, its start and end time (start plus time limit).
+   * While it is pending, the reason for the wait and the start Slurm expects, if any.
+   */
   async function jobInfo(token: string, jobId?: string): Promise<JobInfo | null> {
     if (!jobId) {
       return null;
@@ -339,19 +367,19 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     const job = (
       data?.jobs as
         | Array<{
-            status?: { state?: string };
-            time?: { start?: number | null; end?: number | null };
+            status?: { state?: string; stateReason?: unknown };
+            time?: { start?: unknown; end?: unknown };
           }>
         | undefined
     )?.[0];
     if (!job) {
       return null;
     }
-    const { start, end } = job.time ?? {};
     return {
       state: slurmState(job.status?.state),
-      start: start && start > 0 ? start : undefined,
-      end: end && end > 0 ? end : undefined,
+      start: jobTime(job.time?.start),
+      end: jobTime(job.time?.end),
+      reason: pendingReason(job.status?.stateReason),
     };
   }
 
@@ -436,7 +464,14 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
       return { ...base, state: 'preparing' };
     }
     if (job === 'PENDING') {
-      return { ...base, state: 'queued' };
+      return {
+        ...base,
+        state: 'queued',
+        // The wait for a node starts when preparation ends, or at the launch without one.
+        queuedAt: prepInfo?.end ?? m.launchedAt,
+        pendingReason: jobInfoNow?.reason,
+        expectedStart: jobInfoNow?.start,
+      };
     }
     if (job === 'RUNNING') {
       // The route was made before the job queued; from its start it lasts as long as the job.

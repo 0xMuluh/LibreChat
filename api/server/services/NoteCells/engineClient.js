@@ -21,13 +21,71 @@ function engineHeaders() {
 
 /** One engine request may not hang the polling loop, whose safety stop runs between requests. */
 const REQUEST_TIMEOUT_MS = 30000;
+const HEALTH_TIMEOUT_MS = 5000;
+
+/** The engine's host for messages and logs: no path, no credentials. */
+const ENGINE_HOST = (() => {
+  try {
+    return new URL(ENGINE_URL).host;
+  } catch {
+    return 'the address in ENGINE_URL';
+  }
+})();
+
+const CONNECTION_ERROR =
+  /^(ECONN|ENOTFOUND|EAI_|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|EPIPE|UND_ERR_|ERR_TLS_|ERR_SSL_|CERT_|UNABLE_TO_|DEPTH_ZERO_|SELF_SIGNED_)/;
+
+/** True when the request never got an answer: refused, unknown name, timeout or TLS failure. */
+function isConnectionError(err) {
+  const code = err?.cause?.code || err?.code;
+  if (typeof code === 'string' && CONNECTION_ERROR.test(code)) {
+    return true;
+  }
+  return (
+    err?.name === 'TimeoutError' || (err?.name === 'TypeError' && err?.message === 'fetch failed')
+  );
+}
+
+/** What a cell says when the engine cannot be reached; the technical reason stays in `cause`. */
+function engineUnreachableError(cause) {
+  const err = new Error(
+    `Could not reach the notes engine at ${ENGINE_HOST}. Check that the server is running and that ENGINE_URL in ~/omicsbase/.env is right, then run the cell again.`,
+    { cause },
+  );
+  err.code = 'ENGINE_UNREACHABLE';
+  return err;
+}
+
+/** fetch to the engine; a connection failure is reported as the engine being unreachable. */
+async function engineFetch(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    throw isConnectionError(err) ? engineUnreachableError(err) : err;
+  }
+}
+
+/**
+ * Ask the engine's /health once. Resolves to null when it answers, otherwise to the
+ * reason as text; never rejects.
+ */
+async function checkEngineHealth() {
+  try {
+    const response = await fetch(`${ENGINE_URL}/health`, {
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    });
+    return response.ok ? null : `HTTP ${response.status} from /health`;
+  } catch (err) {
+    return err?.cause?.code || err?.cause?.message || err?.message || String(err);
+  }
+}
 
 /**
  * Start a cell on the engine (server-side only). Returns at once with
  * `{execution_id, phase}`; the run is followed with getExecutionStatus.
  */
 async function startExecution({ code, threadId, executionId, timeoutSeconds = 600 }) {
-  const response = await fetch(`${ENGINE_URL}/api/execute`, {
+  const response = await engineFetch(`${ENGINE_URL}/api/execute`, {
     method: 'POST',
     headers: engineHeaders(),
     body: JSON.stringify({
@@ -52,7 +110,7 @@ async function startExecution({ code, threadId, executionId, timeoutSeconds = 60
  */
 async function getExecutionStatus({ threadId, executionId, offset = 0 }) {
   const query = new URLSearchParams({ thread_id: threadId, offset: String(offset) });
-  const response = await fetch(
+  const response = await engineFetch(
     `${ENGINE_URL}/api/executions/${encodeURIComponent(executionId)}?${query}`,
     { headers: engineHeaders(), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
   );
@@ -92,7 +150,7 @@ function noteFileUrl(threadId, filename) {
 }
 
 async function noteHasDataFile(threadId, filename) {
-  const response = await fetch(noteFileUrl(threadId, filename), {
+  const response = await engineFetch(noteFileUrl(threadId, filename), {
     method: 'HEAD',
     headers: { 'X-Internal-Secret': INTERNAL_SECRET },
   });
@@ -106,7 +164,7 @@ async function noteHasDataFile(threadId, filename) {
  * Upload a file into the note's data/ folder on the engine. A copy already there is kept.
  */
 async function uploadNoteDataFile(threadId, filename, sourcePath) {
-  const response = await fetch(noteFileUrl(threadId, filename), {
+  const response = await engineFetch(noteFileUrl(threadId, filename), {
     method: 'PUT',
     headers: { 'X-Internal-Secret': INTERNAL_SECRET, 'Content-Type': 'application/octet-stream' },
     body: fs.createReadStream(sourcePath),
@@ -152,6 +210,9 @@ module.exports = {
   noteHasDataFile,
   uploadNoteDataFile,
   ENGINE_URL,
+  ENGINE_HOST,
+  checkEngineHealth,
+  engineUnreachableError,
   startExecution,
   getExecutionStatus,
   fetchArtifactFromEngine,
