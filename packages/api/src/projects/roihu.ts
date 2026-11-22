@@ -99,7 +99,9 @@ export type SessionState =
   | 'ended'
   | 'unknown'
   /** An attached machine whose tunnel is down (switched off, or its container stopped). */
-  | 'offline';
+  | 'offline'
+  /** A machine linked in the last minute that has not answered yet. */
+  | 'linking';
 
 export interface SessionView {
   state: SessionState;
@@ -124,6 +126,11 @@ export interface PairingView {
   command: string;
   code?: string;
   expires?: number;
+  /** The server's clock (Unix time) when it answered, so a browser with another clock can
+   * still count down to `expires`. */
+  now?: number;
+  /** The image the command runs, to download before the code is used. */
+  image?: string;
 }
 
 /** What a newly paired machine needs to connect: the relay and its own session key. */
@@ -140,6 +147,8 @@ export interface AttachSettings {
 interface AttachedMeta {
   kind: 'attached' | 'linked';
   name: string;
+  /** When a machine was linked (Unix time), kept until it first answers. */
+  linkedAt?: number;
 }
 
 interface JobMeta {
@@ -210,6 +219,9 @@ function endedMessage(state: string, hours: number): string {
   }
   return `Your session ended (${state.toLowerCase()}).`;
 }
+
+/** How long a newly linked machine may take to answer before it counts as unreachable. */
+const LINKING_SECONDS = 60;
 
 /** A route outlives its job by this much, so the end is still reported. */
 const ROUTE_GRACE_SECONDS = 15 * 60;
@@ -354,7 +366,22 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     }
     const m = r.meta;
     if (m.kind === 'attached' || m.kind === 'linked') {
-      return { state: r.connected ? 'running' : 'offline', machine: m.name };
+      if (m.linkedAt == null) {
+        return { state: r.connected ? 'running' : 'offline', machine: m.name };
+      }
+      if (r.connected) {
+        const reached = { kind: m.kind, name: m.name };
+        await router('PUT', `/routes/${r.route}/meta`, { user: userId, meta: reached });
+        return { state: 'running', machine: m.name };
+      }
+      if (Date.now() / 1000 - m.linkedAt < LINKING_SECONDS) {
+        return { state: 'linking', machine: m.name };
+      }
+      return {
+        state: 'offline',
+        machine: m.name,
+        message: `OmicsBase cannot reach ${m.name} on port 8443. Check that this computer can reach it, or Disconnect.`,
+      };
     }
     const base = {
       project: m.project,
@@ -665,13 +692,20 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
       throw new Error(`router answered ${status} to a pairing request`);
     }
     const code = data.code as string;
+    const image = `ghcr.io/0xmuluh/omicsbase-reports:${c.imageTag}`;
     const command = [
       'docker run -d --restart unless-stopped --name omicsbase-reports',
       '-v omicsbase-reports:/home/openhands -v omicsbase-projects:/projects',
-      `ghcr.io/0xmuluh/omicsbase-reports:${c.imageTag}`,
+      image,
       `${c.appUrl} --pair ${code} --name "$(hostname)"`,
     ].join(' ');
-    return { code, expires: data.expires as number, command };
+    return {
+      code,
+      expires: data.expires as number,
+      now: Math.floor(Date.now() / 1000),
+      image,
+      command,
+    };
   }
 
   async function claim(code: string, name: string): Promise<AttachSettings> {
@@ -719,6 +753,13 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     }
     if (status !== 201) {
       throw new Error(`router answered ${status} to a link request`);
+    }
+    /* The tunnel and the machine's agent need a moment: until it first answers, view() says
+     * it is connecting, not that the machine is switched off. */
+    const r = await liveRoute(userId);
+    if (r?.meta.kind === 'linked') {
+      const meta = { ...r.meta, linkedAt: Math.floor(Date.now() / 1000) };
+      await router('PUT', `/routes/${r.route}/meta`, { user: userId, meta });
     }
     return view(userId);
   }

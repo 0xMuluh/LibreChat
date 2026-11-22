@@ -22,6 +22,8 @@ function fakeWorld(
     groups?: string[];
     failJobSubmit?: boolean;
     config?: RoihuConfig;
+    /** Whether a linked machine answers at once. */
+    linkConnected?: boolean;
   } = {},
 ) {
   const routes: Record<
@@ -83,7 +85,7 @@ function fakeWorld(
           user: body.user,
           expires: null,
           meta: { kind: 'linked', name: 'lab.example.org' },
-          connected: true,
+          connected: opts.linkConnected ?? true,
         };
         return reply(201, { route: id, expires: null });
       }
@@ -377,6 +379,9 @@ describe('createRoihuClient', () => {
         'ghcr.io/0xmuluh/omicsbase-reports:v1.41.0-roihu1 ' +
         `https://omicsbase.example --pair ${pairing.code} --name "$(hostname)"`,
     );
+    expect(pairing.image).toBe('ghcr.io/0xmuluh/omicsbase-reports:v1.41.0-roihu1');
+    expect(pairing.expires).toBe(2e9);
+    expect(pairing.now).toBeCloseTo(Date.now() / 1000, -1);
     expect(await w.client.claim(pairing.code, 'lab-pc')).toEqual({
       relayUrl: 'https://relay',
       relayFingerprint: 'fp',
@@ -429,6 +434,36 @@ describe('createRoihuClient', () => {
     expect(stopped.state).toBe('ended');
     expect(stopped.message).toContain('Disconnected from lab.example.org');
     expect(w.routes).toEqual({});
+  });
+
+  it('a newly linked machine is connecting for a minute, then cannot be reached', async () => {
+    const local = roihuConfig({
+      ROIHU_ROUTER_URL: 'http://router',
+      ROIHU_ROUTER_SECRET: 'router-secret',
+    });
+    const w = fakeWorld({ config: local!, linkConnected: false });
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000);
+    try {
+      const linking = { state: 'linking', machine: 'lab.example.org' };
+      expect(await w.client.link('u1', 'omicsbase-machine:abc')).toEqual(linking);
+      now.mockReturnValue(1_000_059_000);
+      expect(await w.client.view('u1')).toEqual(linking);
+      now.mockReturnValue(1_000_061_000);
+      expect(await w.client.view('u1')).toEqual({
+        state: 'offline',
+        machine: 'lab.example.org',
+        message:
+          'OmicsBase cannot reach lab.example.org on port 8443. Check that this computer can reach it, or Disconnect.',
+      });
+      // Once it has answered, a later break is a machine that stopped, as before.
+      w.routes.r1.connected = true;
+      expect(await w.client.view('u1')).toEqual({ state: 'running', machine: 'lab.example.org' });
+      expect(w.routes.r1.meta).toEqual({ kind: 'linked', name: 'lab.example.org' });
+      w.routes.r1.connected = false;
+      expect(await w.client.view('u1')).toEqual({ state: 'offline', machine: 'lab.example.org' });
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('a local install has no Roihu launch or relay pairing', async () => {
