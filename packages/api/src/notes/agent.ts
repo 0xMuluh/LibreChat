@@ -1,4 +1,5 @@
 import { Types } from 'mongoose';
+import { logger } from '@librechat/data-schemas';
 import type { Model } from 'mongoose';
 import type {
   Cell,
@@ -239,6 +240,8 @@ export type AgentCellRunner = (input: {
   conversationId: string;
   code: string;
   cellId?: string;
+  /** The reply's abort signal: Stop cancels the cell on the engine. */
+  signal?: AbortSignal;
 }) => Promise<string>;
 
 /** As long as the engine lets a cell run. */
@@ -258,22 +261,32 @@ export function createAgentCellRunner(deps: {
     executionId: string;
     timeoutSeconds: number;
   }) => Promise<NoteEngineResult>;
+  cancelExecution: (
+    conversationId: string,
+    userId: string,
+    cellId: string,
+    executionId: string,
+  ) => Promise<unknown>;
 }): AgentCellRunner {
   return async function runAgentCell({
     conversationId,
     code,
     cellId,
+    signal,
   }: {
     conversationId: string;
     code: string;
     cellId?: string;
+    signal?: AbortSignal;
   }): Promise<string> {
     let ids: AgentCellIds;
+    let user: string;
     try {
-      const user = conversationId ? await deps.resolveUser(conversationId) : null;
-      if (!user) {
+      const found = conversationId ? await deps.resolveUser(conversationId) : null;
+      if (!found) {
         throw new Error('the note was not found');
       }
+      user = found;
       await deps.bridgeConversationFiles(conversationId, user);
       ids = await deps.lifecycle.start(
         conversationId,
@@ -284,6 +297,20 @@ export function createAgentCellRunner(deps: {
       );
     } catch (error) {
       return `Could not save the code cell; R was not executed: ${(error as Error).message}`;
+    }
+
+    // Stop takes the same path as the cell's Cancel button; the engine then answers "cancelled".
+    const cancel = () => {
+      deps
+        .cancelExecution(conversationId, user, ids.cellId, ids.executionId)
+        .catch((error) =>
+          logger.warn(`[NoteCells] agent cell cancel failed: ${(error as Error).message}`),
+        );
+    };
+    if (signal?.aborted) {
+      cancel();
+    } else {
+      signal?.addEventListener('abort', cancel, { once: true });
     }
 
     let result: NoteEngineResult;
@@ -302,6 +329,8 @@ export function createAgentCellRunner(deps: {
         error: message,
         markdown: `Execution failed: ${message}`,
       };
+    } finally {
+      signal?.removeEventListener('abort', cancel);
     }
 
     let status: Status;

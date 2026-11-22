@@ -108,6 +108,7 @@ export function createNoteService(deps: NoteDependencies): NoteService {
       resolveUser: resolveUserForConversation,
       bridgeConversationFiles: deps.bridgeConversationFiles,
       executeOnEngine: deps.executeOnEngine,
+      cancelExecution: executions.cancelExecution,
     }),
     assertConversationAccess,
     resolveUserForConversation,
