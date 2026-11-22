@@ -510,13 +510,17 @@ async function forkSharedConversation({
     try {
       const SharedLink = mongoose.models.SharedLink;
       if (SharedLink) {
-        const sharedLink = await SharedLink.findOne({ shareId }).select('conversationId').lean();
+        const sharedLink = await SharedLink.findOne({ shareId })
+          .select('conversationId snapshotFiles')
+          .lean();
         if (sharedLink?.conversationId) {
           await cloneNoteConversation({
             sourceConversationId: sharedLink.conversationId,
             targetConversationId: result.conversation.conversationId,
             targetUserId: requestUserId,
             messageIdMap: idMapping,
+            // The share's "files and data" switch also decides whether a copy gets the data.
+            includeData: snapshotFiles !== false && sharedLink.snapshotFiles !== false,
           });
         }
       }
