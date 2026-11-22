@@ -39,6 +39,7 @@ afterEach(() => {
 describe('StatusLine text per phase', () => {
   it.each([
     ['preparing_files', 'Copying your files to the note…'],
+    ['engine_not_answering', 'The notes engine is not answering. Still trying…'],
     ['waiting_for_slot', 'Waiting for a free R server (all are busy)… 0:12'],
     ['starting_pod', 'Starting R for this note (a first start can take 2 minutes)… 0:12'],
     ['waiting_for_cell', 'Waiting for the previous cell to finish…'],

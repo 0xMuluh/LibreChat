@@ -32,6 +32,8 @@ export interface NoteDependencies {
     executionId: string;
     offset: number;
   }) => Promise<NoteEngineStatus | null>;
+  /** The error a cell ends with when status requests kept failing; names the engine's host. */
+  engineUnreachableError?: (cause: unknown) => Error;
   /** Pause between two status requests; replaced in specs. */
   pollSleep?: (ms: number) => Promise<void>;
   fetchArtifactFromEngine: (
