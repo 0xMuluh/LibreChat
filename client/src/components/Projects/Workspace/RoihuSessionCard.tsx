@@ -16,7 +16,8 @@ type SessionState =
   | 'running'
   | 'ended'
   | 'unknown'
-  | 'offline';
+  | 'offline'
+  | 'linking';
 
 interface SessionView {
   state: SessionState;
@@ -44,6 +45,9 @@ interface Pairing {
   command: string;
   code?: string;
   expires?: number;
+  /** The server's clock when it answered, to count down to `expires` on this browser's clock. */
+  now?: number;
+  image?: string;
 }
 
 /** Where the session's open page was served, so a disconnect can undo it there. */
@@ -68,7 +72,15 @@ const ERROR_KEY: Record<Field, TranslationKeys> = {
   token: 'com_roihu_err_token',
 };
 
-const ACTIVE: SessionState[] = ['preparing', 'queued', 'starting', 'running', 'unknown', 'offline'];
+const ACTIVE: SessionState[] = [
+  'preparing',
+  'queued',
+  'starting',
+  'running',
+  'unknown',
+  'offline',
+  'linking',
+];
 const POLL_MS = 10_000;
 /** While a pairing command is shown, so the page notices the machine soon after it connects. */
 const PAIRING_POLL_MS = 5_000;
@@ -78,6 +90,9 @@ const CONNECT_MS = 30_000;
 /** A Unix time as the user's local clock time. */
 const clock = (t: number) =>
   new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** Seconds as m:ss. */
+const minutes = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 /** How often the time waited in the queue is brought up to date. */
 const WAITED_MS = 15_000;
@@ -264,7 +279,10 @@ export default function RoihuSessionCard({
   const [connected, setConnected] = useState(false);
   const [connectFailed, setConnectFailed] = useState(false);
   const [pairing, setPairing] = useState<Pairing | null>(null);
-  const [copied, setCopied] = useState(false);
+  /** The command last copied, and when the pairing code runs out on this browser's clock. */
+  const [copied, setCopied] = useState('');
+  const [deadline, setDeadline] = useState<number | null>(null);
+  const [left, setLeft] = useState<number | null>(null);
   const [linkText, setLinkText] = useState('');
   const [closeUrl, setCloseUrl] = useState<string | null>(null);
 
@@ -287,7 +305,8 @@ export default function RoihuSessionCard({
     if (!session || !ACTIVE.includes(session.state)) {
       return;
     }
-    const timer = window.setInterval(refresh, POLL_MS);
+    const every = session.state === 'linking' ? PAIRING_POLL_MS : POLL_MS;
+    const timer = window.setInterval(refresh, every);
     return () => window.clearInterval(timer);
   }, [session, refresh]);
 
@@ -304,6 +323,17 @@ export default function RoihuSessionCard({
     const timer = window.setInterval(refresh, PAIRING_POLL_MS);
     return () => window.clearInterval(timer);
   }, [pairing, session, refresh]);
+
+  useEffect(() => {
+    if (!pairing || deadline == null) {
+      setLeft(null);
+      return;
+    }
+    const tick = () => setLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [pairing, deadline]);
 
   const running = session?.state === 'running';
   const attached = session?.machine != null;
@@ -421,10 +451,13 @@ export default function RoihuSessionCard({
 
   const startPairing = async () => {
     setNotice('');
-    setCopied(false);
+    setCopied('');
     setBusy(true);
     try {
-      setPairing((await request.post('/api/roihu/attach')) as Pairing);
+      const next = (await request.post('/api/roihu/attach')) as Pairing;
+      const ahead = next.expires == null ? null : next.expires - (next.now ?? Date.now() / 1000);
+      setDeadline(ahead == null ? null : Date.now() + ahead * 1000);
+      setPairing(next);
     } catch (err) {
       setNotice(serverError(err) ?? generic);
     } finally {
@@ -448,15 +481,12 @@ export default function RoihuSessionCard({
     }
   };
 
-  const copyCommand = async () => {
-    if (!pairing) {
-      return;
-    }
+  const copyCommand = async (command: string) => {
     try {
-      await navigator.clipboard.writeText(pairing.command);
-      setCopied(true);
+      await navigator.clipboard.writeText(command);
+      setCopied(command);
     } catch {
-      setCopied(false);
+      setCopied('');
     }
   };
 
@@ -563,7 +593,18 @@ export default function RoihuSessionCard({
       <StatusCard
         icon={Laptop}
         title={localize('com_roihu_offline_title', { 0: session.machine ?? '' })}
-        body={localize('com_roihu_offline_body')}
+        body={session.message ?? localize('com_roihu_offline_body')}
+      >
+        <div className="mt-3">{stopButton}</div>
+      </StatusCard>
+    );
+  } else if (session.state === 'linking') {
+    status = (
+      <StatusCard
+        icon={Loader2}
+        spin
+        title={localize('com_roihu_linking_title', { 0: session.machine ?? '' })}
+        body={localize('com_roihu_linking_body')}
       >
         <div className="mt-3">{stopButton}</div>
       </StatusCard>
@@ -613,12 +654,16 @@ export default function RoihuSessionCard({
   const closeFrame = closeUrl && (
     <iframe src={closeUrl} title={localize('com_roihu_frame_title')} className="hidden" />
   );
-  const copyButton = pairing && (
-    <Button type="button" size="sm" onClick={copyCommand}>
+  const copyButton = (command: string) => (
+    <Button type="button" size="sm" onClick={() => copyCommand(command)}>
       <Copy className="h-3.5 w-3.5" aria-hidden={true} />
-      {localize(copied ? 'com_roihu_attach_copied' : 'com_roihu_attach_copy')}
+      {localize(copied === command ? 'com_roihu_attach_copied' : 'com_roihu_attach_copy')}
     </Button>
   );
+  const pull = pairing?.image ? `docker pull ${pairing.image}` : '';
+  const expired = left === 0;
+  const commandClass =
+    'bg-surface-secondary text-text-primary mb-3 overflow-x-auto rounded-lg p-3 text-xs break-all whitespace-pre-wrap';
 
   // A local install without a session: Reports runs on this computer, below this bar.
   if (local && session != null && !active) {
@@ -652,7 +697,7 @@ export default function RoihuSessionCard({
             <pre className="bg-surface-secondary text-text-primary mb-2 overflow-x-auto rounded-lg p-3 text-xs break-all whitespace-pre-wrap">
               <code>{pairing.command}</code>
             </pre>
-            <div className="mb-3">{copyButton}</div>
+            <div className="mb-3">{copyButton(pairing.command)}</div>
             <p className="text-text-secondary mb-2">{localize('com_roihu_link_then')}</p>
             <label
               htmlFor={`${uid}-pairing`}
@@ -723,19 +768,46 @@ export default function RoihuSessionCard({
 
         {pairing && (
           <div className="border-border-light rounded-xl border p-4">
-            <p className="text-text-primary mb-2 text-sm">{localize('com_roihu_attach_command')}</p>
-            <pre className="bg-surface-secondary text-text-primary mb-3 overflow-x-auto rounded-lg p-3 text-xs break-all whitespace-pre-wrap">
-              <code>{pairing.command}</code>
-            </pre>
+            {pull && (
+              <>
+                <p className="text-text-primary mb-2 text-sm">
+                  {localize('com_roihu_attach_pull')}
+                </p>
+                <pre className={commandClass}>
+                  <code>{pull}</code>
+                </pre>
+                <div className="mb-4">{copyButton(pull)}</div>
+              </>
+            )}
+            <p className="text-text-primary mb-2 text-sm">
+              {localize(expired ? 'com_roihu_attach_expired' : 'com_roihu_attach_command')}
+            </p>
+            {!expired && (
+              <pre className={commandClass}>
+                <code>{pairing.command}</code>
+              </pre>
+            )}
             <div className="flex flex-wrap items-center gap-3">
-              {copyButton}
+              {expired ? (
+                <Button type="button" size="sm" onClick={startPairing} disabled={busy}>
+                  <RotateCw className="h-3.5 w-3.5" aria-hidden={true} />
+                  {localize('com_roihu_attach_new_code')}
+                </Button>
+              ) : (
+                copyButton(pairing.command)
+              )}
               <Button type="button" variant="outline" size="sm" onClick={() => setPairing(null)}>
                 {localize('com_roihu_attach_cancel')}
               </Button>
-              <span className="text-text-secondary inline-flex items-center gap-1.5 text-xs">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden={true} />
-                {localize('com_roihu_attach_waiting')}
-              </span>
+              {!expired && (
+                <span className="text-text-secondary inline-flex items-center gap-1.5 text-xs">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden={true} />
+                  {localize('com_roihu_attach_waiting')}
+                  {left != null && (
+                    <span>{localize('com_roihu_attach_valid', { 0: minutes(left) })}</span>
+                  )}
+                </span>
+              )}
             </div>
           </div>
         )}

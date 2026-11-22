@@ -164,6 +164,59 @@ describe('RoihuSessionCard', () => {
     }
   });
 
+  it('counts the pairing code down on the server clock, then offers a new code', async () => {
+    mockGet.mockResolvedValue({ state: 'none' });
+    const image = 'ghcr.io/0xmuluh/omicsbase-reports:v1';
+    const first = `docker run ... ${image} https://omicsbase.example --pair AAAAA-AAAAA`;
+    const second = `docker run ... ${image} https://omicsbase.example --pair BBBBB-BBBBB`;
+    // The server's clock is far from this browser's: only the two minutes between count.
+    mockPost.mockResolvedValueOnce({ now: 5000, expires: 5120, image, command: first });
+    mockPost.mockResolvedValueOnce({ now: 6000, expires: 6600, image, command: second });
+    jest.useFakeTimers({ advanceTimers: true });
+    try {
+      render(<RoihuSessionCard onConnectedChange={jest.fn()} />);
+      const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+      await user.click(await screen.findByRole('button', { name: 'com_roihu_attach_start' }));
+      expect(await screen.findByText(`docker pull ${image}`)).toBeInTheDocument();
+      expect(screen.getByText('com_roihu_attach_pull')).toBeInTheDocument();
+      expect(screen.getByText(first)).toBeInTheDocument();
+      expect(screen.getByText(/com_roihu_attach_valid 2:00/)).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: 'com_roihu_attach_copy' })).toHaveLength(2);
+
+      await jest.advanceTimersByTimeAsync(61_000);
+      expect(screen.getByText(/com_roihu_attach_valid 0:59/)).toBeInTheDocument();
+
+      await jest.advanceTimersByTimeAsync(59_000);
+      expect(await screen.findByText('com_roihu_attach_expired')).toBeInTheDocument();
+      expect(screen.queryByText(first)).not.toBeInTheDocument();
+      expect(screen.queryByText(/com_roihu_attach_waiting/)).not.toBeInTheDocument();
+      expect(screen.getByText(`docker pull ${image}`)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'com_roihu_attach_new_code' }));
+      expect(mockPost).toHaveBeenCalledTimes(2);
+      expect(mockPost).toHaveBeenLastCalledWith('/api/roihu/attach', undefined);
+      expect(await screen.findByText(second)).toBeInTheDocument();
+      expect(screen.getByText(/com_roihu_attach_valid 10:00/)).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('says a newly linked machine is connecting, and when it cannot be reached', async () => {
+    mockGet.mockResolvedValue({ state: 'linking', machine: 'lab.example.org' });
+    const { unmount } = render(<RoihuSessionCard local onConnectedChange={jest.fn()} />);
+    expect(await screen.findByText('com_roihu_linking_title lab.example.org')).toBeInTheDocument();
+    expect(screen.getByText('com_roihu_linking_body')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'com_roihu_disconnect' })).toBeInTheDocument();
+    unmount();
+
+    const message = 'OmicsBase cannot reach lab.example.org on port 8443.';
+    mockGet.mockResolvedValue({ state: 'offline', machine: 'lab.example.org', message });
+    render(<RoihuSessionCard local onConnectedChange={jest.fn()} />);
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText('com_roihu_offline_body')).not.toBeInTheDocument();
+  });
+
   it.each([
     [{ tokenExpires: 2e9, launchedAt: 1.99e9 }, 'com_roihu_bar_token_until'],
     [{ launchedAt: 1.99e9 }, 'com_roihu_bar_launched'],
