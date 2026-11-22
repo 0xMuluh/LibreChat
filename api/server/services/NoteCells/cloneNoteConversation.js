@@ -3,11 +3,12 @@ const { logger } = require('@librechat/data-schemas');
 const models = require('./models');
 const { copyNoteFiles } = require('./engineClient');
 
-async function cloneProjectDirectory(sourceConversationId, targetConversationId) {
+async function cloneProjectDirectory(sourceConversationId, targetConversationId, includeData) {
   try {
     const { copied } = await copyNoteFiles(
       String(sourceConversationId),
       String(targetConversationId),
+      { includeData },
     );
     if (copied) {
       logger.info(
@@ -100,13 +101,15 @@ async function updateClonedMessageNoteReferences({ targetConversationId, cellIdM
 
 /**
  * Clones NoteCells, revisions, executions, artifacts, events, and project workspace directory
- * from a source conversation to a target conversation.
+ * from a source conversation to a target conversation. With `includeData: false` the workspace
+ * copy leaves out the uploaded files and the saved R session.
  */
 async function cloneNoteConversation({
   sourceConversationId,
   targetConversationId,
   targetUserId,
   messageIdMap = new Map(),
+  includeData = true,
 }) {
   if (!sourceConversationId || !targetConversationId || !targetUserId) {
     return;
@@ -119,7 +122,7 @@ async function cloneNoteConversation({
   try {
     const cells = await models.NoteCell.find({ conversationId: sourceConversationId }).lean();
     if (!cells || cells.length === 0) {
-      await cloneProjectDirectory(sourceConversationId, targetConversationId);
+      await cloneProjectDirectory(sourceConversationId, targetConversationId, includeData);
       return;
     }
 
@@ -237,7 +240,7 @@ async function cloneNoteConversation({
     }
 
     // 6. Clone project directory on disk
-    await cloneProjectDirectory(sourceConversationId, targetConversationId);
+    await cloneProjectDirectory(sourceConversationId, targetConversationId, includeData);
 
     // 7. Update cellId / executionId metadata in cloned messages
     await updateClonedMessageNoteReferences({

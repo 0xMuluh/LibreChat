@@ -110,13 +110,14 @@ async function uploadNoteDataFile(threadId, filename, sourcePath) {
  * Copy one note's files into another (conversation fork). The engine leaves out the
  * source's live session processes.
  */
-async function copyNoteFiles(sourceThreadId, targetThreadId) {
+/** Copy one note's files into another; without data, uploads and the saved R session stay behind. */
+async function copyNoteFiles(sourceThreadId, targetThreadId, { includeData = true } = {}) {
   const response = await fetch(
     `${ENGINE_URL}/api/projects/${encodeURIComponent(targetThreadId)}/copy`,
     {
       method: 'POST',
       headers: { 'X-Internal-Secret': INTERNAL_SECRET, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source: sourceThreadId }),
+      body: JSON.stringify({ source: sourceThreadId, include_data: includeData }),
     },
   );
   if (!response.ok) {

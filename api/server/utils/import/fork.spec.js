@@ -28,6 +28,10 @@ jest.mock('~/server/services/Config', () => ({
   getAppConfig: jest.fn().mockResolvedValue({ interfaceConfig: {} }),
 }));
 
+jest.mock('~/server/services/NoteCells/cloneNoteConversation', () => ({
+  cloneNoteConversation: jest.fn().mockResolvedValue(undefined),
+}));
+
 let mockIdCounter = 0;
 jest.mock('uuid', () => {
   return {
@@ -2014,5 +2018,52 @@ describe('native copy protected token admission', () => {
     await expect(
       duplicateConversation({ conversationId: 'source', userId: 'owner', filters }),
     ).rejects.toMatchObject({ code: 'content_filter_block' });
+  });
+});
+
+describe('forkSharedConversation: the note data', () => {
+  const mongoose = require('mongoose');
+  const { cloneNoteConversation } = require('~/server/services/NoteCells/cloneNoteConversation');
+  const originalSharedLink = mongoose.models.SharedLink;
+
+  const withLink = (link) => {
+    mongoose.models.SharedLink = {
+      findOne: () => ({ select: () => ({ lean: async () => link }) }),
+    };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getSharedMessages.mockResolvedValue({
+      shareId: 'share123',
+      conversationId: 'convo_anon',
+      title: 'Shared Title',
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      messages: [
+        { messageId: 'm1', parentMessageId: Constants.NO_PARENT, text: 'q', isCreatedByUser: true },
+      ],
+    });
+    getConvo.mockResolvedValue({ conversationId: 'new', title: 'Shared Title' });
+    getMessages.mockResolvedValue([]);
+  });
+
+  afterAll(() => {
+    mongoose.models.SharedLink = originalSharedLink;
+  });
+
+  test.each([
+    ['the switch is on', { conversationId: 'src', snapshotFiles: true }, true],
+    ['the link predates the switch', { conversationId: 'src' }, true],
+    ['the switch is off', { conversationId: 'src', snapshotFiles: false }, false],
+  ])('copies the data only when it is shared (%s)', async (_label, link, includeData) => {
+    withLink(link);
+    await forkSharedConversation({
+      shareId: 'share123',
+      shareResourceId: 'r1',
+      requestUserId: 'user1',
+    });
+    expect(cloneNoteConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceConversationId: 'src', includeData }),
+    );
   });
 });
