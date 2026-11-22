@@ -815,6 +815,8 @@ export interface UsageMetadata {
   agentId?: string;
   /** Authoritative display cost attached by the host before durable child persistence. */
   cost?: number;
+  /** Measured duration of the model call in seconds, for the energy estimate. */
+  latencySeconds?: number;
   /**
    * OpenAI-style cache token details.
    * Present for OpenAI models (GPT-4, o1, etc.)

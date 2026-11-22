@@ -6,9 +6,14 @@ import type { TConversation } from 'librechat-data-provider';
 import type { TokenUsageView } from '~/hooks/Chat/useTokenUsage';
 import type { CurrencyConfig } from '~/utils';
 import useCompactConversation, { supportsCompaction } from '~/hooks/Chat/useCompactConversation';
-import { useGetLangfuseSessionLinkQuery, useGetStartupConfig } from '~/data-provider';
+import {
+  useGetImpactsQuery,
+  useGetStartupConfig,
+  useGetLangfuseSessionLinkQuery,
+} from '~/data-provider';
 import Balance, { Summary as BalanceSummary } from '~/components/Balance';
 import useBalanceSummary from '~/hooks/useBalanceSummary';
+import Impacts from '~/components/Balance/Impacts';
 import useTokenUsage from '~/hooks/Chat/useTokenUsage';
 import { contextBreakdownExpandedAtom } from './store';
 import CompactAction from './CompactAction';
@@ -79,6 +84,17 @@ function ContextCard({
       )}
     </>
   );
+}
+
+/** The note's energy estimate. Mounted only while the card is open, so it is read
+ *  again on each opening; streams also invalidate it after each turn. */
+function NoteImpacts({ conversationId }: { conversationId: string }) {
+  const saved =
+    conversationId !== '' &&
+    conversationId !== Constants.NEW_CONVO &&
+    conversationId !== Constants.PENDING_CONVO;
+  const { data } = useGetImpactsQuery(conversationId, { enabled: saved });
+  return <Impacts totals={saved ? data?.note : undefined} scope="note" />;
 }
 
 function TokenUsageIndicator({
@@ -171,6 +187,7 @@ function TokenUsageIndicator({
             compactionAvailable={compactionAvailable}
           />
         )}
+        <NoteImpacts conversationId={conversationId} />
         {balanceEnabled && (
           <Balance className={hasContext ? 'border-border-light border-t pt-3' : undefined} />
         )}

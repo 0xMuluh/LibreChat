@@ -87,6 +87,55 @@ async function enqueueCodeOutputBatch({
   }
 }
 
+/**
+ * Identifies one model call across its start and end events. The handlers do
+ * not receive LangChain's per-call run id, so the key is the run plus the graph
+ * task the call runs in: parallel calls run in different tasks, and calls
+ * within one task are sequential.
+ * @param {Record<string, unknown> | undefined} metadata
+ * @returns {string}
+ */
+function getModelCallKey(metadata) {
+  const task =
+    metadata?.langgraph_checkpoint_ns ?? metadata?.checkpoint_ns ?? metadata?.langgraph_node ?? '';
+  return `${metadata?.run_id ?? ''}:${task}`;
+}
+
+/** Records when each model call starts so `ModelEndHandler` can time it. */
+class ModelStartHandler {
+  constructor() {
+    /** @type {Map<string, number>} */
+    this.startedAt = new Map();
+  }
+
+  /**
+   * @param {string} _event
+   * @param {unknown} _data
+   * @param {Record<string, unknown> | undefined} metadata
+   */
+  handle(_event, _data, metadata) {
+    if (!metadata) {
+      return;
+    }
+    this.startedAt.set(getModelCallKey(metadata), Date.now());
+  }
+
+  /**
+   * Seconds since the matching start event, consuming it.
+   * @param {Record<string, unknown> | undefined} metadata
+   * @returns {number | undefined}
+   */
+  takeLatencySeconds(metadata) {
+    const key = getModelCallKey(metadata);
+    const startedAt = this.startedAt.get(key);
+    if (startedAt == null) {
+      return undefined;
+    }
+    this.startedAt.delete(key);
+    return (Date.now() - startedAt) / 1000;
+  }
+}
+
 class ModelEndHandler {
   /**
    * @param {Array<UsageMetadata>} collectedUsage
@@ -103,14 +152,22 @@ class ModelEndHandler {
    *   a no-op for them even when the map is provided.
    * @param {(data: Record<string, unknown>) => Promise<void> | void} [emitUsage] Optional
    *   callback to stream per-call token usage to the client.
+   * @param {ModelStartHandler | null} [modelStartHandler] Optional start handler of the same
+   *   run; when given, each collected usage carries the call's `latencySeconds`.
    */
-  constructor(collectedUsage, collectedThoughtSignatures = null, emitUsage = null) {
+  constructor(
+    collectedUsage,
+    collectedThoughtSignatures = null,
+    emitUsage = null,
+    modelStartHandler = null,
+  ) {
     if (!Array.isArray(collectedUsage)) {
       throw new Error('collectedUsage must be an array');
     }
     this.collectedUsage = collectedUsage;
     this.collectedThoughtSignatures = collectedThoughtSignatures;
     this.emitUsage = emitUsage;
+    this.modelStartHandler = modelStartHandler;
   }
 
   finalize(errorMessage) {
@@ -135,6 +192,8 @@ class ModelEndHandler {
 
     /** @type {string | undefined} */
     let errorMessage;
+    /** Taken before any early return so a call without usage leaves no start behind */
+    const latencySeconds = this.modelStartHandler?.takeLatencySeconds(metadata);
     try {
       const agentContext = graph.getAgentContext(metadata);
       const refusalInfo = getModelRefusalInfo(data?.output);
@@ -166,6 +225,9 @@ class ModelEndHandler {
         metadata?.hide_sequential_outputs === true
       ) {
         taggedUsage = { ...taggedUsage, usage_type: 'sequential' };
+      }
+      if (latencySeconds != null) {
+        taggedUsage = { ...taggedUsage, latencySeconds };
       }
 
       this.collectedUsage.push(taggedUsage);
@@ -516,12 +578,15 @@ function getDefaultHandlers({
     replayEvents: toolTimingReplayEvents,
     emit: emitForJob,
   });
+  const modelStartHandler = new ModelStartHandler();
   const handlers = {
     [StepEvents.ON_TOOL_CALLS_DISPATCHED]: toolTiming.dispatch,
+    [GraphEvents.CHAT_MODEL_START]: modelStartHandler,
     [GraphEvents.CHAT_MODEL_END]: new ModelEndHandler(
       collectedUsage,
       collectedThoughtSignatures,
       emitTokenUsage,
+      modelStartHandler,
     ),
     [GraphEvents.TOOL_END]: createOwnedToolEndHandler(toolEndCallback, logger),
     [GraphEvents.ON_RUN_STEP]: {
@@ -1685,6 +1750,7 @@ function buildSummarizationHandlers({ isStreaming, res }) {
 
 module.exports = {
   ModelEndHandler,
+  ModelStartHandler,
   agentLogHandler,
   agentLogHandlerObj,
   getDefaultHandlers,

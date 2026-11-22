@@ -9,6 +9,7 @@ import type {
   IBalanceReservation,
   IBalanceUpdate,
   TransactionData,
+  ImpactsTotals,
   IBalance,
 } from '~/types';
 import type { ITransaction } from '~/schema/transaction';
@@ -107,6 +108,10 @@ export function createTransactionMethods(
     insertOnly?: IBalanceUpdate,
   ) => Promise<IBalance | null>;
   getTransactions: (filter: FilterQuery<ITransaction>) => Promise<ITransaction[]>;
+  getImpactsTotals: (filter: {
+    user: string | Types.ObjectId;
+    conversationId?: string;
+  }) => Promise<ImpactsTotals>;
   deleteTransactions: (
     filter: FilterQuery<ITransaction>,
   ) => Promise<import('mongodb').DeleteResult>;
@@ -692,6 +697,50 @@ export function createTransactionMethods(
   }
 
   /**
+   * Sums the energy estimates stored on a user's transactions, for one
+   * conversation or, without `conversationId`, for the whole account.
+   */
+  async function getImpactsTotals({
+    user,
+    conversationId,
+  }: {
+    user: string | Types.ObjectId;
+    conversationId?: string;
+  }): Promise<ImpactsTotals> {
+    const Transaction = mongoose.models.Transaction;
+    const [row] = await Transaction.aggregate<{
+      energyMin: number;
+      energyMax: number;
+      gwpMin: number;
+      gwpMax: number;
+      unmapped: number;
+    }>([
+      {
+        $match: {
+          user: new mongoose.Types.ObjectId(String(user)),
+          impacts: { $exists: true },
+          ...(conversationId != null && { conversationId }),
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          energyMin: { $sum: '$impacts.energy.min' },
+          energyMax: { $sum: '$impacts.energy.max' },
+          gwpMin: { $sum: '$impacts.gwp.min' },
+          gwpMax: { $sum: '$impacts.gwp.max' },
+          unmapped: { $sum: { $cond: [{ $eq: ['$impacts.unmapped', true] }, 1, 0] } },
+        },
+      },
+    ]);
+    return {
+      energy: { min: row?.energyMin ?? 0, max: row?.energyMax ?? 0 },
+      gwp: { min: row?.gwpMin ?? 0, max: row?.gwpMax ?? 0 },
+      partial: (row?.unmapped ?? 0) > 0,
+    };
+  }
+
+  /**
    * Retrieves a user's balance record. With `includeReservedCredits`, `reservedCredits` is the
    * total of the reservations that have not expired, so a reservation left by a crashed request
    * stops counting at its expiry even before a reservation write prunes it. A due reset is
@@ -783,6 +832,7 @@ export function createTransactionMethods(
     findBalanceByUser,
     upsertBalanceFields,
     getTransactions,
+    getImpactsTotals,
     deleteTransactions,
     deleteBalances,
     createTransaction,

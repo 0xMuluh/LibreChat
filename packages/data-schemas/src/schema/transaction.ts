@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
+import type { TransactionImpacts } from '~/types/transaction';
 
 // @ts-ignore
 export interface ITransaction extends Document {
@@ -15,10 +16,27 @@ export interface ITransaction extends Document {
   writeTokens?: number;
   readTokens?: number;
   messageId?: string;
+  impacts?: TransactionImpacts;
   createdAt?: Date;
   updatedAt?: Date;
   tenantId?: string;
 }
+
+const impactRange = new Schema({ min: Number, max: Number }, { _id: false });
+
+/** Set on completion transactions only; absent when no estimate was attempted */
+const impactsSchema = new Schema<TransactionImpacts>(
+  {
+    energy: impactRange,
+    gwp: impactRange,
+    adpe: impactRange,
+    pe: impactRange,
+    wcf: impactRange,
+    warnings: { type: [String], default: undefined },
+    unmapped: Boolean,
+  },
+  { _id: false },
+);
 
 const transactionSchema: Schema<ITransaction> = new Schema(
   {
@@ -55,6 +73,7 @@ const transactionSchema: Schema<ITransaction> = new Schema(
     writeTokens: { type: Number },
     readTokens: { type: Number },
     messageId: { type: String },
+    impacts: { type: impactsSchema },
     tenantId: {
       type: String,
       index: true,

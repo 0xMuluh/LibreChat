@@ -460,6 +460,7 @@ export default function useResumableSSE(
           clearDrainAfterAbort,
           refreshBalance: () => {
             (startupConfig?.balance?.enabled ?? false) && balanceQuery.refetch();
+            queryClient.invalidateQueries([QueryKeys.impacts]);
           },
           updateConversation: isAddedRequest ? undefined : setConversation,
           resolveDetachedEnd: (conversationId, messages) => {
@@ -573,6 +574,7 @@ export default function useResumableSSE(
       setMessages,
       startupConfig?.balance?.enabled,
       balanceQuery,
+      queryClient,
       bindResponse,
       contextHandler,
       usageHandler,

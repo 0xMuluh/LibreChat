@@ -6271,6 +6271,7 @@ class AgentClient extends BaseClient {
 
     try {
       await requirePrivateTextAdmission(req, abortController.signal);
+      const titleStartedAt = Date.now();
       const titleResult = await this.run.generateTitle({
         provider,
         clientOptions,
@@ -6294,6 +6295,10 @@ class AgentClient extends BaseClient {
         },
       });
 
+      /** One call: its duration is the title's. Several may have run in parallel, so
+       *  none is timed and the energy estimate falls back to its own latency model. */
+      const latencySeconds =
+        collectedMetadata.length === 1 ? (Date.now() - titleStartedAt) / 1000 : undefined;
       const collectedUsage = collectedMetadata.map((item) => {
         let input_tokens, output_tokens;
 
@@ -6313,6 +6318,7 @@ class AgentClient extends BaseClient {
         return {
           input_tokens: input_tokens,
           output_tokens: output_tokens,
+          ...(latencySeconds != null && { latencySeconds }),
         };
       });
 

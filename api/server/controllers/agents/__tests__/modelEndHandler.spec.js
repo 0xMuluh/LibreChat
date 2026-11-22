@@ -22,7 +22,7 @@ jest.mock('~/server/services/Files/process', () => ({
   saveBase64Image: jest.fn(),
 }));
 
-const { ModelEndHandler, contextualizeModelUsage } = require('../callbacks');
+const { ModelEndHandler, ModelStartHandler, contextualizeModelUsage } = require('../callbacks');
 
 const buildGraph = () => ({
   getAgentContext: () => ({
@@ -237,5 +237,94 @@ describe('ModelEndHandler — Vertex thoughtSignature capture (issue #13006 foll
 
   it('throws when collectedUsage is not an array (existing contract)', () => {
     expect(() => new ModelEndHandler(null)).toThrow('collectedUsage must be an array');
+  });
+});
+
+describe('ModelStartHandler — model call latency', () => {
+  const end = (handler, metadata, usage = { input_tokens: 5, output_tokens: 5 }) =>
+    handler.handle(
+      'on_chat_model_end',
+      { output: usage ? { usage_metadata: usage } : {} },
+      metadata,
+      buildGraph(),
+    );
+
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(0);
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('passes the seconds between start and end on the collected usage', async () => {
+    const collectedUsage = [];
+    const starts = new ModelStartHandler();
+    const handler = new ModelEndHandler(collectedUsage, null, null, starts);
+    const metadata = { run_id: 'run-1', langgraph_checkpoint_ns: 'agent:task-1' };
+
+    starts.handle('on_chat_model_start', {}, metadata);
+    jest.setSystemTime(2500);
+    await end(handler, metadata);
+
+    expect(collectedUsage[0].latencySeconds).toBe(2.5);
+  });
+
+  it('pairs parallel calls by their graph task, not by arrival order', async () => {
+    const collectedUsage = [];
+    const starts = new ModelStartHandler();
+    const handler = new ModelEndHandler(collectedUsage, null, null, starts);
+    const first = { run_id: 'run-1', langgraph_checkpoint_ns: 'agent_a:task-1' };
+    const second = { run_id: 'run-1', langgraph_checkpoint_ns: 'agent_b:task-2' };
+
+    starts.handle('on_chat_model_start', {}, first);
+    jest.setSystemTime(1000);
+    starts.handle('on_chat_model_start', {}, second);
+    jest.setSystemTime(3000);
+    await end(handler, second);
+    jest.setSystemTime(7000);
+    await end(handler, first);
+
+    expect(collectedUsage.map((usage) => usage.latencySeconds)).toEqual([2, 7]);
+  });
+
+  it('times each sequential call of one task from its own start', async () => {
+    const collectedUsage = [];
+    const starts = new ModelStartHandler();
+    const handler = new ModelEndHandler(collectedUsage, null, null, starts);
+    const metadata = { run_id: 'run-1', langgraph_node: 'agent' };
+
+    starts.handle('on_chat_model_start', {}, metadata);
+    jest.setSystemTime(1000);
+    await end(handler, metadata);
+    jest.setSystemTime(5000);
+    starts.handle('on_chat_model_start', {}, metadata);
+    jest.setSystemTime(5500);
+    await end(handler, metadata);
+
+    expect(collectedUsage.map((usage) => usage.latencySeconds)).toEqual([1, 0.5]);
+  });
+
+  it('leaves the latency out when no start was seen or no start handler is given', async () => {
+    const collectedUsage = [];
+    const metadata = { run_id: 'run-1', langgraph_node: 'agent' };
+
+    await end(new ModelEndHandler(collectedUsage, null, null, new ModelStartHandler()), metadata);
+    await end(new ModelEndHandler(collectedUsage), metadata);
+
+    expect(collectedUsage).toHaveLength(2);
+    expect(collectedUsage.every((usage) => !('latencySeconds' in usage))).toBe(true);
+  });
+
+  it('forgets the start of a call that reported no usage', async () => {
+    const collectedUsage = [];
+    const starts = new ModelStartHandler();
+    const handler = new ModelEndHandler(collectedUsage, null, null, starts);
+    const metadata = { run_id: 'run-1', langgraph_node: 'agent' };
+
+    starts.handle('on_chat_model_start', {}, metadata);
+    await end(handler, metadata, null);
+
+    expect(collectedUsage).toHaveLength(0);
+    expect(starts.startedAt.size).toBe(0);
   });
 });

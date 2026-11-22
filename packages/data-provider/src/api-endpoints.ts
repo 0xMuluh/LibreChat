@@ -46,6 +46,11 @@ export const userPreferences = () => `${user()}/preferences`;
 
 export const balance = () => `${BASE_URL}/api/balance`;
 
+export const impacts = (conversationId?: string) =>
+  `${BASE_URL}/api/balance/impacts${
+    conversationId != null ? `?conversationId=${encodeURIComponent(conversationId)}` : ''
+  }`;
+
 export const userPlugins = () => `${BASE_URL}/api/user/plugins`;
 
 export const deleteUser = () => `${BASE_URL}/api/user/delete`;

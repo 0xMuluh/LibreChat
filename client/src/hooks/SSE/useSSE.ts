@@ -5,7 +5,7 @@ import { useStore, useSetAtom } from 'jotai';
 import { useQueryClient } from '@tanstack/react-query';
 import { abortScrollFamily, showStopButtonByIndex } from '@librechat/chat/react';
 import { startedAsNewConversation, buildCreatedInitialResponse } from '@librechat/chat';
-import { StepEvents, createPayload, removeNullishValues } from 'librechat-data-provider';
+import { QueryKeys, StepEvents, createPayload, removeNullishValues } from 'librechat-data-provider';
 import type {
   Agents,
   TMessage,
@@ -146,6 +146,7 @@ export default function useSSE(
         setShowStopButton(false);
       }
       (startupConfig?.balance?.enabled ?? false) && balanceQuery.refetch();
+      queryClient.invalidateQueries([QueryKeys.impacts]);
       console.log('final', data);
     };
 

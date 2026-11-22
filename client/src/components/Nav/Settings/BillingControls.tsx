@@ -5,9 +5,10 @@ import { formatBalanceAmount } from '~/utils';
 import Balance from '~/components/Balance';
 import { useLocalize } from '~/hooks';
 
-/** The same reading the context gauge shows, so both surfaces agree. */
+/** The same reading the context gauge shows, so both surfaces agree, plus the account's
+ *  energy estimate. */
 export function TokenCredits() {
-  return <Balance />;
+  return <Balance showImpacts />;
 }
 
 export function AutoRefill() {
