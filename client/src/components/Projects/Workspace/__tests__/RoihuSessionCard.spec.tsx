@@ -19,6 +19,9 @@ jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string, vars?: Record<string, string>) =>
     vars ? `${key} ${Object.values(vars).join(' ')}` : key,
 }));
+// The helix behind the card redraws on every animation frame, which makes moving a fake clock
+// forward by minutes take longer than a test may.
+jest.mock('~/components/HelixBackground', () => ({ __esModule: true, default: () => null }));
 
 beforeEach(() => {
   mockGet.mockReset();
@@ -153,7 +156,8 @@ describe('RoihuSessionCard', () => {
       mockGet.mockResolvedValue({ state: 'offline', machine: 'lab-pc' });
       await jest.advanceTimersByTimeAsync(5_000);
       expect(await screen.findByText('com_roihu_offline_title lab-pc')).toBeInTheDocument();
-      expect(screen.queryByText(command)).not.toBeInTheDocument();
+      // The command goes one render after the session arrives.
+      await waitFor(() => expect(screen.queryByText(command)).not.toBeInTheDocument());
       expect(screen.getByRole('button', { name: 'com_roihu_disconnect' })).toBeInTheDocument();
     } finally {
       jest.useRealTimers();
@@ -175,6 +179,77 @@ describe('RoihuSessionCard', () => {
       }),
     );
     expect(await screen.findByText(new RegExp(key))).toBeInTheDocument();
+  });
+
+  it('a queued session shows the time waited and the expected start', async () => {
+    jest.useFakeTimers({ advanceTimers: true });
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const expectedStart = now + 600;
+      mockGet.mockResolvedValue({
+        state: 'queued',
+        project: 'project_2010578',
+        queuedAt: now - 4 * 60 - 5,
+        pendingReason: 'Priority',
+        expectedStart,
+      });
+      render(<RoihuSessionCard onConnectedChange={jest.fn()} />);
+      expect(await screen.findByText('com_roihu_queued_waited 4')).toBeInTheDocument();
+      expect(screen.getByText('com_roihu_queued_reason_node')).toBeInTheDocument();
+      const around = new Date(expectedStart * 1000).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      expect(screen.getByText(`com_roihu_queued_expected ${around}`)).toBeInTheDocument();
+      expect(screen.queryByText(/com_roihu_queued_slurm_says/)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'com_roihu_stop' })).toBeInTheDocument();
+
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(await screen.findByText('com_roihu_queued_waited 5')).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['Resources', 'com_roihu_queued_reason_node'],
+    ['QOSMaxJobsPerUserLimit', 'com_roihu_queued_reason_job_limit'],
+    ['QOSMaxSubmitJobPerUserLimit', 'com_roihu_queued_reason_job_limit'],
+    ['AssocMaxJobsLimit', 'com_roihu_queued_reason_job_limit'],
+    ['AssocGrpBillingMinutes', 'com_roihu_queued_reason_billing'],
+    ['ReqNodeNotAvail, Reserved for maintenance', 'com_roihu_queued_reason_maintenance'],
+    ['Dependency', 'com_roihu_queued_reason_dependency'],
+  ])('puts the Slurm reason %s in plain words', async (pendingReason, key) => {
+    const now = Math.floor(Date.now() / 1000);
+    mockGet.mockResolvedValue({ state: 'queued', queuedAt: now - 10, pendingReason });
+    render(<RoihuSessionCard onConnectedChange={jest.fn()} />);
+    expect(await screen.findByText(key)).toBeInTheDocument();
+    expect(screen.getByText('com_roihu_queued_waited_short')).toBeInTheDocument();
+    expect(screen.queryByText(/com_roihu_queued_slurm_says/)).not.toBeInTheDocument();
+  });
+
+  it('shows a Slurm reason it does not know as Slurm words it', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    mockGet.mockResolvedValue({
+      state: 'queued',
+      queuedAt: now - 2 * 3600 - 5 * 60,
+      pendingReason: 'BeginTime',
+      expectedStart: now - 60,
+    });
+    render(<RoihuSessionCard onConnectedChange={jest.fn()} />);
+    expect(await screen.findByText('com_roihu_queued_waited_hours 2 5')).toBeInTheDocument();
+    expect(screen.getByText('com_roihu_queued_body')).toBeInTheDocument();
+    expect(screen.getByText('com_roihu_queued_slurm_says BeginTime')).toBeInTheDocument();
+    // An estimate that has already passed is not shown.
+    expect(screen.queryByText(/com_roihu_queued_expected/)).not.toBeInTheDocument();
+  });
+
+  it('a queued session without times or a reason still says it is waiting', async () => {
+    mockGet.mockResolvedValue({ state: 'queued', project: 'project_2010578' });
+    render(<RoihuSessionCard onConnectedChange={jest.fn()} />);
+    expect(await screen.findByText('com_roihu_queued_title')).toBeInTheDocument();
+    expect(screen.getByText('com_roihu_queued_body')).toBeInTheDocument();
+    expect(screen.queryByText(/com_roihu_queued_expected/)).not.toBeInTheDocument();
   });
 
   it('after an ended session, shows why and offers the launch form again', async () => {

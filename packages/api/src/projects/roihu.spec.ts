@@ -31,7 +31,13 @@ function fakeWorld(
   const pairings: Record<string, string> = {};
   const jobs: Record<
     string,
-    { state: string; start?: number; end?: number; body: Record<string, unknown> }
+    {
+      state: string;
+      reason?: string;
+      start?: number | string | null;
+      end?: number;
+      body: Record<string, unknown>;
+    }
   > = {};
   const calls: string[] = [];
   let nextJob = 100;
@@ -169,8 +175,11 @@ function fakeWorld(
         jobs: [
           {
             jobId: jobMatch[1],
-            status: { state: jobs[jobMatch[1]].state },
-            time: { start: jobs[jobMatch[1]].start ?? 0, end: jobs[jobMatch[1]].end ?? 0 },
+            status: { state: jobs[jobMatch[1]].state, stateReason: jobs[jobMatch[1]].reason },
+            time: {
+              start: jobs[jobMatch[1]].start === undefined ? 0 : jobs[jobMatch[1]].start,
+              end: jobs[jobMatch[1]].end ?? 0,
+            },
           },
         ],
       });
@@ -308,6 +317,57 @@ describe('createRoihuClient', () => {
     });
     expect(w.routes).toEqual({});
     expect((await w.client.view('u1')).state).toBe('none');
+  });
+
+  it('a queued session says why it waits, since when and the expected start', async () => {
+    const w = fakeWorld({ imageExists: true });
+    await w.client.launch('u1', goodInput);
+    const launchedAt = w.routes.r1.meta.launchedAt;
+    expect(await w.client.view('u1')).toEqual({
+      state: 'queued',
+      project: 'project_2010578',
+      cores: 2,
+      memory: 8,
+      hours: 4,
+      launchedAt,
+      queuedAt: launchedAt,
+    });
+
+    w.jobs['100'].reason = 'Priority';
+    w.jobs['100'].start = 1795000600;
+    expect(await w.client.view('u1')).toMatchObject({
+      state: 'queued',
+      queuedAt: launchedAt,
+      pendingReason: 'Priority',
+      expectedStart: 1795000600,
+    });
+  });
+
+  it.each([[0], [null], ['Unknown'], ['']])(
+    'gives no expected start when Slurm has no estimate (%p)',
+    async (start) => {
+      const w = fakeWorld({ imageExists: true });
+      await w.client.launch('u1', goodInput);
+      w.jobs['100'].start = start;
+      w.jobs['100'].reason = 'None';
+      const view = await w.client.view('u1');
+      expect(view.state).toBe('queued');
+      expect(view.expectedStart).toBeUndefined();
+      expect(view.pendingReason).toBeUndefined();
+    },
+  );
+
+  it('after preparation, the wait for a node counts from the end of preparation', async () => {
+    const w = fakeWorld();
+    await w.client.launch('u1', goodInput);
+    w.jobs['100'].state = 'COMPLETED';
+    w.jobs['100'].end = 1795000300;
+    w.jobs['101'].reason = 'Dependency';
+    expect(await w.client.view('u1')).toMatchObject({
+      state: 'queued',
+      queuedAt: 1795000300,
+      pendingReason: 'Dependency',
+    });
   });
 
   it('a failed preparation cancels the waiting session job and frees the launch form', async () => {
