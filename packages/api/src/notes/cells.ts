@@ -14,6 +14,12 @@ export interface CellStore {
   findOrCreateCell(input: CellInput): Promise<SerializedCell>;
   listCells(conversationId: string, userId: string): Promise<SerializedCell[]>;
   getCell(conversationId: string, userId: string, cellId: string): Promise<SerializedCell>;
+  /** The cell an agent tool call made, by the key the page computes for its card. */
+  getCellByBlockKey(
+    conversationId: string,
+    userId: string,
+    blockKey: string,
+  ): Promise<SerializedCell>;
   appendRevision(input: RevisionInput): Promise<SerializedRevision>;
 }
 export function createCellStore(models: NoteModels): CellStore {
@@ -117,7 +123,20 @@ export function createCellStore(models: NoteModels): CellStore {
   }
 
   async function getCell(conversationId: string, userId: string, cellId: string) {
-    const cell = await NoteCell.findOne({ _id: cellId, conversationId, user: userId });
+    return loadCell({ _id: cellId, conversationId, user: userId });
+  }
+
+  async function getCellByBlockKey(conversationId: string, userId: string, blockKey: string) {
+    return loadCell({ conversationId, user: userId, blockKey });
+  }
+
+  async function loadCell(filter: {
+    _id?: string;
+    conversationId: string;
+    user: string;
+    blockKey?: string;
+  }) {
+    const cell = await NoteCell.findOne(filter).sort({ updatedAt: -1 });
     if (!cell) {
       throw new NoteError('Cell not found', 404);
     }
@@ -168,5 +187,5 @@ export function createCellStore(models: NoteModels): CellStore {
     return serializeRevision(revision);
   }
 
-  return { createCell, findOrCreateCell, listCells, getCell, appendRevision };
+  return { createCell, findOrCreateCell, listCells, getCell, getCellByBlockKey, appendRevision };
 }

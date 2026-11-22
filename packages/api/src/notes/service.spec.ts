@@ -1,24 +1,49 @@
-import mongoose from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import type { NoteDependencies } from './serviceTypes';
-import type { NoteEngineResult } from './contracts';
+import type { NoteEngineResult, NoteEngineStatus } from './contracts';
 import models from '../../../../api/server/services/NoteCells/models';
 import { bindNoteThread, isAgentCellTool } from './mcp';
 import { createNoteService } from './service';
 
 let mongo: MongoMemoryServer;
 const bridge = jest.fn(async () => {});
-const execute = jest.fn(async (): Promise<NoteEngineResult> => ({ success: true, stdout: '42' }));
+const finished = (result: NoteEngineResult): NoteEngineStatus => ({
+  phase: 'done',
+  done: true,
+  result,
+});
+const start = jest.fn(async () => ({ phase: 'starting_r' as const }));
+const status = jest.fn(
+  async (): Promise<NoteEngineStatus | null> => finished({ success: true, stdout: '42' }),
+);
 const cancel = jest.fn(async () => {});
 const artifact = jest.fn(async () => ({ buffer: Buffer.from('plot'), contentType: 'image/png' }));
 const service = createNoteService({
   models,
   getConversationModel: () => undefined,
   bridgeConversationFiles: bridge,
-  executeOnEngine: execute,
+  startExecution: start,
+  getExecutionStatus: status,
+  pollSleep: () => new Promise((resolve) => setImmediate(resolve)),
   fetchArtifactFromEngine: artifact,
   signalCancel: cancel,
 });
+
+/** A run left behind by a server that stopped: on record, followed by no job. */
+async function orphanExecution(fields: Record<string, unknown> = {}) {
+  const cell = await service.createCell({ conversationId: 'chat', userId: 'alice', content: '1' });
+  const execution = await models.NoteCellExecution.create({
+    cellId: cell.id,
+    revisionId: cell.latestRevisionId,
+    conversationId: 'chat',
+    user: 'alice',
+    status: 'running',
+    createdAt: new Date(Date.now() - 60000),
+    ...fields,
+  });
+  return { cellId: cell.id, executionId: String(execution._id) };
+}
 
 beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
@@ -32,7 +57,7 @@ afterAll(async () => {
 afterEach(async () => {
   await Promise.all(Object.values(mongoose.models).map((model) => model.deleteMany({})));
   jest.clearAllMocks();
-  execute.mockImplementation(async () => ({ success: true, stdout: '42' }));
+  status.mockImplementation(async () => finished({ success: true, stdout: '42' }));
 });
 
 test('preserves cell identity, revisions, durable results and console artifact access', async () => {
@@ -83,16 +108,16 @@ test('preserves cell identity, revisions, durable results and console artifact a
 });
 
 test('cancellation remains authoritative when engine success arrives afterward', async () => {
-  let release: (result: NoteEngineResult) => void = () => {
+  let release: (status: NoteEngineStatus) => void = () => {
     throw new Error('Engine not started');
   };
   let entered: () => void = () => {};
   const started = new Promise<void>((resolve) => {
     entered = resolve;
   });
-  execute.mockImplementation(
+  status.mockImplementation(
     () =>
-      new Promise<NoteEngineResult>((resolve) => {
+      new Promise<NoteEngineStatus>((resolve) => {
         release = resolve;
         entered();
       }),
@@ -110,19 +135,151 @@ test('cancellation remains authoritative when engine success arrives afterward',
   await started;
   await service.cancelExecution('chat', 'alice', cell.id, execution.id);
   expect(cancel).toHaveBeenCalledWith('chat', execution.id);
-  release({ success: true, stdout: 'late result' });
+  release(finished({ success: true, stdout: 'late result' }));
   await service.waitForExecution(execution.id);
   expect((await service.getExecution('chat', 'alice', cell.id, execution.id)).status).toBe(
     'cancelled',
   );
 });
 
-test('only the note execution tool receives the host conversation binding', () => {
+test('a cell run by the user gets 600 seconds and reports phase, book references and server time', async () => {
+  status.mockImplementation(async () =>
+    finished({ success: true, stdout: '42', book_refs: { sections: [{ book: 'OMA' }] } }),
+  );
+  const cell = await service.createCell({ conversationId: 'chat', userId: 'alice', content: '42' });
+  const execution = await service.executeCell({
+    conversationId: 'chat',
+    userId: 'alice',
+    cellId: cell.id,
+  });
+  expect(execution.timeoutSeconds).toBe(600);
+  expect(execution.phase).toBeNull();
+  expect(execution.serverNow).toBeInstanceOf(Date);
+  await service.waitForExecution(execution.id);
+  expect(start).toHaveBeenCalledWith({
+    code: '42',
+    threadId: 'chat',
+    executionId: execution.id,
+    timeoutSeconds: 600,
+  });
+  const result = await service.getExecution('chat', 'alice', cell.id, execution.id);
+  expect(result.status).toBe('completed');
+  expect(result.phase).toBe('done');
+  expect(result.phaseStartedAt).toBeInstanceOf(Date);
+  expect(result.rStartedAt).toBeNull();
+  expect(result.bookRefs).toEqual({ sections: [{ book: 'OMA' }] });
+  const events = await service.listEvents('chat', 'alice', cell.id, execution.id);
+  expect(
+    events.map((event) => (event.eventType === 'phase' ? event.payload?.phase : event.eventType)),
+  ).toEqual(['queued', 'running', 'preparing_files', 'starting_r', 'done', 'completed']);
+});
+
+test('an agent cell is found by its tool-call key with its latest execution', async () => {
+  const ownedByAlice = {
+    findOne: () => ({ select: () => ({ lean: async () => ({ _id: 'c1', user: 'alice' }) }) }),
+  } as unknown as ReturnType<NoteDependencies['getConversationModel']>;
+  const agentService = createNoteService({
+    models,
+    getConversationModel: () => ownedByAlice,
+    bridgeConversationFiles: bridge,
+    startExecution: start,
+    getExecutionStatus: status,
+    fetchArtifactFromEngine: artifact,
+    signalCancel: cancel,
+  });
+  const text = await agentService.runAgentCell({
+    conversationId: 'chat',
+    code: 'print(42)',
+    toolCallId: 'call_1',
+  });
+  expect(text).toContain('status=completed');
+  const cell = await agentService.getCellByBlockKey('chat', 'alice', 'tool-call_1');
+  expect(cell.blockKey).toBe('tool-call_1');
+  expect(cell.revision?.content).toBe('print(42)');
+  expect(cell.latestExecution?.status).toBe('completed');
+  expect(cell.latestExecution?.phase).toBe('done');
+  expect(cell.latestExecution?.artifacts).toHaveLength(1);
+  await expect(agentService.getCellByBlockKey('chat', 'bob', 'tool-call_1')).rejects.toMatchObject({
+    status: 404,
+  });
+  await expect(agentService.getCellByBlockKey('chat', 'alice', 'tool-other')).rejects.toMatchObject(
+    { status: 404 },
+  );
+});
+
+test('the restart sweep closes runs the engine no longer knows as interrupted', async () => {
+  status.mockResolvedValue(null);
+  const { cellId, executionId } = await orphanExecution({ status: 'queued' });
+  expect(await service.sweepExecutions()).toBe(1);
+  await service.waitForExecution(executionId);
+  const result = await service.getExecution('chat', 'alice', cellId, executionId);
+  expect(result.status).toBe('failed');
+  expect(result.phase).toBe('interrupted');
+  expect(result.error).toBe('Interrupted by a server restart. Run the cell again.');
+  expect(start).not.toHaveBeenCalled();
+  // Idempotent: nothing is left to sweep and the record is not touched again.
+  expect(await service.sweepExecutions()).toBe(0);
+});
+
+test('the restart sweep saves the result of a run that finished meanwhile', async () => {
+  status.mockResolvedValue(finished({ success: true, stdout: 'done while away' }));
+  const { cellId, executionId } = await orphanExecution();
+  await service.sweepExecutions();
+  await service.waitForExecution(executionId);
+  const result = await service.getExecution('chat', 'alice', cellId, executionId);
+  expect(result.status).toBe('completed');
+  expect(result.stdout).toBe('done while away');
+  expect(result.artifacts).toHaveLength(1);
+});
+
+test('the restart sweep keeps following a run that is still running', async () => {
+  let running = true;
+  status.mockImplementation(async () =>
+    running
+      ? { phase: 'running', output: 'tick', next_offset: 4 }
+      : finished({ success: true, stdout: 'tick tock' }),
+  );
+  const { cellId, executionId } = await orphanExecution({ phase: 'running' });
+  await service.sweepExecutions();
+  while (status.mock.calls.length < 2) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  expect((await service.getExecution('chat', 'alice', cellId, executionId)).status).toBe('running');
+  running = false;
+  await service.waitForExecution(executionId);
+  const result = await service.getExecution('chat', 'alice', cellId, executionId);
+  expect(result.status).toBe('completed');
+  expect(result.stdout).toBe('tick tock');
+});
+
+test('asking for an orphaned run reconciles it without the sweep', async () => {
+  status.mockResolvedValue(null);
+  const { cellId, executionId } = await orphanExecution();
+  expect((await service.getExecution('chat', 'alice', cellId, executionId)).status).toBe('running');
+  await service.waitForExecution(executionId);
+  const result = await service.getExecution('chat', 'alice', cellId, executionId);
+  expect(result.status).toBe('failed');
+  expect(result.phase).toBe('interrupted');
+  expect(status).toHaveBeenCalledTimes(1);
+});
+
+test('a run just created is not taken for an orphan', async () => {
+  const { cellId, executionId } = await orphanExecution({ createdAt: new Date() });
+  await service.getExecution('chat', 'alice', cellId, executionId);
+  expect(service.waitForExecution(executionId)).toBeUndefined();
+  expect(status).not.toHaveBeenCalled();
+});
+
+test('the note execution and book search tools receive the host conversation binding', () => {
   const input = { code: '42', thread_id: 'model-selected' };
   expect(bindNoteThread('notethreads', 'execute_r_cell', input, 'host-chat')).toEqual({
     code: '42',
     thread_id: 'host-chat',
   });
+  expect(
+    bindNoteThread('notethreads', 'search_bioc_books', { query: 'alpha' }, 'host-chat'),
+  ).toEqual({ query: 'alpha', thread_id: 'host-chat' });
+  expect(bindNoteThread('another', 'search_bioc_books', input, 'host-chat')).toBe(input);
   expect(bindNoteThread('another', 'execute_r_cell', input, 'host-chat')).toBe(input);
   expect(bindNoteThread('notethreads', 'other', input, 'host-chat')).toBe(input);
 });
@@ -171,7 +328,8 @@ test('assertConversationAccess handles owner and read-only shared link resolutio
     getConversationModel: () => fakeConvoModel,
     getSharedLinkModel: () => fakeSharedLinkModel,
     bridgeConversationFiles: bridge,
-    executeOnEngine: execute,
+    startExecution: start,
+    getExecutionStatus: status,
     fetchArtifactFromEngine: artifact,
     signalCancel: cancel,
   });

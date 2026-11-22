@@ -11,47 +11,59 @@ const INTERNAL_SECRET =
   process.env.JWT_SECRET ||
   '';
 
-/**
- * Call NoteKernel HTTP execute (server-side only).
- */
-async function executeOnEngine({ code, threadId, executionId, timeoutSeconds = 180 }) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), (timeoutSeconds + 30) * 1000);
-
-  try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (INTERNAL_SECRET) {
-      headers['X-Internal-Secret'] = INTERNAL_SECRET;
-    }
-
-    const response = await fetch(`${ENGINE_URL}/api/execute`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        code,
-        thread_id: threadId,
-        execution_id: executionId,
-        timeout_seconds: timeoutSeconds,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(`Engine HTTP ${response.status}: ${text.slice(0, 200)}`);
-    }
-
-    return await response.json();
-  } catch (err) {
-    if (err?.name === 'AbortError') {
-      const timeoutErr = new Error('Cell execution timed out');
-      timeoutErr.code = 'TIMED_OUT';
-      throw timeoutErr;
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
+function engineHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  if (INTERNAL_SECRET) {
+    headers['X-Internal-Secret'] = INTERNAL_SECRET;
   }
+  return headers;
+}
+
+/** One engine request may not hang the polling loop, whose safety stop runs between requests. */
+const REQUEST_TIMEOUT_MS = 30000;
+
+/**
+ * Start a cell on the engine (server-side only). Returns at once with
+ * `{execution_id, phase}`; the run is followed with getExecutionStatus.
+ */
+async function startExecution({ code, threadId, executionId, timeoutSeconds = 600 }) {
+  const response = await fetch(`${ENGINE_URL}/api/execute`, {
+    method: 'POST',
+    headers: engineHeaders(),
+    body: JSON.stringify({
+      code,
+      thread_id: threadId,
+      execution_id: executionId,
+      timeout_seconds: timeoutSeconds,
+      wait: false,
+    }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Engine HTTP ${response.status}: ${text.slice(0, 200)}`);
+  }
+  return await response.json();
+}
+
+/**
+ * Status of a run: `{phase, phase_started_at, started_at, cancel_requested, output,
+ * next_offset, done, result}`. Null when the engine does not know the run.
+ */
+async function getExecutionStatus({ threadId, executionId, offset = 0 }) {
+  const query = new URLSearchParams({ thread_id: threadId, offset: String(offset) });
+  const response = await fetch(
+    `${ENGINE_URL}/api/executions/${encodeURIComponent(executionId)}?${query}`,
+    { headers: engineHeaders(), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Engine HTTP ${response.status}: ${text.slice(0, 200)}`);
+  }
+  return await response.json();
 }
 
 /**
@@ -127,11 +139,9 @@ async function copyNoteFiles(sourceThreadId, targetThreadId, { includeData = tru
 }
 
 async function signalCancel(conversationId, executionId) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (INTERNAL_SECRET) headers['X-Internal-Secret'] = INTERNAL_SECRET;
   await fetch(`${ENGINE_URL}/api/cancel`, {
     method: 'POST',
-    headers,
+    headers: engineHeaders(),
     body: JSON.stringify({ thread_id: conversationId, execution_id: executionId }),
   });
 }
@@ -142,6 +152,7 @@ module.exports = {
   noteHasDataFile,
   uploadNoteDataFile,
   ENGINE_URL,
-  executeOnEngine,
+  startExecution,
+  getExecutionStatus,
   fetchArtifactFromEngine,
 };

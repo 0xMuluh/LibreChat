@@ -68,6 +68,26 @@ authed.use(
 authed.get(
   '/cells',
   asyncHandler(async (req, res) => {
+    const { blockKey } = req.query;
+    if (blockKey != null) {
+      if (typeof blockKey !== 'string' || !blockKey) {
+        return res.status(400).json({ error: 'blockKey must be a string' });
+      }
+      const cell = await noteCells.getCellByBlockKey(
+        req.noteConversationId,
+        req.noteUserId,
+        blockKey,
+      );
+      if (cell.latestExecution) {
+        withArtifactUrls(
+          req.params.conversationId,
+          cell.id,
+          cell.latestExecution.id,
+          cell.latestExecution,
+        );
+      }
+      return res.json(cell);
+    }
     const cells = await noteCells.listCells(req.noteConversationId, req.noteUserId);
     for (const cell of cells) {
       if (cell.latestExecution) {
@@ -137,7 +157,7 @@ authed.post(
       userId: req.noteUserId,
       cellId: req.params.cellId,
       revisionId: req.body?.revisionId || null,
-      timeoutSeconds: Number(req.body?.timeout_seconds) || 180,
+      timeoutSeconds: Number(req.body?.timeout_seconds) || 600,
     });
     res.status(202).json(execution);
   }),

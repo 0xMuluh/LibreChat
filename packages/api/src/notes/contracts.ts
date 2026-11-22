@@ -1,6 +1,17 @@
 import type { Types } from 'mongoose';
 
 export type Status = 'queued' | 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled';
+/** Where a run is. `preparing_files` is set by LibreChat, the rest by the engine. */
+export type Phase =
+  | 'preparing_files'
+  | 'waiting_for_slot'
+  | 'starting_pod'
+  | 'waiting_for_cell'
+  | 'starting_r'
+  | 'restoring_session'
+  | 'running'
+  | 'done'
+  | 'interrupted';
 export interface Cell {
   messageId: string | null;
   blockKey: string | null;
@@ -40,9 +51,20 @@ export interface Execution {
   error?: string | null;
   engineCellId?: string | null;
   engineRunDir?: string | null;
+  phase?: Phase | null;
+  phaseStartedAt?: Date | null;
+  /** When R began running the cell; the time limit counts from here. */
+  rStartedAt?: Date | null;
+  /** The engine's `book_refs`, stored as received. */
+  bookRefs?: Record<string, unknown> | null;
+}
+export interface EventPayload {
+  error?: string | null;
+  phase?: Phase;
+  phaseStartedAt?: Date;
 }
 export interface Event {
-  payload?: { error?: string | null } | null;
+  payload?: EventPayload | null;
   createdAt?: Date;
   executionId: Types.ObjectId;
   conversationId: string;
@@ -75,4 +97,26 @@ export interface NoteEngineResult {
   run_dir?: string;
   plots?: string[];
   tables?: { url?: string; file?: string; markdown?: string; rows?: number; cols?: number }[];
+  book_refs?: Record<string, unknown> | null;
+  /** Set by LibreChat: the engine no longer knows the run (server restart). */
+  interrupted?: boolean;
+  /** Set by LibreChat when its safety stop ended the run. */
+  stopped_after_seconds?: number;
+}
+/** Answer of `GET /api/executions/{execution_id}` on the engine. */
+export interface NoteEngineStatus {
+  phase: Phase;
+  phase_started_at?: string | number | null;
+  started_at?: string | number | null;
+  cancel_requested?: boolean;
+  output?: string;
+  next_offset?: number;
+  done?: boolean;
+  result?: NoteEngineResult | null;
+}
+export interface NoteEngineStartInput {
+  code: string;
+  threadId: string;
+  executionId: string;
+  timeoutSeconds: number;
 }

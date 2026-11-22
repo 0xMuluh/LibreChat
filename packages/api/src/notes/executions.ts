@@ -7,6 +7,9 @@ import type { createExecutionWorker } from './worker';
 import type { createEventStore } from './events';
 
 import type { SerializedExecution, SerializedArtifact } from './serialization';
+
+/** A run this young is still being handed to its job; older ones without a job were orphaned. */
+const RECONCILE_GRACE_MS = 5000;
 export interface ExecutionStore {
   executeCell(input: ExecutionInput): Promise<SerializedExecution>;
   getExecution(
@@ -38,6 +41,7 @@ export function createExecutionStore(
   deps: NoteDependencies,
   appendEvent: ReturnType<typeof createEventStore>['appendEvent'],
   enqueueExecution: ReturnType<typeof createExecutionWorker>['enqueueExecution'],
+  resumeExecution: ReturnType<typeof createExecutionWorker>['resumeExecution'],
 ): ExecutionStore {
   const { NoteCell, NoteCellRevision, NoteCellExecution, NoteExecutionArtifact } = deps.models;
   const { fetchArtifactFromEngine, signalCancel } = deps;
@@ -46,7 +50,7 @@ export function createExecutionStore(
     userId,
     cellId,
     revisionId = null,
-    timeoutSeconds = 180,
+    timeoutSeconds = 600,
   }: ExecutionInput) {
     const cell = await NoteCell.findOne({ _id: cellId, conversationId, user: userId });
     if (!cell) {
@@ -97,6 +101,15 @@ export function createExecutionStore(
     });
     if (!execution) {
       throw new NoteError('Execution not found', 404);
+    }
+    // After a server restart nothing follows the run: pick it up again (no-op while a job
+    // follows it). The page keeps asking, so it sees the outcome on a later request.
+    if (
+      !TERMINAL.has(execution.status) &&
+      execution.createdAt &&
+      Date.now() - execution.createdAt.getTime() > RECONCILE_GRACE_MS
+    ) {
+      resumeExecution(execution._id);
     }
     const artifacts = await NoteExecutionArtifact.find({ executionId: execution._id });
     return {
