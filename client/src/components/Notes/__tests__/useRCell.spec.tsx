@@ -10,6 +10,7 @@ jest.mock('~/data-provider/Notes/notesCellsApi', () => ({
   noteCellsApi: {
     findCellByBlockKey: jest.fn(),
     createOrFindCell: jest.fn(),
+    appendRevision: jest.fn(),
     getExecution: jest.fn(),
     listExecutions: jest.fn(),
     cancel: jest.fn(),
@@ -165,5 +166,87 @@ describe('useRCell: a live agent cell attaches by blockKey', () => {
     expect(result.current.execution?.status).toBe('completed');
     expect(result.current.isBootstrapping).toBe(false);
     expect(api.findCellByBlockKey).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useRCell: the code shown is the code that runs', () => {
+  const toolCode = 'tse <- addAlpha(tse)';
+  const editedCode = 'tse <- addAlpha(tse, index = "shannon")';
+  const revision = (number: number, content: string) => ({
+    id: `r${number}`,
+    cellId: 'c1',
+    revision: number,
+    language: 'r',
+    content,
+  });
+  const storedCell = (number: number, content: string): NoteCell => ({
+    id: 'c1',
+    conversationId: 'convo1',
+    blockKey: 'tool-call_1',
+    revision: revision(number, content),
+  });
+  const reloadedAgentCell = () =>
+    renderHook(() =>
+      useRCell(
+        { initialCode: toolCode, isAgentGenerated: true, blockKey: 'tool-call_1', cellId: 'c1' },
+        'convo1',
+        'msg1',
+      ),
+    );
+  const toggle = (result: ReturnType<typeof reloadedAgentCell>['result']) =>
+    act(() => result.current.setIsEditing((prev) => !prev));
+
+  it('shows the saved revision after save and on toggling between edit and read view', async () => {
+    api.createOrFindCell.mockResolvedValue(storedCell(1, toolCode));
+    api.appendRevision.mockResolvedValue(revision(2, editedCode));
+
+    const { result } = reloadedAgentCell();
+    await tick();
+    expect(result.current.code).toBe(toolCode);
+
+    toggle(result);
+    act(() => result.current.handleCodeChange(editedCode));
+    expect(result.current.isDirty).toBe(true);
+    await act(() => result.current.handleSave());
+
+    expect(api.appendRevision).toHaveBeenCalledWith('convo1', 'c1', editedCode);
+    expect(result.current.code).toBe(editedCode);
+    expect(result.current.isDirty).toBe(false);
+
+    toggle(result);
+    expect(result.current.isEditing).toBe(false);
+    expect(result.current.code).toBe(editedCode);
+
+    toggle(result);
+    expect(result.current.code).toBe(editedCode);
+    expect(result.current.isDirty).toBe(false);
+  });
+
+  it('shows the saved revision after a reload, also across toggles', async () => {
+    api.createOrFindCell.mockResolvedValue(storedCell(2, editedCode));
+
+    const { result } = reloadedAgentCell();
+    expect(result.current.code).toBe(toolCode);
+    await tick();
+
+    expect(result.current.code).toBe(editedCode);
+    expect(result.current.isDirty).toBe(false);
+
+    toggle(result);
+    toggle(result);
+    expect(result.current.code).toBe(editedCode);
+  });
+
+  it('shows the tool call code for an agent cell that was never edited', async () => {
+    api.createOrFindCell.mockResolvedValue(storedCell(1, `${toolCode}\n# stored copy`));
+
+    const { result } = reloadedAgentCell();
+    await tick();
+    expect(result.current.code).toBe(toolCode);
+
+    toggle(result);
+    toggle(result);
+    expect(result.current.code).toBe(toolCode);
+    expect(result.current.isDirty).toBe(false);
   });
 });

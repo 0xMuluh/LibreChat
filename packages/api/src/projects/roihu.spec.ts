@@ -22,6 +22,8 @@ function fakeWorld(
     groups?: string[];
     failJobSubmit?: boolean;
     config?: RoihuConfig;
+    /** Whether a linked machine answers at once. */
+    linkConnected?: boolean;
   } = {},
 ) {
   const routes: Record<
@@ -31,7 +33,13 @@ function fakeWorld(
   const pairings: Record<string, string> = {};
   const jobs: Record<
     string,
-    { state: string; start?: number; end?: number; body: Record<string, unknown> }
+    {
+      state: string;
+      reason?: string;
+      start?: number | string | null;
+      end?: number;
+      body: Record<string, unknown>;
+    }
   > = {};
   const calls: string[] = [];
   let nextJob = 100;
@@ -83,7 +91,7 @@ function fakeWorld(
           user: body.user,
           expires: null,
           meta: { kind: 'linked', name: 'lab.example.org' },
-          connected: true,
+          connected: opts.linkConnected ?? true,
         };
         return reply(201, { route: id, expires: null });
       }
@@ -169,8 +177,11 @@ function fakeWorld(
         jobs: [
           {
             jobId: jobMatch[1],
-            status: { state: jobs[jobMatch[1]].state },
-            time: { start: jobs[jobMatch[1]].start ?? 0, end: jobs[jobMatch[1]].end ?? 0 },
+            status: { state: jobs[jobMatch[1]].state, stateReason: jobs[jobMatch[1]].reason },
+            time: {
+              start: jobs[jobMatch[1]].start === undefined ? 0 : jobs[jobMatch[1]].start,
+              end: jobs[jobMatch[1]].end ?? 0,
+            },
           },
         ],
       });
@@ -310,6 +321,57 @@ describe('createRoihuClient', () => {
     expect((await w.client.view('u1')).state).toBe('none');
   });
 
+  it('a queued session says why it waits, since when and the expected start', async () => {
+    const w = fakeWorld({ imageExists: true });
+    await w.client.launch('u1', goodInput);
+    const launchedAt = w.routes.r1.meta.launchedAt;
+    expect(await w.client.view('u1')).toEqual({
+      state: 'queued',
+      project: 'project_2010578',
+      cores: 2,
+      memory: 8,
+      hours: 4,
+      launchedAt,
+      queuedAt: launchedAt,
+    });
+
+    w.jobs['100'].reason = 'Priority';
+    w.jobs['100'].start = 1795000600;
+    expect(await w.client.view('u1')).toMatchObject({
+      state: 'queued',
+      queuedAt: launchedAt,
+      pendingReason: 'Priority',
+      expectedStart: 1795000600,
+    });
+  });
+
+  it.each([[0], [null], ['Unknown'], ['']])(
+    'gives no expected start when Slurm has no estimate (%p)',
+    async (start) => {
+      const w = fakeWorld({ imageExists: true });
+      await w.client.launch('u1', goodInput);
+      w.jobs['100'].start = start;
+      w.jobs['100'].reason = 'None';
+      const view = await w.client.view('u1');
+      expect(view.state).toBe('queued');
+      expect(view.expectedStart).toBeUndefined();
+      expect(view.pendingReason).toBeUndefined();
+    },
+  );
+
+  it('after preparation, the wait for a node counts from the end of preparation', async () => {
+    const w = fakeWorld();
+    await w.client.launch('u1', goodInput);
+    w.jobs['100'].state = 'COMPLETED';
+    w.jobs['100'].end = 1795000300;
+    w.jobs['101'].reason = 'Dependency';
+    expect(await w.client.view('u1')).toMatchObject({
+      state: 'queued',
+      queuedAt: 1795000300,
+      pendingReason: 'Dependency',
+    });
+  });
+
   it('a failed preparation cancels the waiting session job and frees the launch form', async () => {
     const w = fakeWorld();
     await w.client.launch('u1', goodInput);
@@ -377,6 +439,9 @@ describe('createRoihuClient', () => {
         'ghcr.io/0xmuluh/omicsbase-reports:v1.41.0-roihu1 ' +
         `https://omicsbase.example --pair ${pairing.code} --name "$(hostname)"`,
     );
+    expect(pairing.image).toBe('ghcr.io/0xmuluh/omicsbase-reports:v1.41.0-roihu1');
+    expect(pairing.expires).toBe(2e9);
+    expect(pairing.now).toBeCloseTo(Date.now() / 1000, -1);
     expect(await w.client.claim(pairing.code, 'lab-pc')).toEqual({
       relayUrl: 'https://relay',
       relayFingerprint: 'fp',
@@ -429,6 +494,36 @@ describe('createRoihuClient', () => {
     expect(stopped.state).toBe('ended');
     expect(stopped.message).toContain('Disconnected from lab.example.org');
     expect(w.routes).toEqual({});
+  });
+
+  it('a newly linked machine is connecting for a minute, then cannot be reached', async () => {
+    const local = roihuConfig({
+      ROIHU_ROUTER_URL: 'http://router',
+      ROIHU_ROUTER_SECRET: 'router-secret',
+    });
+    const w = fakeWorld({ config: local!, linkConnected: false });
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000);
+    try {
+      const linking = { state: 'linking', machine: 'lab.example.org' };
+      expect(await w.client.link('u1', 'omicsbase-machine:abc')).toEqual(linking);
+      now.mockReturnValue(1_000_059_000);
+      expect(await w.client.view('u1')).toEqual(linking);
+      now.mockReturnValue(1_000_061_000);
+      expect(await w.client.view('u1')).toEqual({
+        state: 'offline',
+        machine: 'lab.example.org',
+        message:
+          'OmicsBase cannot reach lab.example.org on port 8443. Check that this computer can reach it, or Disconnect.',
+      });
+      // Once it has answered, a later break is a machine that stopped, as before.
+      w.routes.r1.connected = true;
+      expect(await w.client.view('u1')).toEqual({ state: 'running', machine: 'lab.example.org' });
+      expect(w.routes.r1.meta).toEqual({ kind: 'linked', name: 'lab.example.org' });
+      w.routes.r1.connected = false;
+      expect(await w.client.view('u1')).toEqual({ state: 'offline', machine: 'lab.example.org' });
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('a local install has no Roihu launch or relay pairing', async () => {

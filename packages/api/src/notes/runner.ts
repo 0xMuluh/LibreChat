@@ -13,6 +13,8 @@ const SAFETY_MARGIN_SECONDS = 60;
 const STDOUT_CAP = 1_000_000;
 /** Status requests that may fail in a row (about a minute, e.g. an engine rollout). */
 const MAX_POLL_FAILURES = 40;
+/** Failed status requests in a row after which the cell says the engine is not answering. */
+const POLL_FAILURES_BEFORE_NOTICE = 3;
 
 const R_RESTARTED =
   'R was restarted, so objects made since the session was last saved are gone. Run the earlier cells again to recreate them.';
@@ -65,7 +67,12 @@ export interface EngineRunner {
 export function createEngineRunner(
   deps: Pick<
     NoteDependencies,
-    'models' | 'startExecution' | 'getExecutionStatus' | 'signalCancel' | 'pollSleep'
+    | 'models'
+    | 'startExecution'
+    | 'getExecutionStatus'
+    | 'signalCancel'
+    | 'pollSleep'
+    | 'engineUnreachableError'
   >,
   appendEvent: ReturnType<typeof createEventStore>['appendEvent'],
 ): EngineRunner {
@@ -125,7 +132,12 @@ export function createEngineRunner(
       } catch (err) {
         failures += 1;
         if (failures >= MAX_POLL_FAILURES) {
-          throw err;
+          throw deps.engineUnreachableError?.(err) ?? err;
+        }
+        // The engine's next answer carries its own phase, which replaces this one.
+        if (failures === POLL_FAILURES_BEFORE_NOTICE) {
+          phase = 'engine_not_answering';
+          await setPhase(executionId, conversationId, phase);
         }
       }
 

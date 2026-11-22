@@ -16,7 +16,8 @@ type SessionState =
   | 'running'
   | 'ended'
   | 'unknown'
-  | 'offline';
+  | 'offline'
+  | 'linking';
 
 interface SessionView {
   state: SessionState;
@@ -30,6 +31,10 @@ interface SessionView {
   /** Unix times: the launch, and the CSC token's expiry when the token states it. */
   launchedAt?: number;
   tokenExpires?: number;
+  /** While queued: since when, Slurm's reason in its own words, and the start it expects. */
+  queuedAt?: number;
+  pendingReason?: string;
+  expectedStart?: number;
 }
 
 /**
@@ -40,6 +45,9 @@ interface Pairing {
   command: string;
   code?: string;
   expires?: number;
+  /** The server's clock when it answered, to count down to `expires` on this browser's clock. */
+  now?: number;
+  image?: string;
 }
 
 /** Where the session's open page was served, so a disconnect can undo it there. */
@@ -64,7 +72,15 @@ const ERROR_KEY: Record<Field, TranslationKeys> = {
   token: 'com_roihu_err_token',
 };
 
-const ACTIVE: SessionState[] = ['preparing', 'queued', 'starting', 'running', 'unknown', 'offline'];
+const ACTIVE: SessionState[] = [
+  'preparing',
+  'queued',
+  'starting',
+  'running',
+  'unknown',
+  'offline',
+  'linking',
+];
 const POLL_MS = 10_000;
 /** While a pairing command is shown, so the page notices the machine soon after it connects. */
 const PAIRING_POLL_MS = 5_000;
@@ -74,6 +90,39 @@ const CONNECT_MS = 30_000;
 /** A Unix time as the user's local clock time. */
 const clock = (t: number) =>
   new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** Seconds as m:ss. */
+const minutes = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+/** How often the time waited in the queue is brought up to date. */
+const WAITED_MS = 15_000;
+
+const JOB_LIMIT_REASONS = [
+  'QOSMaxJobsPerUserLimit',
+  'QOSMaxSubmitJobPerUserLimit',
+  'AssocMaxJobsLimit',
+];
+
+/** Plain words for Slurm's reason for a pending job, or null for one this card does not know. */
+function reasonKey(reason: string): TranslationKeys | null {
+  if (reason === 'Priority' || reason === 'Resources') {
+    return 'com_roihu_queued_reason_node';
+  }
+  if (JOB_LIMIT_REASONS.includes(reason)) {
+    return 'com_roihu_queued_reason_job_limit';
+  }
+  if (/^(Assoc|QOS)GrpBillingMinutes$/.test(reason)) {
+    return 'com_roihu_queued_reason_billing';
+  }
+  // Slurm may add the nodes or the reservation after a comma.
+  if (reason.startsWith('ReqNodeNotAvail')) {
+    return 'com_roihu_queued_reason_maintenance';
+  }
+  if (reason === 'Dependency') {
+    return 'com_roihu_queued_reason_dependency';
+  }
+  return null;
+}
 
 /** The server's error text for the user, if any. */
 function serverError(e: unknown): string | undefined {
@@ -142,6 +191,52 @@ function StatusCard({ icon: Icon, spin, title, body, children }: StatusCardProps
   );
 }
 
+interface QueuedCardProps {
+  session: SessionView;
+  children?: React.ReactNode;
+}
+
+/** A job in Roihu's queue: how long it has waited, why, and when Slurm expects to start it. */
+function QueuedCard({ session, children }: QueuedCardProps) {
+  const localize = useLocalize();
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now() / 1000), WAITED_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const { queuedAt, pendingReason, expectedStart } = session;
+  let title = localize('com_roihu_queued_title');
+  if (queuedAt) {
+    const minutes = Math.max(0, Math.floor((now - queuedAt) / 60));
+    title = localize('com_roihu_queued_waited', { 0: String(minutes) });
+    if (minutes < 1) {
+      title = localize('com_roihu_queued_waited_short');
+    } else if (minutes >= 60) {
+      title = localize('com_roihu_queued_waited_hours', {
+        0: String(Math.floor(minutes / 60)),
+        1: String(minutes % 60),
+      });
+    }
+  }
+  const key = pendingReason ? reasonKey(pendingReason) : null;
+  return (
+    <StatusCard icon={Clock} title={title} body={localize(key ?? 'com_roihu_queued_body')}>
+      {expectedStart != null && expectedStart > now && (
+        <p className="text-text-secondary mt-0.5 text-sm">
+          {localize('com_roihu_queued_expected', { 0: clock(expectedStart) })}
+        </p>
+      )}
+      {pendingReason && !key && (
+        <p className="text-text-secondary mt-0.5 text-xs">
+          {localize('com_roihu_queued_slurm_says', { 0: pendingReason })}
+        </p>
+      )}
+      {children}
+    </StatusCard>
+  );
+}
+
 interface RoihuSessionCardProps {
   /** Whether this browser is connected to the running session, so the workspace can use it. */
   onConnectedChange: (connected: boolean) => void;
@@ -184,7 +279,10 @@ export default function RoihuSessionCard({
   const [connected, setConnected] = useState(false);
   const [connectFailed, setConnectFailed] = useState(false);
   const [pairing, setPairing] = useState<Pairing | null>(null);
-  const [copied, setCopied] = useState(false);
+  /** The command last copied, and when the pairing code runs out on this browser's clock. */
+  const [copied, setCopied] = useState('');
+  const [deadline, setDeadline] = useState<number | null>(null);
+  const [left, setLeft] = useState<number | null>(null);
   const [linkText, setLinkText] = useState('');
   const [closeUrl, setCloseUrl] = useState<string | null>(null);
 
@@ -207,7 +305,8 @@ export default function RoihuSessionCard({
     if (!session || !ACTIVE.includes(session.state)) {
       return;
     }
-    const timer = window.setInterval(refresh, POLL_MS);
+    const every = session.state === 'linking' ? PAIRING_POLL_MS : POLL_MS;
+    const timer = window.setInterval(refresh, every);
     return () => window.clearInterval(timer);
   }, [session, refresh]);
 
@@ -224,6 +323,17 @@ export default function RoihuSessionCard({
     const timer = window.setInterval(refresh, PAIRING_POLL_MS);
     return () => window.clearInterval(timer);
   }, [pairing, session, refresh]);
+
+  useEffect(() => {
+    if (!pairing || deadline == null) {
+      setLeft(null);
+      return;
+    }
+    const tick = () => setLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [pairing, deadline]);
 
   const running = session?.state === 'running';
   const attached = session?.machine != null;
@@ -341,10 +451,13 @@ export default function RoihuSessionCard({
 
   const startPairing = async () => {
     setNotice('');
-    setCopied(false);
+    setCopied('');
     setBusy(true);
     try {
-      setPairing((await request.post('/api/roihu/attach')) as Pairing);
+      const next = (await request.post('/api/roihu/attach')) as Pairing;
+      const ahead = next.expires == null ? null : next.expires - (next.now ?? Date.now() / 1000);
+      setDeadline(ahead == null ? null : Date.now() + ahead * 1000);
+      setPairing(next);
     } catch (err) {
       setNotice(serverError(err) ?? generic);
     } finally {
@@ -368,15 +481,12 @@ export default function RoihuSessionCard({
     }
   };
 
-  const copyCommand = async () => {
-    if (!pairing) {
-      return;
-    }
+  const copyCommand = async (command: string) => {
     try {
-      await navigator.clipboard.writeText(pairing.command);
-      setCopied(true);
+      await navigator.clipboard.writeText(command);
+      setCopied(command);
     } catch {
-      setCopied(false);
+      setCopied('');
     }
   };
 
@@ -433,13 +543,9 @@ export default function RoihuSessionCard({
     );
   } else if (session.state === 'queued') {
     status = (
-      <StatusCard
-        icon={Clock}
-        title={localize('com_roihu_queued_title')}
-        body={localize('com_roihu_queued_body')}
-      >
+      <QueuedCard session={session}>
         <div className="mt-3">{stopButton}</div>
-      </StatusCard>
+      </QueuedCard>
     );
   } else if (session.state === 'starting') {
     status = (
@@ -487,7 +593,18 @@ export default function RoihuSessionCard({
       <StatusCard
         icon={Laptop}
         title={localize('com_roihu_offline_title', { 0: session.machine ?? '' })}
-        body={localize('com_roihu_offline_body')}
+        body={session.message ?? localize('com_roihu_offline_body')}
+      >
+        <div className="mt-3">{stopButton}</div>
+      </StatusCard>
+    );
+  } else if (session.state === 'linking') {
+    status = (
+      <StatusCard
+        icon={Loader2}
+        spin
+        title={localize('com_roihu_linking_title', { 0: session.machine ?? '' })}
+        body={localize('com_roihu_linking_body')}
       >
         <div className="mt-3">{stopButton}</div>
       </StatusCard>
@@ -537,12 +654,16 @@ export default function RoihuSessionCard({
   const closeFrame = closeUrl && (
     <iframe src={closeUrl} title={localize('com_roihu_frame_title')} className="hidden" />
   );
-  const copyButton = pairing && (
-    <Button type="button" size="sm" onClick={copyCommand}>
+  const copyButton = (command: string) => (
+    <Button type="button" size="sm" onClick={() => copyCommand(command)}>
       <Copy className="h-3.5 w-3.5" aria-hidden={true} />
-      {localize(copied ? 'com_roihu_attach_copied' : 'com_roihu_attach_copy')}
+      {localize(copied === command ? 'com_roihu_attach_copied' : 'com_roihu_attach_copy')}
     </Button>
   );
+  const pull = pairing?.image ? `docker pull ${pairing.image}` : '';
+  const expired = left === 0;
+  const commandClass =
+    'bg-surface-secondary text-text-primary mb-3 overflow-x-auto rounded-lg p-3 text-xs break-all whitespace-pre-wrap';
 
   // A local install without a session: Reports runs on this computer, below this bar.
   if (local && session != null && !active) {
@@ -576,7 +697,7 @@ export default function RoihuSessionCard({
             <pre className="bg-surface-secondary text-text-primary mb-2 overflow-x-auto rounded-lg p-3 text-xs break-all whitespace-pre-wrap">
               <code>{pairing.command}</code>
             </pre>
-            <div className="mb-3">{copyButton}</div>
+            <div className="mb-3">{copyButton(pairing.command)}</div>
             <p className="text-text-secondary mb-2">{localize('com_roihu_link_then')}</p>
             <label
               htmlFor={`${uid}-pairing`}
@@ -647,19 +768,46 @@ export default function RoihuSessionCard({
 
         {pairing && (
           <div className="border-border-light rounded-xl border p-4">
-            <p className="text-text-primary mb-2 text-sm">{localize('com_roihu_attach_command')}</p>
-            <pre className="bg-surface-secondary text-text-primary mb-3 overflow-x-auto rounded-lg p-3 text-xs break-all whitespace-pre-wrap">
-              <code>{pairing.command}</code>
-            </pre>
+            {pull && (
+              <>
+                <p className="text-text-primary mb-2 text-sm">
+                  {localize('com_roihu_attach_pull')}
+                </p>
+                <pre className={commandClass}>
+                  <code>{pull}</code>
+                </pre>
+                <div className="mb-4">{copyButton(pull)}</div>
+              </>
+            )}
+            <p className="text-text-primary mb-2 text-sm">
+              {localize(expired ? 'com_roihu_attach_expired' : 'com_roihu_attach_command')}
+            </p>
+            {!expired && (
+              <pre className={commandClass}>
+                <code>{pairing.command}</code>
+              </pre>
+            )}
             <div className="flex flex-wrap items-center gap-3">
-              {copyButton}
+              {expired ? (
+                <Button type="button" size="sm" onClick={startPairing} disabled={busy}>
+                  <RotateCw className="h-3.5 w-3.5" aria-hidden={true} />
+                  {localize('com_roihu_attach_new_code')}
+                </Button>
+              ) : (
+                copyButton(pairing.command)
+              )}
               <Button type="button" variant="outline" size="sm" onClick={() => setPairing(null)}>
                 {localize('com_roihu_attach_cancel')}
               </Button>
-              <span className="text-text-secondary inline-flex items-center gap-1.5 text-xs">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden={true} />
-                {localize('com_roihu_attach_waiting')}
-              </span>
+              {!expired && (
+                <span className="text-text-secondary inline-flex items-center gap-1.5 text-xs">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden={true} />
+                  {localize('com_roihu_attach_waiting')}
+                  {left != null && (
+                    <span>{localize('com_roihu_attach_valid', { 0: minutes(left) })}</span>
+                  )}
+                </span>
+              )}
             </div>
           </div>
         )}

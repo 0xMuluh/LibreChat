@@ -42,7 +42,7 @@ describe('Impacts', () => {
   it('says the estimate is partial when a model had none', () => {
     render(<Impacts totals={totals({ partial: true })} scope="note" />);
     expect(screen.getByTestId('impacts-note')).toHaveTextContent(
-      'This note: about 2–6 Wh, 1–3 g CO₂e (estimate) Partial: some models have no estimate.',
+      'This note: about 2–6 Wh, 1–3 g CO₂e (estimate) Partial: some model calls have no estimate.',
     );
   });
 
@@ -54,7 +54,7 @@ describe('Impacts', () => {
   it('says so when no model used has an estimate', () => {
     render(<Impacts totals={{ energy: none, gwp: none, partial: true }} scope="note" />);
     expect(screen.getByTestId('impacts-note')).toHaveTextContent(
-      'No energy estimate for the models used',
+      'No energy estimate for these model calls',
     );
     expect(screen.getByTestId('impacts-note')).not.toHaveTextContent('about');
   });

@@ -769,7 +769,10 @@ export function createTransactionMethods(
 
   /**
    * Sums the energy estimates stored on a user's transactions, for one
-   * conversation or, without `conversationId`, for the whole account.
+   * conversation or, without `conversationId`, for the whole account. The total
+   * is `partial` when a model call has no estimate: its model is unmapped, or its
+   * completion transaction carries output tokens (`rawAmount` below zero) but no
+   * `impacts`, as every call recorded before estimates were stored does.
    */
   async function getImpactsTotals({
     user,
@@ -785,12 +788,13 @@ export function createTransactionMethods(
       gwpMin: number;
       gwpMax: number;
       unmapped: number;
+      missing: number;
     }>([
       {
         $match: {
           user: new mongoose.Types.ObjectId(String(user)),
-          impacts: { $exists: true },
           ...(conversationId != null && { conversationId }),
+          $or: [{ impacts: { $exists: true } }, { tokenType: 'completion', rawAmount: { $lt: 0 } }],
         },
       },
       {
@@ -801,13 +805,14 @@ export function createTransactionMethods(
           gwpMin: { $sum: '$impacts.gwp.min' },
           gwpMax: { $sum: '$impacts.gwp.max' },
           unmapped: { $sum: { $cond: [{ $eq: ['$impacts.unmapped', true] }, 1, 0] } },
+          missing: { $sum: { $cond: [{ $eq: [{ $type: '$impacts' }, 'missing'] }, 1, 0] } },
         },
       },
     ]);
     return {
       energy: { min: row?.energyMin ?? 0, max: row?.energyMax ?? 0 },
       gwp: { min: row?.gwpMin ?? 0, max: row?.gwpMax ?? 0 },
-      partial: (row?.unmapped ?? 0) > 0,
+      partial: (row?.unmapped ?? 0) + (row?.missing ?? 0) > 0,
     };
   }
 

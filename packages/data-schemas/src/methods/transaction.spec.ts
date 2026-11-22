@@ -1921,7 +1921,6 @@ describe('Transaction impacts', () => {
       completion(user, 'note-1', estimate(0.001, 0.0005)),
       completion(user, 'note-2', estimate(0.01, 0.004)),
       completion(user, 'note-2', { unmapped: true }),
-      completion(user, 'note-2'),
       completion(other, 'note-1', estimate(5, 5)),
     ]);
 
@@ -1943,9 +1942,47 @@ describe('Transaction impacts', () => {
     expect(account.partial).toBe(true);
   });
 
+  test('getImpactsTotals is partial when a completion with tokens has no impacts', async () => {
+    const user = new mongoose.Types.ObjectId();
+    await bulkInsertTransactions([
+      completion(user, 'note-1', estimate(0.002, 0.001)),
+      completion(user, 'note-1'),
+      completion(user, 'note-2', estimate(0.01, 0.004)),
+      completion(user, 'note-3'),
+    ]);
+
+    const mixed = await getImpactsTotals({ user, conversationId: 'note-1' });
+    expect(mixed.energy.min).toBeCloseTo(0.002);
+    expect(mixed.partial).toBe(true);
+
+    expect((await getImpactsTotals({ user, conversationId: 'note-2' })).partial).toBe(false);
+
+    expect(await getImpactsTotals({ user, conversationId: 'note-3' })).toEqual({
+      energy: { min: 0, max: 0 },
+      gwp: { min: 0, max: 0 },
+      partial: true,
+    });
+
+    expect((await getImpactsTotals({ user })).partial).toBe(true);
+  });
+
+  test('getImpactsTotals ignores zero-token completions and prompts without impacts', async () => {
+    const user = new mongoose.Types.ObjectId();
+    await bulkInsertTransactions([
+      completion(user, 'note-1', estimate(0.002, 0.001)),
+      { ...completion(user, 'note-1'), rawAmount: 0 },
+      { ...completion(user, 'note-1'), tokenType: 'prompt' },
+      { ...completion(user, 'note-1'), tokenType: 'credits', rawAmount: -50 },
+    ]);
+
+    const note = await getImpactsTotals({ user, conversationId: 'note-1' });
+    expect(note.energy.min).toBeCloseTo(0.002);
+    expect(note.partial).toBe(false);
+  });
+
   test('getImpactsTotals returns zeros when nothing was estimated', async () => {
     const user = new mongoose.Types.ObjectId();
-    await bulkInsertTransactions([completion(user, 'note-1')]);
+    await bulkInsertTransactions([{ ...completion(user, 'note-1'), rawAmount: 0 }]);
 
     expect(await getImpactsTotals({ user: user.toString(), conversationId: 'note-1' })).toEqual({
       energy: { min: 0, max: 0 },

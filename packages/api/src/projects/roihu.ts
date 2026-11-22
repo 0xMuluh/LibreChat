@@ -99,7 +99,9 @@ export type SessionState =
   | 'ended'
   | 'unknown'
   /** An attached machine whose tunnel is down (switched off, or its container stopped). */
-  | 'offline';
+  | 'offline'
+  /** A machine linked in the last minute that has not answered yet. */
+  | 'linking';
 
 export interface SessionView {
   state: SessionState;
@@ -114,6 +116,13 @@ export interface SessionView {
   /** When the session was launched, and when its CSC token expires if the token says. */
   launchedAt?: number;
   tokenExpires?: number;
+  /**
+   * While queued: since when the job waits for a node, Slurm's reason for the wait as Slurm
+   * words it, and the start time Slurm expects, when it gives one.
+   */
+  queuedAt?: number;
+  pendingReason?: string;
+  expectedStart?: number;
 }
 
 /**
@@ -124,6 +133,11 @@ export interface PairingView {
   command: string;
   code?: string;
   expires?: number;
+  /** The server's clock (Unix time) when it answered, so a browser with another clock can
+   * still count down to `expires`. */
+  now?: number;
+  /** The image the command runs, to download before the code is used. */
+  image?: string;
 }
 
 /** What a newly paired machine needs to connect: the relay and its own session key. */
@@ -140,6 +154,8 @@ export interface AttachSettings {
 interface AttachedMeta {
   kind: 'attached' | 'linked';
   name: string;
+  /** When a machine was linked (Unix time), kept until it first answers. */
+  linkedAt?: number;
 }
 
 interface JobMeta {
@@ -160,8 +176,11 @@ type RouteMeta = JobMeta | AttachedMeta;
 
 interface JobInfo {
   state: string;
+  /** For a pending job, Slurm's estimate of the start, when it has one. */
   start?: number;
   end?: number;
+  /** Why Slurm has not started the job yet ("Priority", "Resources", ...). */
+  reason?: string;
 }
 
 interface RouterRoute {
@@ -211,6 +230,9 @@ function endedMessage(state: string, hours: number): string {
   return `Your session ended (${state.toLowerCase()}).`;
 }
 
+/** How long a newly linked machine may take to answer before it counts as unreachable. */
+const LINKING_SECONDS = 60;
+
 /** A route outlives its job by this much, so the end is still reported. */
 const ROUTE_GRACE_SECONDS = 15 * 60;
 
@@ -229,6 +251,21 @@ function slurmState(state: unknown): string {
   return String(state ?? '')
     .split(/\s+/)[0]
     .toUpperCase();
+}
+
+/**
+ * A job time from FirecREST as a Unix time. Slurm has no time until the job starts or it has
+ * an estimate, which arrives as 0, null or "Unknown".
+ */
+function jobTime(value: unknown): number | undefined {
+  const seconds = Number(value ?? 0);
+  return Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : undefined;
+}
+
+/** Slurm's reason for a pending job; "None" is its word for no reason yet. */
+function pendingReason(value: unknown): string | undefined {
+  const reason = typeof value === 'string' ? value.trim().slice(0, 120) : '';
+  return reason && reason.toLowerCase() !== 'none' ? reason : undefined;
 }
 
 interface AuthedRequest extends Request {
@@ -315,7 +352,10 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     return (data?.routes?.[0] as RouterRoute) ?? null;
   }
 
-  /** Slurm state of a job and, once it runs, its start and end time (start plus time limit). */
+  /**
+   * Slurm state of a job and, once it runs, its start and end time (start plus time limit).
+   * While it is pending, the reason for the wait and the start Slurm expects, if any.
+   */
   async function jobInfo(token: string, jobId?: string): Promise<JobInfo | null> {
     if (!jobId) {
       return null;
@@ -327,19 +367,19 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     const job = (
       data?.jobs as
         | Array<{
-            status?: { state?: string };
-            time?: { start?: number | null; end?: number | null };
+            status?: { state?: string; stateReason?: unknown };
+            time?: { start?: unknown; end?: unknown };
           }>
         | undefined
     )?.[0];
     if (!job) {
       return null;
     }
-    const { start, end } = job.time ?? {};
     return {
       state: slurmState(job.status?.state),
-      start: start && start > 0 ? start : undefined,
-      end: end && end > 0 ? end : undefined,
+      start: jobTime(job.time?.start),
+      end: jobTime(job.time?.end),
+      reason: pendingReason(job.status?.stateReason),
     };
   }
 
@@ -354,7 +394,22 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     }
     const m = r.meta;
     if (m.kind === 'attached' || m.kind === 'linked') {
-      return { state: r.connected ? 'running' : 'offline', machine: m.name };
+      if (m.linkedAt == null) {
+        return { state: r.connected ? 'running' : 'offline', machine: m.name };
+      }
+      if (r.connected) {
+        const reached = { kind: m.kind, name: m.name };
+        await router('PUT', `/routes/${r.route}/meta`, { user: userId, meta: reached });
+        return { state: 'running', machine: m.name };
+      }
+      if (Date.now() / 1000 - m.linkedAt < LINKING_SECONDS) {
+        return { state: 'linking', machine: m.name };
+      }
+      return {
+        state: 'offline',
+        machine: m.name,
+        message: `OmicsBase cannot reach ${m.name} on port 8443. Check that this computer can reach it, or Disconnect.`,
+      };
     }
     const base = {
       project: m.project,
@@ -409,7 +464,14 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
       return { ...base, state: 'preparing' };
     }
     if (job === 'PENDING') {
-      return { ...base, state: 'queued' };
+      return {
+        ...base,
+        state: 'queued',
+        // The wait for a node starts when preparation ends, or at the launch without one.
+        queuedAt: prepInfo?.end ?? m.launchedAt,
+        pendingReason: jobInfoNow?.reason,
+        expectedStart: jobInfoNow?.start,
+      };
     }
     if (job === 'RUNNING') {
       // The route was made before the job queued; from its start it lasts as long as the job.
@@ -665,13 +727,20 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
       throw new Error(`router answered ${status} to a pairing request`);
     }
     const code = data.code as string;
+    const image = `ghcr.io/0xmuluh/omicsbase-reports:${c.imageTag}`;
     const command = [
       'docker run -d --restart unless-stopped --name omicsbase-reports',
       '-v omicsbase-reports:/home/openhands -v omicsbase-projects:/projects',
-      `ghcr.io/0xmuluh/omicsbase-reports:${c.imageTag}`,
+      image,
       `${c.appUrl} --pair ${code} --name "$(hostname)"`,
     ].join(' ');
-    return { code, expires: data.expires as number, command };
+    return {
+      code,
+      expires: data.expires as number,
+      now: Math.floor(Date.now() / 1000),
+      image,
+      command,
+    };
   }
 
   async function claim(code: string, name: string): Promise<AttachSettings> {
@@ -719,6 +788,13 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     }
     if (status !== 201) {
       throw new Error(`router answered ${status} to a link request`);
+    }
+    /* The tunnel and the machine's agent need a moment: until it first answers, view() says
+     * it is connecting, not that the machine is switched off. */
+    const r = await liveRoute(userId);
+    if (r?.meta.kind === 'linked') {
+      const meta = { ...r.meta, linkedAt: Math.floor(Date.now() / 1000) };
+      await router('PUT', `/routes/${r.route}/meta`, { user: userId, meta });
     }
     return view(userId);
   }

@@ -32,6 +32,7 @@ export type NoteCellRevision = {
 
 export type NoteCellPhase =
   | 'preparing_files'
+  | 'engine_not_answering'
   | 'waiting_for_slot'
   | 'starting_pod'
   | 'waiting_for_cell'
