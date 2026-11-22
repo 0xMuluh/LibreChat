@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useMediaQuery } from '@librechat/client';
+import { Spinner, useMediaQuery } from '@librechat/client';
 import { request } from 'librechat-data-provider';
 import {
   CanvasViewMode,
@@ -15,13 +15,19 @@ import RoihuSessionCard from './Workspace/RoihuSessionCard';
 import WorkspaceHeader from './Workspace/WorkspaceHeader';
 import { useGetStartupConfig } from '~/data-provider';
 import { useAuthContext } from '~/hooks/AuthContext';
+import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
+
+/** The agent can take a few seconds to answer after its session connects; then it is refreshed. */
+const AUTH_RETRY_MS = 3000;
+const AUTH_REFRESH_MS = 2 * 60 * 1000;
 
 export default function WorkspaceCanvas({
   project,
   onNavigateNotes,
   onEditProject,
 }: WorkspaceCanvasProps) {
+  const localize = useLocalize();
   const isSmallScreen = useMediaQuery('(max-width: 768px)');
   const projectId = project._id || 'default';
   const projectName = project.name || projectId;
@@ -75,7 +81,9 @@ export default function WorkspaceCanvas({
     if (!reportsReady) {
       return;
     }
+    let timer: number | undefined;
     const authorize = async () => {
+      let ok = false;
       try {
         const authorization: { ticket: string; openhandsBaseUrl: string } = await request.post(
           `/api/projects/${encodeURIComponent(projectId)}/workspace`,
@@ -106,6 +114,7 @@ export default function WorkspaceCanvas({
         });
         if (!response.ok) throw new Error('Workspace authorization failed');
         const sessionData = await response.json();
+        ok = true;
         if (!cancelled) {
           if (Array.isArray(sessionData.conversations)) {
             setProjectConversations(sessionData.conversations);
@@ -122,13 +131,16 @@ export default function WorkspaceCanvas({
       } catch {
         if (!cancelled) setWorkspaceAuthorized(false);
       }
+      if (!cancelled) {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(authorize, ok ? AUTH_REFRESH_MS : AUTH_RETRY_MS);
+      }
     };
     void authorize();
     window.addEventListener('focus', authorize);
-    const refresh = setInterval(authorize, 2 * 60 * 1000);
     return () => {
       cancelled = true;
-      clearInterval(refresh);
+      window.clearTimeout(timer);
       window.removeEventListener('focus', authorize);
     };
   }, [projectId, storageKey, reportsReady]);
@@ -308,10 +320,23 @@ export default function WorkspaceCanvas({
       : '');
   const quartoSiteUrl = `${effectiveOpenhandsUrl}/api/omicsbase/report/${projectId}/site/index.html`;
 
-  const agentView =
-    conversationId && workspaceAuthorized ? (
+  let agentView: React.ReactNode;
+  if (!workspaceAuthorized) {
+    agentView = (
+      <div
+        role="status"
+        className="text-text-secondary flex h-full items-center justify-center gap-2 text-sm"
+      >
+        <Spinner className="h-4 w-4" />
+        {localize('com_workspace_agent_starting')}
+      </div>
+    );
+  } else if (conversationId) {
+    agentView = (
       <AgentCanvasFrame openhandsBaseUrl={openhandsBaseUrl} conversationId={conversationId} />
-    ) : (
+    );
+  } else {
+    agentView = (
       <AgentLauncherCard
         projectId={projectId}
         selectedEngine={selectedEngine}
@@ -321,6 +346,7 @@ export default function WorkspaceCanvas({
         workspaceAuthorized={workspaceAuthorized}
       />
     );
+  }
 
   return (
     <div

@@ -160,6 +160,31 @@ describe('RoihuSessionCard', () => {
     }
   });
 
+  it.each([
+    [{ tokenExpires: 2e9, launchedAt: 1.99e9 }, 'com_roihu_bar_token_until'],
+    [{ launchedAt: 1.99e9 }, 'com_roihu_bar_launched'],
+  ])('says in the session bar how long the CSC token lasts', async (times, key) => {
+    mockGet.mockResolvedValue({ state: 'running', project: 'project_2010578', ...times });
+    mockPost.mockResolvedValue({ url: 'https://openhands.example/roihu/open?c=abc' });
+    render(<RoihuSessionCard onConnectedChange={jest.fn()} />);
+    await screen.findByTitle('com_roihu_frame_title');
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: 'https://openhands.example',
+        data: { type: 'omicsbase:roihu-open' },
+      }),
+    );
+    expect(await screen.findByText(new RegExp(key))).toBeInTheDocument();
+  });
+
+  it('after an ended session, shows why and offers the launch form again', async () => {
+    const message = 'Preparing the Reports image failed. Launch again to retry.';
+    mockGet.mockResolvedValue({ state: 'ended', message });
+    render(<RoihuSessionCard onConnectedChange={jest.fn()} />);
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'com_roihu_launch' })).toBeEnabled();
+  });
+
   it('names the attached machine in the session bar', async () => {
     mockGet.mockResolvedValue({ state: 'running', machine: 'lab-pc' });
     mockPost.mockResolvedValue({ url: 'https://openhands.example/roihu/open?c=abc' });
