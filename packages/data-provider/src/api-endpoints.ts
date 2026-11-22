@@ -1,5 +1,6 @@
 import type { StartupConfigContext } from './config';
 import type { AssistantsEndpoint } from './schemas';
+import type * as t from './types';
 import { ResourceType } from './accessPermissions';
 import * as q from './types/queries';
 
@@ -20,6 +21,18 @@ if (BASE_URL && BASE_URL.endsWith('/')) {
 }
 
 export const apiBaseUrl = () => BASE_URL;
+export const responseReview = (responseId: string): string =>
+  `${BASE_URL}/api/agents/responses/${encodeURIComponent(responseId)}/review`;
+export const responseCancel = (responseId: string): string =>
+  `${BASE_URL}/api/agents/responses/${encodeURIComponent(responseId)}/cancel`;
+
+export const slackWorkspaces = (workspaceId?: string): string =>
+  `${apiBaseUrl()}/api/channels/workspaces${workspaceId ? `/${encodeURIComponent(workspaceId)}` : ''}`;
+
+export const agentChannels = (agentId: string, channelId?: string): string =>
+  `${BASE_URL}/api/agents/${encodeURIComponent(agentId)}/channels${
+    channelId ? `/${encodeURIComponent(channelId)}` : ''
+  }`;
 
 // Testing this buildQuery function
 const buildQuery = (params: Record<string, unknown>): string => {
@@ -55,6 +68,10 @@ export const userPlugins = () => `${BASE_URL}/api/user/plugins`;
 
 export const deleteUser = () => `${BASE_URL}/api/user/delete`;
 export const codeEnvironments = () => `${BASE_URL}/api/code-environments`;
+export const codeSetupAttempt = (attemptId: string) =>
+  `${codeEnvironments()}/setup/${encodeURIComponent(attemptId)}`;
+export const codeSetupApprove = (attemptId: string) => `${codeSetupAttempt(attemptId)}/approve`;
+export const codeSetupDeny = (attemptId: string) => `${codeSetupAttempt(attemptId)}/deny`;
 export const codeEnvironmentPairings = () => `${codeEnvironments()}/pairings`;
 export const codeEnvironmentById = (id: string) =>
   `${codeEnvironments()}/${encodeURIComponent(id)}`;
@@ -80,6 +97,14 @@ export const messages = (params: q.MessagesListParams) => {
 };
 
 export const messagesArtifacts = (messageId: string) => `${messagesRoot}/artifact/${messageId}`;
+
+/** The child calls of a stored message's subagent transcripts that the given files belong to. */
+export const messageSubagentAttachmentCalls = ({
+  conversationId,
+  messageId,
+  files,
+}: q.SubagentAttachmentCallsParams) =>
+  `${messagesRoot}/${encodeURIComponent(conversationId)}/${encodeURIComponent(messageId)}/subagent-calls?files=${encodeURIComponent(JSON.stringify(files))}`;
 
 /** One tool-call part of a stored message, in full. */
 export const messageToolCallPart = ({
@@ -164,8 +189,28 @@ export const subagentThread = (
   return cursor == null ? endpoint : `${endpoint}?cursor=${encodeURIComponent(cursor)}`;
 };
 
+export const subagentTaskContent = (
+  parentConversationId: string,
+  threadId: string,
+  taskId: string,
+  afterSequence?: number,
+  cursor?: string,
+) => {
+  const endpoint = `${parentSubagents(parentConversationId)}/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/content`;
+  if (cursor != null) return `${endpoint}?cursor=${encodeURIComponent(cursor)}`;
+  return afterSequence == null ? endpoint : `${endpoint}?afterSequence=${afterSequence}`;
+};
+
 export const subagentControl = (parentConversationId: string, threadId: string) =>
   `${conversationsRoot}/${encodeURIComponent(parentConversationId)}/subagents/${encodeURIComponent(threadId)}/control`;
+
+export const subagentControlReceipt = (
+  parentConversationId: string,
+  threadId: string,
+  taskId: string,
+  invocationId: string,
+) =>
+  `${parentSubagents(parentConversationId)}/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/controls/${encodeURIComponent(invocationId)}`;
 
 export const backgroundTasks = (conversationId: string) =>
   `${conversationsRoot}/${encodeURIComponent(conversationId)}/background-tasks`;
@@ -238,12 +283,14 @@ export const deletePreset = () => `${BASE_URL}/api/presets/delete`;
 
 export const aiEndpoints = () => `${BASE_URL}/api/endpoints`;
 
-export const tokenConfig = () => `${BASE_URL}/api/endpoints/token-config`;
+export const tokenConfig = (endpoint?: string) =>
+  `${BASE_URL}/api/endpoints/token-config${endpoint == null ? '' : `?endpoint=${encodeURIComponent(endpoint)}`}`;
 
 export const reasoningCapabilities = (endpoint: string) =>
   `${BASE_URL}/api/endpoints/reasoning-capabilities?endpoint=${encodeURIComponent(endpoint)}`;
 
-export const models = () => `${BASE_URL}/api/models`;
+export const models = (endpoint?: string) =>
+  `${BASE_URL}/api/models${endpoint == null ? '' : `?endpoint=${encodeURIComponent(endpoint)}`}`;
 
 export const login = () => `${BASE_URL}/api/auth/login`;
 
@@ -433,6 +480,11 @@ export const getCustomConfigSpeech = () => `${speech()}/config/get`;
 
 export const getPromptGroup = (_id: string) => `${prompts()}/groups/${_id}`;
 
+export const resolvePromptGroup = (_id: string, version?: number) =>
+  `${getPromptGroup(_id)}/resolve${buildQuery({ version })}`;
+
+export const getPromptGroupRevisions = (_id: string) => `${getPromptGroup(_id)}/revisions`;
+
 export const getPromptGroupsWithFilters = (filter: object) => {
   let url = `${prompts()}/groups`;
   // Filter out undefined/null values
@@ -570,6 +622,12 @@ export const adminLangfuseConnection = () => `${BASE_URL}/api/admin/langfuse/con
 export const adminLangfuseConnectionTest = () => `${adminLangfuseConnection()}/test`;
 export const adminLangfuseSessionLink = (conversationId: string) =>
   `${adminLangfuseConnection()}/session/${encodeURIComponent(conversationId)}`;
+export const adminLangfusePromptSync = () => `${BASE_URL}/api/admin/langfuse/prompt-sync`;
+export const adminLangfusePrompts = (params: t.TLangfusePromptListParams = {}) =>
+  `${BASE_URL}/api/admin/langfuse/prompts${buildQuery(params)}`;
+export const adminLangfuseSyncPrompts = () => `${BASE_URL}/api/admin/langfuse/prompts/sync`;
+export const adminLangfusePrompt = (name: string, version?: number) =>
+  `${BASE_URL}/api/admin/langfuse/prompts/${encodeURIComponent(name)}${buildQuery({ version })}`;
 
 /* Combined Pinned-section display order: favorite and pinned-chat entry keys interleaved. */
 export const pinnedOrder = () => `${BASE_URL}/api/user/settings/pinned-order`;
@@ -617,6 +675,7 @@ export const enableTwoFactorSetup = () => `${BASE_URL}/api/auth/2fa/setup`;
 export const confirmTwoFactorSetup = () => `${BASE_URL}/api/auth/2fa/setup/confirm`;
 export const acknowledgeTwoFactorSetup = () => `${BASE_URL}/api/auth/2fa/setup/acknowledge`;
 export const finalizeTwoFactorSetup = () => `${BASE_URL}/api/auth/2fa/setup/finalize`;
+export const cancelTwoFactorSetup = () => `${BASE_URL}/api/auth/2fa/setup/cancel`;
 export const verifyTwoFactor = () => `${BASE_URL}/api/auth/2fa/verify`;
 export const confirmTwoFactor = () => `${BASE_URL}/api/auth/2fa/confirm`;
 export const disableTwoFactor = () => `${BASE_URL}/api/auth/2fa/disable`;

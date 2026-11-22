@@ -1,4 +1,3 @@
-const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 const { logger, runAsSystem, tenantStorage } = require('@librechat/data-schemas');
 const {
@@ -18,10 +17,12 @@ const {
   stopUserGenerations,
   deleteAllSharedLinksWithCleanup,
   eraseUserData,
+  createUserDeletionAttempt,
   deleteUserMCPServers,
   revokeUserCodeEnvironmentWorkers,
   finalizeMCPAuthorizationMutation,
   clearSessionHintCookie,
+  compareSecret,
 } = require('@librechat/api');
 const { Tools, Constants, FileSources } = require('librechat-data-provider');
 const { updateUserPluginAuth, deleteUserPluginAuth } = require('~/server/services/PluginService');
@@ -64,7 +65,7 @@ const emailChangeService = createEmailChangeService(
     withTenant: (tenantId, operation) =>
       tenantId ? tenantStorage.run({ tenantId }, operation) : runAsSystem(operation),
     comparePassword: (user, password) =>
-      comparePassword(user, password, { compare: bcrypt.compare }),
+      comparePassword(user, password, { compare: compareSecret }),
     sendEmail,
     getAppConfig,
     clientDomain: process.env.DOMAIN_CLIENT ?? 'http://localhost:3080',
@@ -166,8 +167,12 @@ const createMCPServerCleanup = (userId) => ({
   },
   findMCPServerOAuthTokenUserIds: db.findMCPServerOAuthTokenUserIds,
   findMCPServerViewerEntries: db.findMCPServerViewerEntries,
+  findMCPServerViewerUserIds: db.findMCPServerViewerUserIds,
   mcpOAuth: {
-    getServerConfig: (serverName) => getMCPServersRegistry().getServerConfig(serverName, userId),
+    getServerConfig: (serverName) =>
+      getMCPServersRegistry().getServerConfig(serverName, userId, undefined, undefined, {
+        includeHidden: true,
+      }),
     getUserPrincipals: (candidateId) => db.getUserPrincipals({ userId: candidateId }),
     resolveAllowlists: (candidateId) =>
       getMCPServersRegistry().resolveAllowlists({ userId: candidateId }),
@@ -366,6 +371,7 @@ const deleteUserController = async (req, res) => {
   let triggerDeletionFence;
   let scheduleSuspensionToken;
   let userDeleted = false;
+  const deletionAttempt = createUserDeletionAttempt();
 
   try {
     const existingUser = await db.getUserById(
@@ -387,7 +393,11 @@ const deleteUserController = async (req, res) => {
     // Block new trigger admissions across replicas while preserving the user
     // principal so a transient cleanup failure remains retryable.
     triggerDeletionFence = new Date();
-    const fenceState = await db.beginAgentTriggerUserDeletion(user.id, triggerDeletionFence);
+    const fenceState = await db.beginAgentTriggerUserDeletion(
+      user.id,
+      triggerDeletionFence,
+      deletionAttempt.id,
+    );
     if (fenceState === 'in_progress') {
       triggerDeletionFence = undefined;
       throw new Error('Agent trigger account deletion is already in progress');
@@ -421,6 +431,7 @@ const deleteUserController = async (req, res) => {
     await eraseUserData(
       {
         userId: user.id,
+        deletionAttemptId: deletionAttempt.id,
         tenantId,
         checkpointer: appConfig?.endpoints?.agents?.checkpointer,
       },
@@ -435,7 +446,12 @@ const deleteUserController = async (req, res) => {
         onSessionsDeleted: () => clearSessionHintCookie(res),
       },
     );
-    const deleteResult = await db.deleteUserById(user.id);
+    const deleteResult = await deletionAttempt.commit(() =>
+      db.deleteUserById(user.id, {
+        startedAt: triggerDeletionFence,
+        attemptId: deletionAttempt.id,
+      }),
+    );
     if (deleteResult.deletedCount !== 1) {
       throw new Error('User disappeared before account deletion could commit');
     }
@@ -502,7 +518,14 @@ const deleteUserController = async (req, res) => {
         );
       }
       try {
-        await db.cancelAgentTriggerUserDeletion(user.id, triggerDeletionFence);
+        await deletionAttempt.cancel(
+          {
+            userId: user.id,
+            startedAt: triggerDeletionFence,
+            deletionAttemptId: deletionAttempt.id,
+          },
+          db,
+        );
       } catch (fenceError) {
         logger.error('[deleteUserController] Failed to release trigger deletion fence', fenceError);
       }

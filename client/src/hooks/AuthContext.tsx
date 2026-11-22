@@ -7,7 +7,7 @@ import {
   useCallback,
   createContext,
 } from 'react';
-import { debounce } from 'lodash';
+import debounce from 'lodash/debounce';
 import { getDefaultStore } from 'jotai';
 import { useNavigate } from 'react-router-dom';
 import { useRecoilState, useSetRecoilState } from 'recoil';
@@ -41,6 +41,7 @@ import {
   useGetUserQuery,
   endPullRequestSession,
   useLoginUserMutation,
+  clearTitleGenerationState,
   setPullRequestSessionOwner,
   useLogoutUserMutation,
   useRefreshTokenMutation,
@@ -70,6 +71,7 @@ const endSessionClientState = (): void => {
   clearRetainedFileDeletions();
   clearComposerDraftStorage();
   endPullRequestSession();
+  clearTitleGenerationState();
   void clearTTSCache();
 };
 /** `document.prerendering` is not yet part of TypeScript's DOM types. */
@@ -83,6 +85,31 @@ const getLoginErrorText = (error: TResError): string | undefined => {
   return code === ErrorTypes.AUTH_CROSS_ORIGIN || code === TWO_FACTOR_FEDERATED_LOGIN_BLOCKED_CODE
     ? code
     : error?.message;
+};
+
+const useAuthRoles = (isAuthenticated: boolean, userRoleName: string) => {
+  const isCustomRole = isAuthenticated && !!userRoleName && !isSystemRoleName(userRoleName);
+  const { data: userRole = null } = useGetRole(SystemRoles.USER, {
+    enabled: !!(isAuthenticated && userRoleName),
+  });
+  const { data: adminRole = null } = useGetRole(SystemRoles.ADMIN, {
+    enabled: isAuthenticated && userRoleName === SystemRoles.ADMIN,
+  });
+  const { data: customRole = null } = useGetRole(isCustomRole ? userRoleName : '_', {
+    enabled: isCustomRole,
+  });
+  return { userRole, adminRole, customRole, isCustomRole };
+};
+
+const RoleQueryPriority = ({
+  isAuthenticated,
+  userRoleName,
+}: {
+  isAuthenticated: boolean;
+  userRoleName: string;
+}) => {
+  useAuthRoles(isAuthenticated, userRoleName);
+  return null;
 };
 
 const AuthContextProvider = ({
@@ -103,17 +130,10 @@ const AuthContextProvider = ({
   const setQueriesEnabled = useSetRecoilState<boolean>(store.queriesEnabled);
 
   const userRoleName = user?.role ?? '';
-  const isCustomRole = isAuthenticated && !!user?.role && !isSystemRoleName(user.role);
-
-  const { data: userRole = null } = useGetRole(SystemRoles.USER, {
-    enabled: !!(isAuthenticated && (user?.role ?? '')),
-  });
-  const { data: adminRole = null } = useGetRole(SystemRoles.ADMIN, {
-    enabled: !!(isAuthenticated && user?.role === SystemRoles.ADMIN),
-  });
-  const { data: customRole = null } = useGetRole(isCustomRole ? userRoleName : '_', {
-    enabled: isCustomRole,
-  });
+  const { userRole, adminRole, customRole, isCustomRole } = useAuthRoles(
+    isAuthenticated,
+    userRoleName,
+  );
 
   const navigate = useNavigate();
 
@@ -180,11 +200,13 @@ const AuthContextProvider = ({
        * setup route finish the previous user's enrollment and take the tab as them.
        */
       clearTwoFactorSetupToken();
-      if (twoFASetupRequired) {
+      if (twoFASetupRequired || twoFAPending) {
         const redirectTo = new URLSearchParams(window.location.search).get('redirect_to');
         if (redirectTo) {
           persistRedirectToSession(redirectTo);
         }
+      }
+      if (twoFASetupRequired) {
         persistTwoFactorSetupToken(tempToken ?? '');
         navigate('/login/2fa/setup', { replace: true });
         return;
@@ -497,7 +519,13 @@ const AuthContextProvider = ({
     ],
   );
 
-  return <AuthContext.Provider value={memoedValue}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={memoedValue}>
+      {/* Query subscriptions commit child-first; enqueue permissions before descendant discovery. */}
+      <RoleQueryPriority isAuthenticated={isAuthenticated} userRoleName={userRoleName} />
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
 const useAuthContext = () => {

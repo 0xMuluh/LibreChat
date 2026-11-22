@@ -12,6 +12,7 @@ const {
   getAvatarFileStrategy,
   getAvatarSaveParams,
   resolveAppConfigForUser,
+  resolvePreAuthAppConfig,
   resolveSamlSubject,
   TRANSIENT_SAML_NAME_ID_FORMAT,
 } = require('@librechat/api');
@@ -277,7 +278,7 @@ function createSamlCallback(existingUsersOnly = false) {
 
       const userEmail = getEmail(profile) || '';
 
-      const baseConfig = await getAppConfig({ baseOnly: true });
+      const baseConfig = await resolvePreAuthAppConfig(getAppConfig);
       if (!isEmailDomainAllowed(userEmail, baseConfig?.registration?.allowedDomains)) {
         logger.error(
           '[samlStrategy] Authentication blocked because the email domain is not allowed',
@@ -291,12 +292,10 @@ function createSamlCallback(existingUsersOnly = false) {
       }
       let user = found.user;
 
-      let appConfig = user?.tenantId
-        ? await resolveAppConfigForUser(getAppConfig, user)
-        : baseConfig;
+      let appConfig = user ? await resolveAppConfigForUser(getAppConfig, user) : baseConfig;
 
       if (!isEmailDomainAllowed(userEmail, appConfig?.registration?.allowedDomains)) {
-        logger.error('[samlStrategy] Authentication blocked by the tenant email-domain policy');
+        logger.error("[samlStrategy] Authentication blocked by the account's email-domain policy");
         return done(null, false, { message: 'Email domain not allowed' });
       }
 

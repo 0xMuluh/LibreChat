@@ -294,7 +294,7 @@ export default function ToolsSection({ agentId }: Props) {
           title={localize('com_ui_delete_action')}
           className="max-w-[28.125rem]"
           main={
-            <Label className="text-left text-sm font-medium">
+            <Label className="text-start text-sm font-medium">
               {localize('com_ui_delete_action_confirm')}
             </Label>
           }
@@ -319,7 +319,7 @@ export default function ToolsSection({ agentId }: Props) {
           title={localize('com_ui_delete_tool')}
           className="max-w-[28.125rem]"
           main={
-            <Label className="text-left text-sm font-medium">
+            <Label className="text-start text-sm font-medium">
               {localize('com_ui_delete_tool_confirm')}
             </Label>
           }
@@ -357,17 +357,11 @@ function SelectedSection({
   onRemove,
 }: SelectedSectionProps) {
   const localize = useLocalize();
-  const badge = items.length > 0 ? String(items.length) : undefined;
   return (
     <div className="mb-3 flex flex-col">
       <div className="mb-1 flex items-center justify-between">
         <label className="text-text-secondary text-2xs block font-medium tracking-wide uppercase">
           {title}
-          {badge != null && (
-            <span className="bg-surface-tertiary text-text-secondary text-3xs ml-1.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1.5 font-medium tracking-normal normal-case">
-              {badge}
-            </span>
-          )}
         </label>
         <button
           type="button"

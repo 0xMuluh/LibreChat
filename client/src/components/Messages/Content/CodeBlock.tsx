@@ -4,7 +4,9 @@ import type { CodeBarProps } from '~/common';
 import FloatingCodeBar from '~/components/Messages/Content/FloatingCodeBar';
 import ResultSwitcher from '~/components/Messages/Content/ResultSwitcher';
 import { useToolCallsMapContext, useMessageContext } from '~/Providers';
-import { LogContent } from '~/components/Chat/Messages/Content/Parts';
+/* The module, not the parts barrel: the barrel registers the part renderers, which import the
+ * whole markdown stack, and code blocks render on boot-time surfaces such as prompt previews. */
+import LogContent from '~/components/Chat/Messages/Content/Parts/LogContent';
 import CodeBar from '~/components/Messages/Content/CodeBar';
 import { useLocalize } from '~/hooks';
 import cn from '~/utils/cn';
@@ -101,7 +103,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
   return (
     <div
       ref={containerRef}
-      className="border-border-inset relative w-full overflow-hidden rounded-xl border text-xs"
+      className="border-border-inset theme-chrome-quiet:border-2 theme-chrome-quiet:border-surface-code theme-chrome-quiet:bg-surface-code relative w-full overflow-hidden rounded-xl border text-xs"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onFocus={handleFocus}
@@ -117,7 +119,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
           allowExecution={allowExecution}
         />
       </div>
-      <div className={cn(classProp, 'bg-surface-code-body overflow-y-auto p-4')}>
+      <div dir="ltr" className={cn(classProp, 'bg-surface-code-body overflow-y-auto p-4')}>
         <code
           ref={codeRef}
           className={cn(
@@ -138,7 +140,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
       />
       {allowExecution === true && toolCalls && toolCalls.length > 0 && (
         <>
-          <div className="border-border-inset bg-surface-code border-t p-4 text-xs">
+          <div dir="ltr" className="border-border-inset bg-surface-code border-t p-4 text-xs">
             <div className="text-text-secondary text-3xs mb-1 font-medium tracking-wide uppercase">
               {localize('com_ui_output')}
             </div>

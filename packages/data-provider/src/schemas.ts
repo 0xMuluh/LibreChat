@@ -10,12 +10,13 @@ import {
   CODE_WORKSPACE_CHECKOUT_MODES,
   MAX_AGENT_CODE_ENVIRONMENT_CHOICES,
 } from './code/workspace';
+import { isGeminiHydrogen, GEMINI_HYDROGEN_OUTPUT_TOKENS } from './gemini';
 import { userSubmittedMessageFieldPathSchema } from './filters';
 import { TFeedback, feedbackSchema } from './feedback';
 import { CODE_APPROVAL_MODES } from './code/approval';
 import { Tools } from './types/tools';
 
-export const isUUID = z.string().uuid();
+export const isUUID = z.guid();
 
 export enum AuthType {
   OVERRIDE_AUTH = 'override_auth',
@@ -185,6 +186,11 @@ export const getModelKey = (endpoint: EModelEndpoint | string, model: string) =>
     const provider = [parts[0], parts[1]].find((part) =>
       Object.values(BedrockProviders).includes(part as BedrockProviders),
     );
+    /** A bare `claude-*` ID (one mapped to an inference profile) names no provider,
+     *  so it is keyed by its family, the way `bedrockInputParser` already reads it. */
+    if (provider == null && model.includes('claude')) {
+      return BedrockProviders.Anthropic;
+    }
     return (provider ?? parts[0]) as BedrockProviders;
   }
   return model;
@@ -321,6 +327,7 @@ export enum ThinkingLevel {
   low = 'low',
   medium = 'medium',
   high = 'high',
+  xhigh = 'xhigh',
 }
 
 /** OpenAI Responses API `reasoning.mode` (GPT-5.6+). */
@@ -539,6 +546,9 @@ const GOOGLE_LEGACY_MAX_OUTPUT = 8192 as const;
  * (2.0 and earlier, including legacy image models) and Gemma retain the 8K limit.
  */
 const getGoogleMaxOutputTokens = (modelName: string): number => {
+  if (isGeminiHydrogen(modelName)) {
+    return GEMINI_HYDROGEN_OUTPUT_TOKENS;
+  }
   if (/gemini-(?:2\.5|[3-9]|\d{2,})/i.test(modelName)) {
     if (/image/i.test(modelName)) {
       return GOOGLE_IMAGE_MAX_OUTPUT;
@@ -647,6 +657,8 @@ const DEFAULT_MAX_OUTPUT = 8192 as const;
 const LEGACY_ANTHROPIC_MAX_OUTPUT = 4096 as const;
 const CLAUDE_SONNET_128K_OUTPUT_PATTERN =
   /claude-sonnet[-.]?(?:4[-.]?(?:[6-9]|\d{2})|[5-9]|\d{2,})(?=$|[^0-9])/;
+const CLAUDE_HAIKU_128K_OUTPUT_PATTERN =
+  /claude-haiku[-.]?(?:5[-.]?(?:[5-9]|\d{2})|[6-9]|\d{2,})(?=$|[^0-9])/;
 
 /**
  * Claude "Mythos-class" model families — new top-level classes (peers of
@@ -707,7 +719,10 @@ export const anthropicSettings = {
         return ANTHROPIC_MAX_OUTPUT;
       }
 
-      if (CLAUDE_SONNET_128K_OUTPUT_PATTERN.test(modelName)) {
+      if (
+        CLAUDE_SONNET_128K_OUTPUT_PATTERN.test(modelName) ||
+        CLAUDE_HAIKU_128K_OUTPUT_PATTERN.test(modelName)
+      ) {
         return ANTHROPIC_MAX_OUTPUT;
       }
 
@@ -740,7 +755,10 @@ export const anthropicSettings = {
         return value;
       }
 
-      if (CLAUDE_SONNET_128K_OUTPUT_PATTERN.test(modelName)) {
+      if (
+        CLAUDE_SONNET_128K_OUTPUT_PATTERN.test(modelName) ||
+        CLAUDE_HAIKU_128K_OUTPUT_PATTERN.test(modelName)
+      ) {
         if (value > ANTHROPIC_MAX_OUTPUT) {
           return ANTHROPIC_MAX_OUTPUT;
         }
@@ -972,7 +990,7 @@ export const tMessageSchema = z.object({
   iconURL: z.string().nullable().optional(),
   feedback: feedbackSchema.optional(),
   /** metadata */
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   /** Output tokens for assistant messages, calibrated prompt-side estimate for user messages */
   tokenCount: z.number().optional(),
   contextMeta: z
@@ -1165,7 +1183,10 @@ const DocumentType: z.ZodType<DocumentTypeValue> = z.lazy(() =>
     z.number(),
     z.string(),
     z.array(z.lazy(() => DocumentType)),
-    z.record(z.lazy(() => DocumentType)),
+    z.record(
+      z.string(),
+      z.lazy(() => DocumentType),
+    ),
   ]),
 );
 
@@ -1301,7 +1322,7 @@ export const tConversationSchema = z.object({
   additional_instructions: z.string().optional(),
   append_current_datetime: z.boolean().optional(),
   /** Used to overwrite active conversation settings when saving a Preset */
-  presetOverride: z.record(z.unknown()).optional(),
+  presetOverride: z.record(z.string(), z.unknown()).optional(),
   stop: z.array(z.string()).optional(),
   /* frontend components */
   greeting: z.string().optional(),

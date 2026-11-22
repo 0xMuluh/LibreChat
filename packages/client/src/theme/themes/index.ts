@@ -1,3 +1,7 @@
-export { omicsbaseLight as defaultTheme, omicsbaseDark as darkTheme } from './omicsbase';
-export { highContrastDarkTheme, highContrastLightTheme } from './highContrast';
+export {
+  darkTheme,
+  defaultTheme,
+  highContrastDarkTheme,
+  highContrastLightTheme,
+} from 'librechat-data-provider';
 export { clickHouseDarkTheme, clickHouseLightTheme, clickHouseTheme } from './clickhouse';

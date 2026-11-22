@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import type { ReactNode } from 'react';
 import RCellBlock from './RCell';
 
 type ToolArgs = string | { code?: unknown; cell_id?: unknown };
@@ -92,4 +93,39 @@ export function useNoteTool({
   }
 
   return null;
+}
+
+/** Whether a tool call is an agent's R cell, whatever MCP server prefix its name carries. */
+export const isNoteToolCall = (name?: string): boolean =>
+  name?.includes('execute_r_cell') === true;
+
+/**
+ * An agent's R cell call, drawn as a note cell. Until the call carries code or output there is
+ * nothing to show as a cell, so the generic tool card (`fallback`) stands in.
+ */
+export function NoteToolCall({
+  name,
+  args,
+  output,
+  running,
+  toolCallId,
+  fallback,
+}: {
+  name: string;
+  args: ToolArgs;
+  output?: string | null;
+  /** The call is still in flight. */
+  running: boolean;
+  toolCallId?: string;
+  fallback: ReactNode;
+}) {
+  const noteTool = useNoteTool({
+    function_name: '',
+    name,
+    _args: args,
+    output,
+    phase: running ? 'running' : 'completed',
+    toolCallId,
+  });
+  return noteTool ?? fallback;
 }

@@ -1,8 +1,10 @@
 import React from 'react';
+import { useSteering } from '@librechat/chat/react';
 import { RecoilRoot, type MutableSnapshot } from 'recoil';
-import { claimQueuedIntent, releaseQueuedIntent } from '@librechat/chat';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, renderHook, waitFor } from '@testing-library/react';
-import { isSubmittingFamily, resetSubmitting } from '@librechat/chat/react';
+import { useQueueDrain, isSubmittingFamily, resetSubmitting } from '@librechat/chat/react';
+import { claimQueuedIntent, releaseQueuedIntent, applyPendingAction } from '@librechat/chat';
 import {
   getDefaultStore,
   Provider as JotaiProvider,
@@ -11,12 +13,35 @@ import {
   useSetAtom,
 } from 'jotai';
 import {
+  hasLiveRunPause,
+  hydrateFileDeliveryMetadata as mergeQueuedTurnFileMetadata,
+} from '@librechat/chat';
+import {
   Constants,
+  QueryKeys,
   ContentTypes,
   EModelEndpoint,
   LocalStorageKeys,
   ReasoningEffort,
 } from 'librechat-data-provider';
+import {
+  siblingKey,
+  siblingIdxFamily,
+  getReasoningStateKey,
+  pendingQuotesByConvoId,
+  pendingManualSkillsByConvoId,
+  pendingReasoningOverrideFamily,
+} from '@librechat/chat/react';
+import {
+  pendingQueuedTurnEnqueueIdsByConvoId,
+  settledQueuedTurnReceiptsByConvoId,
+  queuedMessagesByConvoId,
+  pendingRunEndByConvoId,
+  drainAfterAbortByIndex,
+  runEndByIndex,
+  resetQueueFamilies,
+  recoveryDispositionsFamily,
+} from '@librechat/chat/react';
 import {
   revealedQueuedTurnFamily,
   pendingSteerCancelClientIdsFamily,
@@ -26,35 +51,16 @@ import {
   appliedSteerIdsByConvoId,
   pendingSteersByConvoId,
   resetSteerFamilies,
-  resetQueueFamilies,
 } from '@librechat/chat/react';
 import type { CodeApprovalMode, TConversation, TFile, TMessage } from 'librechat-data-provider';
-import type { QueuedMessage } from '~/hooks/Chat/queue';
+import type { QueuedMessage } from '@librechat/chat';
 import type { ExtendedFile } from '~/common';
-import {
-  pendingQueuedTurnEnqueueIdsByConvoId,
-  settledQueuedTurnReceiptsByConvoId,
-  queuedMessagesByConvoId,
-  pendingRunEndByConvoId,
-  drainAfterAbortByIndex,
-  runEndByIndex,
-} from '~/hooks/Chat/queue';
-import {
-  getReasoningStateKey,
-  pendingQuotesByConvoId,
-  pendingManualSkillsByConvoId,
-  pendingReasoningOverrideFamily,
-} from '~/components/Chat/Input/Composer/state';
-import useSteering, { hasLiveRunPause, mergeQueuedTurnFileMetadata } from '../useSteering';
 import { clearAllDrafts, getPendingDraftId, getNewConversationDraftId } from '~/utils';
-import { recoveryDispositionsFamily } from '~/components/Chat/Steering/recovery';
 import useUpdateFiles from '~/hooks/Files/useUpdateFiles';
 import ChatSettingsProvider from '~/routes/ChatSettings';
 import { duringRunActionAtom } from '~/store/duringRun';
-import { applyPendingAction } from '~/utils/approval';
+import { SteerHostTestProvider } from 'test/steerHost';
 import English from '~/locales/en/translation.json';
-import useQueueDrain from '../useQueueDrain';
-import '~/Providers/SteerHostContext';
 
 const CONVO_ID = 'convo-steer-ui';
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -66,17 +72,51 @@ const mockEnqueueQueuedTurn = jest.fn();
 const mockCancelQueuedTurn = jest.fn();
 const mockShowToast = jest.fn();
 const mockMarkUsage = jest.fn();
-let mockMessages: TMessage[] | undefined;
-let mockLatestMessage: TMessage | null | undefined;
+let mockRouteParams: { conversationId?: string } = {};
+let queryClient: QueryClient;
 let mockServerQueuedTurns: unknown[] | undefined;
 let mockFileMap: Record<string, Pick<TFile, 'llmDeliveryPath'>> = {};
 const mockUseAgentQueuedTurns = jest.fn((..._args: unknown[]) => ({ data: mockServerQueuedTurns }));
 
-const mockCodeApprovalMode = jest.fn((..._args: unknown[]) => ({ selected: mockApprovalMode }));
+/** Raw inputs under which the package selects `mockApprovalMode`; `undefined` turns approvals off. */
+const mockCodeApprovalMode = jest.fn((conversation?: unknown, _added?: unknown) => ({
+  readInputs: () => ({
+    conversation,
+    preferred: mockApprovalMode,
+    statefulCodeSessions: {
+      approvalsEnabled: mockApprovalMode != null,
+      approvalModes: ['ask', 'acceptEdits', 'fullAccess'],
+      environments: [
+        {
+          id: 'personal-vm',
+          name: 'Personal VM',
+          type: 'attached',
+          configSchema: {
+            permissions: {
+              fileWrite: { allowed: ['ask', 'allow'], default: 'ask' },
+              commandExecution: { allowed: ['ask', 'allow'], default: 'ask' },
+            },
+          },
+        },
+      ],
+    },
+    reachable: {
+      agents: [
+        {
+          id: 'agent_primary',
+          stateful_code_sessions: true,
+          tools: ['execute_code'],
+          code_environment_id: 'personal-vm',
+        },
+      ],
+      complete: true,
+    },
+  }),
+}));
 
 jest.mock('~/hooks/Agents/useCodeApprovalMode', () => ({
   __esModule: true,
-  default: (...args: unknown[]) => mockCodeApprovalMode(...args),
+  default: (conversation?: unknown, added?: unknown) => mockCodeApprovalMode(conversation, added),
 }));
 
 jest.mock('~/Providers', () => ({
@@ -127,11 +167,9 @@ jest.mock('~/data-provider', () => ({
     (value as { generationProtocolVersion?: unknown }).generationProtocolVersion === 2,
 }));
 
-jest.mock('~/hooks/Messages', () => ({
-  useLatestMessage: () =>
-    mockLatestMessage === undefined
-      ? (mockMessages?.[mockMessages.length - 1] ?? null)
-      : mockLatestMessage,
+jest.mock('react-router-dom', () => ({
+  ...jest.requireActual('react-router-dom'),
+  useParams: () => mockRouteParams,
 }));
 
 jest.mock('@librechat/client', () => ({
@@ -142,6 +180,23 @@ const agentsConversation = {
   conversationId: CONVO_ID,
   endpoint: EModelEndpoint.agents,
 } as TConversation;
+
+/** Writes the real message cache the hook reads its branch tail from, under one conversation key. */
+function seedMessages(messages: TMessage[] | undefined, key: string = CONVO_ID) {
+  if (messages == null) {
+    queryClient.removeQueries([QueryKeys.messages, key]);
+    return;
+  }
+  queryClient.setQueryData([QueryKeys.messages, key], messages);
+}
+
+function SteerProvider({ children }: { children?: React.ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <SteerHostTestProvider>{children}</SteerHostTestProvider>
+    </QueryClientProvider>
+  );
+}
 
 type HookParams = Partial<Parameters<typeof useSteering>[0]>;
 
@@ -171,8 +226,10 @@ function setup(params: HookParams = {}, initialize?: (snapshot: MutableSnapshot)
     <RecoilRoot
       initializeState={withActiveGeneration(initialize, params.conversationId ?? CONVO_ID)}
     >
-      <GenerationProbe />
-      <ChatSettingsProvider>{children}</ChatSettingsProvider>
+      <SteerProvider>
+        <GenerationProbe />
+        <ChatSettingsProvider>{children}</ChatSettingsProvider>
+      </SteerProvider>
     </RecoilRoot>
   );
   const rendered = renderHook(
@@ -240,8 +297,9 @@ describe('useSteering', () => {
     jest.clearAllMocks();
     mockApprovalMode = undefined;
     getDefaultStore().set(revealedQueuedTurnFamily(CONVO_ID), null);
-    mockMessages = undefined;
-    mockLatestMessage = undefined;
+    mockRouteParams = {};
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    getDefaultStore().set(siblingIdxFamily(siblingKey(CONVO_ID)), 0);
     mockServerQueuedTurns = undefined;
     mockFileMap = {};
   });
@@ -315,7 +373,7 @@ describe('useSteering', () => {
             getDefaultStore().set(isSubmittingFamily(0), false);
           })}
         >
-          {children}
+          <SteerProvider>{children}</SteerProvider>
         </RecoilRoot>
       );
       const { result } = renderHook(
@@ -406,7 +464,7 @@ describe('useSteering', () => {
             getDefaultStore().set(isSubmittingFamily(0), false);
           })}
         >
-          {children}
+          <SteerProvider>{children}</SteerProvider>
         </RecoilRoot>
       );
       const { result } = renderHook(
@@ -528,7 +586,7 @@ describe('useSteering', () => {
     });
 
     it('degrades to queue while paused on a tool approval', () => {
-      mockMessages = [
+      seedMessages([
         {
           messageId: 'resp-1',
           isCreatedByUser: false,
@@ -544,7 +602,7 @@ describe('useSteering', () => {
             },
           ],
         } as unknown as TMessage,
-      ];
+      ]);
       // Explicitly request steer so this verifies the pause fallback to queue.
       const { result } = setup({}, () => {
         getDefaultStore().set(duringRunActionAtom, 'steer');
@@ -692,7 +750,9 @@ describe('useSteering', () => {
     ) {
       const sendNow = jest.fn();
       const wrapper = ({ children }: { children: React.ReactNode }) => (
-        <RecoilRoot initializeState={initializer}>{children}</RecoilRoot>
+        <RecoilRoot initializeState={initializer}>
+          <SteerProvider>{children}</SteerProvider>
+        </RecoilRoot>
       );
       const rendered = renderHook(
         () => ({
@@ -718,13 +778,13 @@ describe('useSteering', () => {
     }
 
     beforeEach(() => {
-      mockMessages = [
+      seedMessages([
         {
           messageId: 'visible-assistant-tail',
           isCreatedByUser: false,
           content: [],
         } as unknown as TMessage,
-      ];
+      ]);
     });
 
     it.each([undefined, 'ask', 'acceptEdits', 'fullAccess'] as const)(
@@ -750,21 +810,52 @@ describe('useSteering', () => {
         result.current.steering.queueFromComposer('run later');
         await Promise.resolve();
       });
-      expect(mockCodeApprovalMode).toHaveBeenLastCalledWith(
-        agentsConversation,
-        addedConversation,
-        undefined,
-      );
+      expect(mockCodeApprovalMode).toHaveBeenLastCalledWith(agentsConversation, addedConversation);
       expect(mockEnqueueQueuedTurn.mock.calls[0]?.[0].codeApprovalMode).toBe('ask');
     });
 
-    it('gates the queued mode on the workspace mode the composer resolved', () => {
-      setupServerQueue(withActiveGeneration(), undefined, 'without_attached');
-      expect(mockCodeApprovalMode).toHaveBeenLastCalledWith(
-        agentsConversation,
-        undefined,
-        'without_attached',
+    const tailOf = (messageId: string) =>
+      ({ messageId, isCreatedByUser: false, content: [] }) as unknown as TMessage;
+
+    it("anchors on the saved conversation's cache, not the route's or another chat's", async () => {
+      mockRouteParams = { conversationId: 'route-conversation' };
+      seedMessages([tailOf('route-tail')], 'route-conversation');
+      seedMessages([tailOf('other-tail')], 'other-conversation');
+      const { result } = setupServerQueue();
+
+      await act(async () => {
+        result.current.steering.queueFromComposer('stay on this chat');
+        await Promise.resolve();
+      });
+
+      expect(mockEnqueueQueuedTurn.mock.calls[0]?.[0].parentMessageId).toBe(
+        'visible-assistant-tail',
       );
+    });
+
+    it('follows the cache when history hydrates after the hook mounted', async () => {
+      const { result } = setupServerQueue();
+
+      await act(async () => {
+        seedMessages([tailOf('hydrated-tail')]);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await act(async () => {
+        result.current.steering.queueFromComposer('after hydration');
+        await Promise.resolve();
+      });
+
+      expect(mockEnqueueQueuedTurn.mock.calls[0]?.[0].parentMessageId).toBe('hydrated-tail');
+    });
+
+    it('gates the queued mode on the workspace mode the composer resolved', async () => {
+      mockApprovalMode = 'acceptEdits';
+      const { result } = setupServerQueue(withActiveGeneration(), undefined, 'without_attached');
+      await act(async () => {
+        result.current.steering.queueFromComposer('run later');
+        await Promise.resolve();
+      });
+      expect(mockEnqueueQueuedTurn.mock.calls[0]?.[0].codeApprovalMode).toBe('ask');
     });
 
     it('keeps startup turns local until the server generation epoch exists', async () => {
@@ -930,7 +1021,7 @@ describe('useSteering', () => {
       ['regenerated response', 'old-assistant_'],
       ['edited response', 'old-assistant'],
     ])('anchors an optimistic %s through its durable user parent', async (_label, messageId) => {
-      mockMessages = [
+      seedMessages([
         {
           messageId: 'user-message',
           parentMessageId: Constants.NO_PARENT,
@@ -955,7 +1046,7 @@ describe('useSteering', () => {
           isCreatedByUser: false,
           clientQueueParentMessageId: 'user-message',
         } as TMessage,
-      ];
+      ]);
       const { result } = setupServerQueue();
 
       await act(async () => {
@@ -973,13 +1064,13 @@ describe('useSteering', () => {
     });
 
     it('preserves an exact persisted assistant id ending in an underscore', async () => {
-      mockMessages = [
+      seedMessages([
         {
           messageId: 'persisted-assistant_',
           parentMessageId: 'user-message',
           isCreatedByUser: false,
         } as TMessage,
-      ];
+      ]);
       const { result } = setupServerQueue();
 
       await act(async () => {
@@ -1368,7 +1459,7 @@ describe('useSteering', () => {
     });
 
     it('anchors enqueue to the selected branch tail instead of a later hidden sibling', async () => {
-      mockMessages = [
+      seedMessages([
         {
           messageId: 'visible-assistant-tail',
           isCreatedByUser: false,
@@ -1379,8 +1470,8 @@ describe('useSteering', () => {
           isCreatedByUser: false,
           content: [],
         } as unknown as TMessage,
-      ];
-      mockLatestMessage = mockMessages[0];
+      ]);
+      getDefaultStore().set(siblingIdxFamily(siblingKey(CONVO_ID)), 1);
       const { result } = setupServerQueue();
 
       await act(async () => {
@@ -1638,7 +1729,7 @@ describe('useSteering', () => {
             ]);
           })}
         >
-          {children}
+          <SteerProvider>{children}</SteerProvider>
         </RecoilRoot>
       );
       const { result } = renderHook(
@@ -1844,7 +1935,9 @@ describe('useSteering', () => {
       const sendNow = jest.fn();
       const stopGenerating = jest.fn();
       const wrapper = ({ children }: { children: React.ReactNode }) => (
-        <RecoilRoot initializeState={withActiveGeneration(initialize)}>{children}</RecoilRoot>
+        <RecoilRoot initializeState={withActiveGeneration(initialize)}>
+          <SteerProvider>{children}</SteerProvider>
+        </RecoilRoot>
       );
       const rendered = renderHook(
         () => ({
@@ -2024,7 +2117,9 @@ describe('useSteering', () => {
     ) {
       const sendNow = jest.fn();
       const wrapper = ({ children }: { children: React.ReactNode }) => (
-        <RecoilRoot initializeState={withActiveGeneration(initialize)}>{children}</RecoilRoot>
+        <RecoilRoot initializeState={withActiveGeneration(initialize)}>
+          <SteerProvider>{children}</SteerProvider>
+        </RecoilRoot>
       );
       const rendered = renderHook(
         ({ convoId, isSubmitting }: { convoId: string; isSubmitting: boolean }) => ({
@@ -2415,7 +2510,7 @@ describe('useSteering', () => {
      * answer: the opposite of what the action promises.
      */
     it('refuses while paused on tool approval instead of aborting', () => {
-      mockMessages = [
+      seedMessages([
         {
           messageId: 'm1',
           conversationId: CONVO_ID,
@@ -2431,13 +2526,13 @@ describe('useSteering', () => {
             },
           ],
         } as unknown as TMessage,
-      ];
+      ]);
       const { result, stopGenerating } = setup();
       let consumed = true;
       act(() => {
         consumed = result.current.interruptSteer('do not abort me');
       });
-      mockMessages = undefined;
+      seedMessages(undefined);
 
       expect(consumed).toBe(false);
       expect(stopGenerating).not.toHaveBeenCalled();
@@ -2602,7 +2697,7 @@ describe('useSteering', () => {
             getDefaultStore().set(activeGenerationProtocolVersionByConvoId(otherConversationId), 2);
           }}
         >
-          {children}
+          <SteerProvider>{children}</SteerProvider>
         </RecoilRoot>
       );
       const { result, rerender } = renderHook(
@@ -2664,7 +2759,9 @@ describe('useSteering', () => {
       const sendNow = jest.fn();
       const stopGenerating = jest.fn();
       const wrapper = ({ children }: { children: React.ReactNode }) => (
-        <RecoilRoot initializeState={withActiveGeneration(initialize)}>{children}</RecoilRoot>
+        <RecoilRoot initializeState={withActiveGeneration(initialize)}>
+          <SteerProvider>{children}</SteerProvider>
+        </RecoilRoot>
       );
       const rendered = renderHook(
         () => ({
@@ -3795,7 +3892,7 @@ describe('useSteering', () => {
                 }
           }
         >
-          {children}
+          <SteerProvider>{children}</SteerProvider>
         </RecoilRoot>
       );
       const rendered = renderHook(
@@ -3894,7 +3991,9 @@ describe('useSteering', () => {
 
         render(
           <RecoilRoot initializeState={withActiveGeneration()}>
-            <Composer />
+            <SteerProvider>
+              <Composer />
+            </SteerProvider>
           </RecoilRoot>,
         );
         return {
@@ -3960,7 +4059,7 @@ describe('useSteering', () => {
       it('ignores a late callback for an attachment the steer already took', () => {
         const { observed, getUpdates, getSteering } = setupComposer();
 
-        act(() => getUpdates().addFile(extended('file-consumed', 0.4)));
+        act(() => getUpdates().addFile(extended('file-consumed', 1)));
         expect(observed.files.has('file-consumed')).toBe(true);
 
         act(() => {
@@ -4165,7 +4264,7 @@ describe('useSteering', () => {
     it('restores an unchanged queued media item without re-marking its files', () => {
       // Paused on approval → steering unavailable while the run is live, so
       // sendQueuedNow restores the item unchanged: its files were already marked.
-      mockMessages = [
+      seedMessages([
         {
           messageId: 'resp-1',
           isCreatedByUser: false,
@@ -4181,7 +4280,7 @@ describe('useSteering', () => {
             },
           ],
         } as unknown as TMessage,
-      ];
+      ]);
       const { result } = setupWithFiles();
       const queued = {
         id: 'q-requeue',
@@ -4226,7 +4325,7 @@ describe('useSteering', () => {
               reasoningStore,
             )}
           >
-            {children}
+            <SteerProvider>{children}</SteerProvider>
           </RecoilRoot>
         </JotaiProvider>
       );
