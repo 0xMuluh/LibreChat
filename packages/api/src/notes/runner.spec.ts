@@ -195,6 +195,69 @@ test('an engine that keeps failing ends the run with its error', async () => {
   await expect(runner.run({ ...input, code: '1' })).rejects.toThrow('Engine HTTP 502');
 });
 
+const UNREACHABLE = 'Could not reach the notes engine at engine.test.';
+
+function runnerNamingTheEngine() {
+  return createEngineRunner(
+    {
+      models,
+      startExecution: start,
+      getExecutionStatus: status,
+      signalCancel,
+      pollSleep: async () => {},
+      engineUnreachableError: (cause) => new Error(UNREACHABLE, { cause }),
+    },
+    createEventStore(models).appendEvent,
+  );
+}
+
+test('an engine that keeps failing ends the run saying it could not be reached', async () => {
+  const input = await makeExecution();
+  const failure = new Error('Engine HTTP 502');
+  engineAnswers([failure]);
+  const error = await runnerNamingTheEngine()
+    .run({ ...input, code: '1' })
+    .catch((err) => err);
+  expect(error.message).toBe(UNREACHABLE);
+  expect(error.cause).toBe(failure);
+  expect(status).toHaveBeenCalledTimes(40);
+  expect(await phaseEvents(input.executionId)).toEqual([
+    [1, 'phase', 'waiting_for_slot'],
+    [2, 'phase', 'engine_not_answering'],
+  ]);
+});
+
+test('after three failed status requests the cell says the engine is not answering', async () => {
+  const input = await makeExecution();
+  const failure = new Error('fetch failed');
+  engineAnswers([
+    failure,
+    failure,
+    failure,
+    failure,
+    { phase: 'running' },
+    { phase: 'done', done: true, result: { success: true } },
+  ]);
+  expect(await runner.run({ ...input, code: '1' })).toEqual({ success: true });
+  expect(await phaseEvents(input.executionId)).toEqual([
+    [1, 'phase', 'waiting_for_slot'],
+    [2, 'phase', 'engine_not_answering'],
+    [3, 'phase', 'running'],
+    [4, 'phase', 'done'],
+  ]);
+});
+
+test('two failed status requests leave the phase alone', async () => {
+  const input = await makeExecution();
+  const failure = new Error('fetch failed');
+  engineAnswers([failure, failure, { phase: 'done', done: true, result: { success: true } }]);
+  await runner.run({ ...input, code: '1' });
+  expect(await phaseEvents(input.executionId)).toEqual([
+    [1, 'phase', 'waiting_for_slot'],
+    [2, 'phase', 'done'],
+  ]);
+});
+
 test('resuming reads the console from the start and repeats no phase event', async () => {
   const input = await makeExecution({ phase: 'running', stdout: 'old' });
   engineAnswers([

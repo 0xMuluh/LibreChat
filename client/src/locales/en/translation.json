@@ -2599,6 +2599,7 @@
   "com_ui_note_not_in_books": "Not in the books: {{0}}",
   "com_ui_note_output": "Execution Output",
   "com_ui_note_phase_cancelling": "Cancelling…",
+  "com_ui_note_phase_engine_not_answering": "The notes engine is not answering. Still trying…",
   "com_ui_note_phase_interrupted": "Interrupted by a server restart. Run the cell again.",
   "com_ui_note_phase_preparing_files": "Copying your files to the note…",
   "com_ui_note_phase_restoring_session": "Restoring your saved session…",
