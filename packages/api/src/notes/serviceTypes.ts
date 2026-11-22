@@ -1,5 +1,14 @@
 import type { Model, Types } from 'mongoose';
-import type { Cell, Revision, Execution, Event, Artifact, NoteEngineResult } from './contracts';
+import type {
+  Cell,
+  Revision,
+  Execution,
+  Event,
+  Artifact,
+  Phase,
+  NoteEngineStatus,
+  NoteEngineStartInput,
+} from './contracts';
 export type Identifier = string | Types.ObjectId;
 export interface NoteModels {
   NoteCell: Model<Cell>;
@@ -15,12 +24,16 @@ export interface NoteDependencies {
     | Model<{ conversationId: string; user: string; shareId: string; expiredAt?: Date }>
     | undefined;
   bridgeConversationFiles: (conversationId: string, userId: string) => Promise<void>;
-  executeOnEngine: (input: {
-    code: string;
+  /** Starts the cell on the engine and returns at once. */
+  startExecution: (input: NoteEngineStartInput) => Promise<{ phase?: Phase }>;
+  /** The run's status on the engine; null when the engine does not know it. */
+  getExecutionStatus: (input: {
     threadId: string;
     executionId: string;
-    timeoutSeconds: number;
-  }) => Promise<NoteEngineResult>;
+    offset: number;
+  }) => Promise<NoteEngineStatus | null>;
+  /** Pause between two status requests; replaced in specs. */
+  pollSleep?: (ms: number) => Promise<void>;
   fetchArtifactFromEngine: (
     conversationId: string,
     relativePath: string,

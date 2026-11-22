@@ -142,6 +142,33 @@ export function useRCell(
     [conversationId, clearPoll, loadArtifacts],
   );
 
+  // A live agent cell: the tool output that names the cell arrives only when the
+  // run ends, so find the cell by the tool call's blockKey and follow its run.
+  const attachByBlockKey = useCallback(
+    (convoId: string, key: string) => {
+      clearPoll();
+      const lookup = setInterval(async () => {
+        try {
+          const cell = await noteCellsApi.findCellByBlockKey(convoId, key);
+          const executionId = cell.latestExecution?.id || cell.latestExecutionId;
+          if (pollRef.current !== lookup || !executionId) {
+            return;
+          }
+          setCellId(cell.id);
+          if (cell.latestExecution) {
+            setExecution(cell.latestExecution);
+          }
+          setIsBootstrapping(false);
+          startPolling(cell.id, executionId);
+        } catch {
+          /* 404 until the agent's run has created the cell */
+        }
+      }, 1500);
+      pollRef.current = lookup;
+    },
+    [clearPoll, startPolling],
+  );
+
   // Bootstrap: bind durable cell
   useEffect(() => {
     let cancelled = false;
@@ -241,6 +268,15 @@ export function useRCell(
         return;
       }
       if (isAgentGenerated && isParentRunning) {
+        if (
+          blockKeyProp &&
+          !cellIdProp &&
+          !metaFromOutput.cellId &&
+          conversationId &&
+          conversationId !== 'new'
+        ) {
+          attachByBlockKey(conversationId, blockKeyProp);
+        }
         return;
       }
       if (!conversationId || conversationId === 'new') {

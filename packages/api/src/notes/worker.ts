@@ -1,144 +1,129 @@
 import { logger } from '@librechat/data-schemas';
-import type { Types } from 'mongoose';
-import { buildNoteArtifacts } from './agent';
-import { errorMessage, errorCode } from './errors';
+import { errorMessage } from './errors';
 import { toId } from './serialization';
 import { TERMINAL } from './constants';
-import type { Execution, NoteEngineResult, Status } from './contracts';
+import type { NoteEngineResult } from './contracts';
 import type { NoteDependencies, Identifier } from './serviceTypes';
+import type { createNoteAgentLifecycle } from './agent';
 import type { createEventStore } from './events';
+import { INTERRUPTED_MESSAGE } from './runner';
+import type { EngineRunner } from './runner';
+
+/** Two hours: longer than the safety stop of any cell. */
+const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
 export interface ExecutionWorker {
   enqueueExecution(id: Identifier): Promise<void> | undefined;
+  /** Follows a run this server is not following (after a restart) and saves its result. */
+  resumeExecution(id: Identifier): Promise<void> | undefined;
+  /** Registers a run followed elsewhere in this server (agent cells). */
+  trackExecution(id: Identifier, job: Promise<unknown>): void;
   waitForExecution(id: string): Promise<void> | undefined;
+  /** Resumes every run still queued or running; called once when the server starts. */
+  sweepExecutions(): Promise<number>;
 }
 export function createExecutionWorker(
   deps: NoteDependencies,
   appendEvent: ReturnType<typeof createEventStore>['appendEvent'],
+  runner: EngineRunner,
+  finish: ReturnType<typeof createNoteAgentLifecycle>['finish'],
 ): ExecutionWorker {
-  const { NoteCellExecution, NoteCellRevision, NoteExecutionArtifact } = deps.models;
-  const { bridgeConversationFiles, executeOnEngine } = deps;
+  const { NoteCellExecution, NoteCellRevision } = deps.models;
+  const { bridgeConversationFiles } = deps;
+  /** Runs this server follows; a non-terminal run missing here was orphaned by a restart. */
   const runningJobs = new Map<string, Promise<void>>();
-  async function registerArtifacts(
-    execution: Execution & { _id: Types.ObjectId },
-    engineResult: NoteEngineResult,
-  ) {
-    const artifacts = buildNoteArtifacts(execution, engineResult);
-    return artifacts.length ? NoteExecutionArtifact.insertMany(artifacts) : [];
-  }
 
-  async function processExecution(executionId: Identifier) {
+  async function processExecution(executionId: Identifier, resume: boolean) {
     const execution = await NoteCellExecution.findById(executionId);
     if (!execution || TERMINAL.has(execution.status)) {
       return;
     }
+    const input = {
+      executionId: toId(execution._id),
+      conversationId: execution.conversationId,
+      timeoutSeconds: execution.timeoutSeconds,
+    };
 
-    const revision = await NoteCellRevision.findById(execution.revisionId);
-    if (!revision) {
-      execution.status = 'failed';
-      execution.error = 'Revision not found';
-      execution.finishedAt = new Date();
-      await execution.save();
-      await appendEvent(execution._id, execution.conversationId, 'failed', 'failed', {
-        error: execution.error,
-      });
-      return;
-    }
-
-    execution.status = 'running';
-    execution.startedAt = new Date();
-    await execution.save();
-    await appendEvent(execution._id, execution.conversationId, 'running', 'running');
-
+    let result: NoteEngineResult;
     try {
-      await bridgeConversationFiles(execution.conversationId, execution.user);
-
-      const result = await executeOnEngine({
-        code: revision.content,
-        threadId: execution.conversationId,
-        executionId: toId(execution._id),
-        timeoutSeconds: execution.timeoutSeconds,
-      });
-
-      const fresh = await NoteCellExecution.findById(execution._id);
-      if (fresh?.cancelRequested) {
-        fresh.status = 'cancelled';
-        fresh.finishedAt = new Date();
-        fresh.error = 'Cancelled';
-        await fresh.save();
-        await appendEvent(fresh._id, fresh.conversationId, 'cancelled', 'cancelled');
-        return;
-      }
-
-      execution.stdout = result.stdout || '';
-      execution.markdown = result.markdown || '';
-      execution.engineCellId = result.cell_id || null;
-      execution.engineRunDir = result.engine_run_dir || result.run_dir || null;
-
-      let finalStatus: Status = 'completed';
-      let finalError = result.error || null;
-      if (result.cancelled || result.timed_out) {
-        finalStatus = result.cancelled ? 'cancelled' : 'timed_out';
-        finalError = result.error || finalStatus;
-      } else if (result.success === false) {
-        finalStatus = 'failed';
-        finalError = result.error || 'Execution failed';
-      }
-
-      // Keep the execution non-terminal until its artifact rows exist. The
-      // client stops polling as soon as it sees a terminal status, so saving
-      // that status first creates a race where plots are already on disk but
-      // their API metadata is not visible yet.
-      await registerArtifacts(execution, result);
-      execution.status = finalStatus;
-      execution.error = finalError;
-      execution.finishedAt = new Date();
-      await execution.save();
-      await appendEvent(
-        execution._id,
-        execution.conversationId,
-        execution.status,
-        execution.status,
-        {
-          error: execution.error,
-        },
-      );
-    } catch (err) {
-      const fresh = await NoteCellExecution.findById(execution._id);
-      if (!fresh || TERMINAL.has(fresh.status)) {
-        return;
-      }
-      if (errorCode(err) === 'CANCELLED' || fresh.cancelRequested) {
-        fresh.status = 'cancelled';
-        fresh.error = 'Cancelled';
-      } else if (errorCode(err) === 'TIMED_OUT') {
-        fresh.status = 'timed_out';
-        fresh.error = errorMessage(err);
+      if (resume) {
+        result = await runner.resume(input);
       } else {
-        fresh.status = 'failed';
-        fresh.error = errorMessage(err) || String(err);
+        const revision = await NoteCellRevision.findById(execution.revisionId);
+        if (!revision) {
+          execution.status = 'failed';
+          execution.error = 'Revision not found';
+          execution.finishedAt = new Date();
+          await execution.save();
+          await appendEvent(execution._id, execution.conversationId, 'failed', 'failed', {
+            error: execution.error,
+          });
+          return;
+        }
+
+        execution.status = 'running';
+        execution.startedAt = new Date();
+        await execution.save();
+        await appendEvent(execution._id, execution.conversationId, 'running', 'running');
+
+        await runner.setPhase(input.executionId, input.conversationId, 'preparing_files');
+        await bridgeConversationFiles(execution.conversationId, execution.user);
+        result = await runner.run({ ...input, code: revision.content });
       }
-      fresh.finishedAt = new Date();
-      await fresh.save();
-      await appendEvent(fresh._id, fresh.conversationId, fresh.status, fresh.status, {
-        error: fresh.error,
-      });
-    } finally {
-      runningJobs.delete(toId(executionId));
+    } catch (err) {
+      const message = errorMessage(err) || String(err);
+      result = { success: false, error: message, markdown: `Execution failed: ${message}` };
     }
+    await finish(input.conversationId, input.executionId, result);
   }
 
-  function enqueueExecution(executionId: Identifier) {
+  function trackExecution(executionId: Identifier, job: Promise<unknown>) {
     const key = toId(executionId);
-    if (runningJobs.has(key)) {
-      return runningJobs.get(key);
-    }
-    const promise = processExecution(executionId).catch((err) => {
-      logger.error(`[NoteCells] execution job failed: ${errorMessage(err)}`);
-    });
+    const promise = job
+      .then(
+        () => undefined,
+        (err) => {
+          logger.error(`[NoteCells] execution job failed: ${errorMessage(err)}`);
+        },
+      )
+      .finally(() => {
+        runningJobs.delete(key);
+      });
     runningJobs.set(key, promise);
     return promise;
   }
 
-  return { enqueueExecution, waitForExecution: (id: string) => runningJobs.get(id) };
+  function start(executionId: Identifier, resume: boolean) {
+    const key = toId(executionId);
+    return runningJobs.get(key) ?? trackExecution(key, processExecution(executionId, resume));
+  }
+
+  async function sweepExecutions() {
+    const openFilter = { status: { $in: ['queued', 'running'] } };
+    // Older than any run's safety stop: nothing can still be running it, so no engine call.
+    const stale = { ...openFilter, createdAt: { $lt: new Date(Date.now() - STALE_AFTER_MS) } };
+    await NoteCellExecution.updateMany(stale, {
+      $set: {
+        status: 'failed',
+        phase: 'interrupted',
+        error: INTERRUPTED_MESSAGE,
+        finishedAt: new Date(),
+      },
+    });
+    const open = await NoteCellExecution.find(openFilter).select('_id').lean();
+    for (const execution of open) {
+      start(execution._id, true);
+    }
+    return open.length;
+  }
+
+  return {
+    enqueueExecution: (id: Identifier) => start(id, false),
+    resumeExecution: (id: Identifier) => start(id, true),
+    trackExecution: (id: Identifier, job: Promise<unknown>) => {
+      trackExecution(id, job);
+    },
+    waitForExecution: (id: string) => runningJobs.get(id),
+    sweepExecutions,
+  };
 }

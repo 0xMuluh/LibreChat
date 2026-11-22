@@ -3,14 +3,14 @@ import { toId } from './serialization';
 import type { NoteModels, Identifier } from './serviceTypes';
 import type { Status } from './contracts';
 
-import type { Event } from './contracts';
+import type { Event, EventPayload } from './contracts';
 export interface EventStore {
   appendEvent(
     executionId: Identifier,
     conversationId: string,
     eventType: string,
     status: Status,
-    payload?: { error?: string | null } | null,
+    payload?: EventPayload | null,
   ): Promise<number>;
   listEvents(
     conversationId: string,
@@ -29,19 +29,29 @@ export function createEventStore(models: NoteModels): EventStore {
     conversationId: string,
     eventType: string,
     status: Status,
-    payload: { error?: string | null } | null = null,
+    payload: EventPayload | null = null,
   ) {
-    const last = await NoteExecutionEvent.findOne({ executionId }).sort({ sequence: -1 }).lean();
-    const sequence = (last?.sequence || 0) + 1;
-    await NoteExecutionEvent.create({
-      executionId,
-      conversationId,
-      sequence,
-      eventType,
-      status,
-      payload,
-    });
-    return sequence;
+    // A cancel request can land between the read and the write of a phase event; the
+    // unique index then refuses the second writer, which takes the next number.
+    for (let attempt = 0; ; attempt++) {
+      const last = await NoteExecutionEvent.findOne({ executionId }).sort({ sequence: -1 }).lean();
+      const sequence = (last?.sequence || 0) + 1;
+      try {
+        await NoteExecutionEvent.create({
+          executionId,
+          conversationId,
+          sequence,
+          eventType,
+          status,
+          payload,
+        });
+        return sequence;
+      } catch (err) {
+        if (attempt >= 2 || (err as { code?: number }).code !== 11000) {
+          throw err;
+        }
+      }
+    }
   }
 
   async function listEvents(

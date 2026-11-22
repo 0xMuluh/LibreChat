@@ -16,6 +16,8 @@ export type SerializedExecution = Omit<
   cellId: string;
   revisionId: string;
   cancelRequested: boolean;
+  /** Server clock at the time of the answer, so the page's timers do not depend on its own. */
+  serverNow: Date;
   artifacts?: SerializedArtifact[];
 };
 export type SerializedCell = Omit<Cell, 'user' | 'latestRevisionId' | 'latestExecutionId'> & {
@@ -86,6 +88,11 @@ export function serializeExecution(
     engineCellId: exec.engineCellId,
     startedAt: exec.startedAt,
     finishedAt: exec.finishedAt,
+    phase: exec.phase ?? null,
+    phaseStartedAt: exec.phaseStartedAt ?? null,
+    rStartedAt: exec.rStartedAt ?? null,
+    bookRefs: exec.bookRefs ?? null,
+    serverNow: new Date(),
     createdAt: exec.createdAt,
     updatedAt: exec.updatedAt,
     artifacts,

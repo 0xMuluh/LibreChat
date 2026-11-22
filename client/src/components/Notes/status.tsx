@@ -1,20 +1,23 @@
 import { Clock, Loader2, CheckCircle2, XCircle, AlertTriangle, Square } from 'lucide-react';
+import type { useLocalize } from '~/hooks';
 import type { NoteCellExecutionStatus } from '~/data-provider/Notes/notesCellsApi';
 
-export function statusLabel(status?: NoteCellExecutionStatus | null): string {
+type Localize = ReturnType<typeof useLocalize>;
+
+export function statusLabel(localize: Localize, status?: NoteCellExecutionStatus | null): string {
   switch (status) {
     case 'queued':
-      return 'Queued';
+      return localize('com_ui_note_status_queued');
     case 'running':
-      return 'Running';
+      return localize('com_ui_note_status_running');
     case 'completed':
-      return 'Completed';
+      return localize('com_ui_note_status_completed');
     case 'failed':
-      return 'Failed';
+      return localize('com_ui_note_status_failed');
     case 'timed_out':
-      return 'Timed out';
+      return localize('com_ui_note_status_timed_out');
     case 'cancelled':
-      return 'Cancelled';
+      return localize('com_ui_note_status_cancelled');
     default:
       return '';
   }
@@ -23,17 +26,17 @@ export function statusLabel(status?: NoteCellExecutionStatus | null): string {
 export function statusTone(status?: NoteCellExecutionStatus | null): string {
   switch (status) {
     case 'queued':
-      return 'text-amber-600 dark:text-amber-400';
+      return 'text-status-warning';
     case 'running':
-      return 'text-sky-600 dark:text-sky-400';
+      return 'text-status-info';
     case 'completed':
-      return 'text-emerald-600 dark:text-emerald-400';
+      return 'text-status-success';
     case 'failed':
-      return 'text-rose-600 dark:text-rose-400';
+      return 'text-status-error';
     case 'timed_out':
-      return 'text-orange-600 dark:text-orange-400';
+      return 'text-status-warning';
     case 'cancelled':
-      return 'text-slate-500';
+      return 'text-status-neutral';
     default:
       return 'text-text-tertiary';
   }
@@ -42,17 +45,17 @@ export function statusTone(status?: NoteCellExecutionStatus | null): string {
 export function statusIcon(status?: NoteCellExecutionStatus | null) {
   switch (status) {
     case 'queued':
-      return <Clock className="size-3 text-amber-500" />;
+      return <Clock className="text-status-warning size-3" />;
     case 'running':
-      return <Loader2 className="size-3 animate-spin text-sky-500" />;
+      return <Loader2 className="text-status-info size-3 animate-spin" />;
     case 'completed':
-      return <CheckCircle2 className="size-3 text-emerald-500" />;
+      return <CheckCircle2 className="text-status-success size-3" />;
     case 'failed':
-      return <XCircle className="size-3 text-rose-500" />;
+      return <XCircle className="text-status-error size-3" />;
     case 'timed_out':
-      return <AlertTriangle className="size-3 text-orange-500" />;
+      return <AlertTriangle className="text-status-warning size-3" />;
     case 'cancelled':
-      return <Square className="size-3 text-slate-500" />;
+      return <Square className="text-status-neutral size-3" />;
     default:
       return null;
   }

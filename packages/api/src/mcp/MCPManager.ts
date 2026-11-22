@@ -1441,6 +1441,7 @@ Please follow these instructions when using tools from the respective MCP server
     toolName,
     provider,
     toolArguments,
+    toolCallId,
     options,
     tokenMethods,
     requestBody,
@@ -1469,6 +1470,8 @@ Please follow these instructions when using tools from the respective MCP server
     toolName: string;
     provider: t.Provider;
     toolArguments?: Record<string, unknown>;
+    /** Id of the model's tool call; an agent's R cell is stored under it. */
+    toolCallId?: string;
     options?: RequestOptions;
     requestBody?: RequestBody;
     requestScopedConnections?: t.RequestScopedMCPConnectionStore;
@@ -1498,6 +1501,7 @@ Please follow these instructions when using tools from the respective MCP server
         conversationId: requestBody?.conversationId ?? '',
         code: String(toolArguments?.code ?? ''),
         cellId: toolArguments?.cell_id == null ? undefined : String(toolArguments.cell_id),
+        toolCallId,
         signal: options?.signal,
       });
       return formatToolContent({ content: [{ type: 'text', text }] }, provider, {

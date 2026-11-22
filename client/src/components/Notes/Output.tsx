@@ -1,5 +1,8 @@
+import { useEffect, useRef } from 'react';
 import { cn } from '~/utils';
-import { statusTone, statusIcon, statusLabel } from './status';
+import { useLocalize } from '~/hooks';
+import { TERMINAL_STATUSES } from '~/data-provider/Notes/notesCellsApi';
+import { BookRefs } from './BookRefs';
 import { Terminal, Table as TableIcon, Image as ImageIcon, Download, XCircle } from 'lucide-react';
 import { TooltipAnchor } from '@librechat/client';
 import MarkdownLite from '~/components/Chat/Messages/Content/MarkdownLite';
@@ -7,55 +10,80 @@ import type { useRCell } from './useRCell';
 
 type OutputProps = Pick<
   ReturnType<typeof useRCell>,
-  'execution' | 'stdout' | 'executionError' | 'authPlotUrls' | 'tables' | 'execStatus'
-> & { isParentRunning?: boolean };
+  'execution' | 'stdout' | 'executionError' | 'authPlotUrls' | 'tables'
+> & {
+  /** Why a run ended early (stopped, cancelled, interrupted), shown above its output. */
+  endingNotice?: string | null;
+};
+
+/** Lines of console shown while the cell is still running. */
+const LIVE_CONSOLE_LINES = 40;
 
 export function Output({
-  execStatus,
-  isParentRunning,
   execution,
   stdout,
   executionError,
   authPlotUrls,
   tables,
+  endingNotice,
 }: OutputProps) {
+  const localize = useLocalize();
+  const isRunning = !!execution && !TERMINAL_STATUSES.has(execution.status);
+  const consoleText = stdout ? String(stdout).trim() : '';
+  const shownConsole = isRunning
+    ? consoleText.split('\n').slice(-LIVE_CONSOLE_LINES).join('\n')
+    : consoleText;
+  const consoleRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isRunning && consoleRef.current) {
+      consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
+    }
+  }, [isRunning, shownConsole]);
+
   return (
     <>
-      {(execution || stdout || executionError || authPlotUrls.length > 0 || tables.length > 0) && (
-        <div className="border-t border-border-light bg-surface-secondary/30 p-3 dark:border-border-heavy dark:bg-surface-secondary/10">
-          <div className="mb-2 flex items-center justify-between text-[11px] font-medium text-text-secondary">
-            <span className="flex items-center gap-1.5">
-              <Terminal className="size-3.5" />
-              Execution Output
-            </span>
-            <span
-              className={cn(
-                'inline-flex items-center gap-1 font-mono text-xs',
-                statusTone(execStatus),
-              )}
-            >
-              {statusIcon(execStatus)}
-              {statusLabel(execStatus) || (isParentRunning ? 'Running' : 'Ready')}
-            </span>
+      {(execution ||
+        stdout ||
+        executionError ||
+        endingNotice ||
+        authPlotUrls.length > 0 ||
+        tables.length > 0) && (
+        <div className="border-border-light bg-surface-secondary/30 dark:border-border-heavy dark:bg-surface-secondary/10 border-t p-3">
+          <div className="text-text-secondary text-2xs mb-2 flex items-center gap-1.5 font-medium">
+            <Terminal className="size-3.5" />
+            {localize('com_ui_note_output')}
           </div>
 
+          {endingNotice && (
+            <div
+              data-testid="note-cell-ending"
+              className="border-status-warning-border bg-status-warning-subtle text-status-warning mb-2.5 rounded-lg border p-3 text-xs"
+            >
+              {endingNotice}
+            </div>
+          )}
+
           {executionError && (
-            <div className="mb-2.5 flex items-start gap-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-700 dark:text-rose-300">
-              <XCircle className="mt-0.5 size-4 shrink-0 text-rose-500" />
+            <div className="border-status-error-border bg-status-error-subtle text-status-error mb-2.5 flex items-start gap-2.5 rounded-lg border p-3 text-xs">
+              <XCircle className="mt-0.5 size-4 shrink-0" />
               <div className="min-w-0 flex-1 overflow-x-auto">
-                <div className="mb-1 font-semibold text-rose-600 dark:text-rose-400">
-                  Execution Error
-                </div>
-                <pre className="whitespace-pre-wrap font-mono text-xs text-rose-800 dark:text-rose-200">
-                  {executionError.trim()}
-                </pre>
+                <div className="mb-1 font-semibold">{localize('com_ui_note_execution_error')}</div>
+                <pre className="font-mono text-xs whitespace-pre-wrap">{executionError.trim()}</pre>
               </div>
             </div>
           )}
 
-          {stdout && (
-            <div className="mb-2.5 overflow-x-auto rounded-lg bg-black/90 p-3 font-mono text-xs text-emerald-400">
-              <pre className="whitespace-pre-wrap">{String(stdout).trim()}</pre>
+          {shownConsole && (
+            <div
+              ref={consoleRef}
+              data-testid="note-cell-console"
+              className={cn(
+                'text-status-success-border dark:text-status-success mb-2.5 overflow-x-auto rounded-lg bg-black/90 p-3 font-mono text-xs',
+                isRunning && 'max-h-64 overflow-y-auto',
+              )}
+            >
+              <pre className="whitespace-pre-wrap">{shownConsole}</pre>
             </div>
           )}
 
@@ -64,25 +92,25 @@ export function Output({
               {tables.map((tbl, i) => (
                 <div
                   key={i}
-                  className="rounded-lg border border-border-light bg-surface-primary p-3 dark:border-border-heavy"
+                  className="border-border-light bg-surface-primary dark:border-border-heavy rounded-lg border p-3"
                 >
-                  <div className="mb-1.5 flex items-center justify-between text-xs font-semibold text-text-primary">
+                  <div className="text-text-primary mb-1.5 flex items-center justify-between text-xs font-semibold">
                     <div className="flex items-center gap-2">
-                      <TableIcon className="size-3.5 text-accent-primary" />
+                      <TableIcon className="text-accent-primary size-3.5" />
                       <span>
-                        Table Preview ({tbl.rows} rows × {tbl.cols} cols)
+                        {localize('com_ui_note_table_preview', { 0: tbl.rows, 1: tbl.cols })}
                       </span>
                     </div>
                     {tbl.url && (
                       <TooltipAnchor
-                        description={`Download ${tbl.file}`}
+                        description={localize('com_ui_note_download_file', { 0: tbl.file })}
                         side="top"
                         render={
                           <a
                             href={tbl.url}
                             download={tbl.file}
-                            className="inline-flex items-center gap-1 rounded p-1 text-xs text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-                            aria-label={`Download ${tbl.file}`}
+                            className="text-text-secondary hover:bg-surface-hover hover:text-text-primary inline-flex items-center gap-1 rounded p-1 text-xs transition-colors"
+                            aria-label={localize('com_ui_note_download_file', { 0: tbl.file })}
                           >
                             <Download className="size-3.5" />
                           </a>
@@ -90,7 +118,7 @@ export function Output({
                       />
                     )}
                   </div>
-                  <div className="markdown prose prose-sm dark:prose-invert max-w-none overflow-x-auto text-xs">
+                  <div className="markdown prose prose-sm max-w-none overflow-x-auto text-xs">
                     <MarkdownLite content={tbl.markdown} codeExecution={false} />
                   </div>
                 </div>
@@ -103,15 +131,15 @@ export function Output({
               {authPlotUrls.map((plotUrl, idx) => (
                 <div
                   key={idx}
-                  className="group relative overflow-hidden rounded-xl border border-border-light bg-white p-2 shadow-sm transition-all dark:border-border-heavy dark:bg-black"
+                  className="group border-border-light dark:border-border-heavy relative overflow-hidden rounded-xl border bg-white p-2 shadow-sm transition-all dark:bg-black"
                 >
-                  <div className="mb-1.5 flex items-center justify-between px-1 text-xs text-text-secondary">
+                  <div className="text-text-secondary mb-1.5 flex items-center justify-between px-1 text-xs">
                     <span className="flex items-center gap-1.5 font-medium">
-                      <ImageIcon className="size-3.5 text-indigo-500" />
-                      Plot #{idx + 1}
+                      <ImageIcon className="text-accent-primary size-3.5" />
+                      {localize('com_ui_note_plot_title', { 0: idx + 1 })}
                     </span>
                     <TooltipAnchor
-                      description="Download plot"
+                      description={localize('com_ui_note_download_plot')}
                       side="top"
                       render={
                         <button
@@ -124,8 +152,8 @@ export function Output({
                             link.click();
                             document.body.removeChild(link);
                           }}
-                          className="inline-flex items-center gap-1 rounded p-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-                          aria-label="Download plot"
+                          className="text-text-secondary hover:bg-surface-hover hover:text-text-primary inline-flex items-center gap-1 rounded p-1 transition-colors"
+                          aria-label={localize('com_ui_note_download_plot')}
                         >
                           <Download className="size-3.5" />
                         </button>
@@ -134,7 +162,7 @@ export function Output({
                   </div>
                   <img
                     src={plotUrl}
-                    alt={`Plot ${idx + 1}`}
+                    alt={localize('com_ui_note_plot_alt', { 0: idx + 1 })}
                     className="max-h-[500px] w-full rounded-lg object-contain"
                     loading="lazy"
                   />
@@ -142,6 +170,8 @@ export function Output({
               ))}
             </div>
           )}
+
+          <BookRefs bookRefs={execution?.bookRefs} />
         </div>
       )}
     </>

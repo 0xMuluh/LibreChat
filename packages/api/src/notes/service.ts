@@ -4,6 +4,7 @@ import { createExecutionStore } from './executions';
 import { serializeArtifact } from './serialization';
 import { createExecutionWorker } from './worker';
 import { createEventStore } from './events';
+import { createEngineRunner } from './runner';
 import { createCellStore } from './cells';
 import { NoteError } from './errors';
 
@@ -25,9 +26,15 @@ export type NoteService = ReturnType<typeof createCellStore> &
 export function createNoteService(deps: NoteDependencies): NoteService {
   const cells = createCellStore(deps.models);
   const events = createEventStore(deps.models);
-  const worker = createExecutionWorker(deps, events.appendEvent);
-  const executions = createExecutionStore(deps, events.appendEvent, worker.enqueueExecution);
+  const runner = createEngineRunner(deps, events.appendEvent);
   const agentLifecycle = createNoteAgentLifecycle(deps.models);
+  const worker = createExecutionWorker(deps, events.appendEvent, runner, agentLifecycle.finish);
+  const executions = createExecutionStore(
+    deps,
+    events.appendEvent,
+    worker.enqueueExecution,
+    worker.resumeExecution,
+  );
   async function assertConversationAccess(
     conversationId: string,
     userId?: string,
@@ -92,6 +99,7 @@ export function createNoteService(deps: NoteDependencies): NoteService {
     findOrCreateCell: cells.findOrCreateCell,
     listCells: cells.listCells,
     getCell: cells.getCell,
+    getCellByBlockKey: cells.getCellByBlockKey,
     appendRevision: cells.appendRevision,
     executeCell: executions.executeCell,
     getExecution: executions.getExecution,
@@ -101,14 +109,18 @@ export function createNoteService(deps: NoteDependencies): NoteService {
     appendEvent: events.appendEvent,
     listEvents: events.listEvents,
     enqueueExecution: worker.enqueueExecution,
+    resumeExecution: worker.resumeExecution,
+    trackExecution: worker.trackExecution,
     waitForExecution: worker.waitForExecution,
+    sweepExecutions: worker.sweepExecutions,
     agentLifecycle,
     runAgentCell: createAgentCellRunner({
       lifecycle: agentLifecycle,
       resolveUser: resolveUserForConversation,
       bridgeConversationFiles: deps.bridgeConversationFiles,
-      executeOnEngine: deps.executeOnEngine,
+      engine: runner,
       cancelExecution: executions.cancelExecution,
+      track: worker.trackExecution,
     }),
     assertConversationAccess,
     resolveUserForConversation,

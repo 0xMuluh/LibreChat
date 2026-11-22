@@ -87,6 +87,7 @@ const { startExpiredFileSweep } = require('./services/Files/process');
 const { checkMigrations } = require('./services/start/migration');
 const optionalJwtAuth = require('./middleware/optionalJwtAuth');
 const initializeMCPs = require('./services/initializeMCPs');
+const noteCells = require('./services/NoteCells/service');
 const { configureSubagentTaskRouting } = require('./services/Endpoints/agents/subagentThreadStore');
 const configureSocialLogins = require('./socialLogins');
 const createSpaFallback = require('./utils/fallback');
@@ -548,6 +549,10 @@ const startServer = async () => {
         await initializeMCPs();
         await initializeOAuthReconnectManager();
       });
+      // Runs left queued or running by the last shutdown: follow them again or close them.
+      noteCells
+        .sweepExecutions()
+        .catch((err) => logger.error('[NoteCells] restart sweep failed:', err));
       await checkMigrations();
 
       const inspectFlags = process.execArgv.some((arg) => arg.startsWith('--inspect'));

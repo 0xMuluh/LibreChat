@@ -19,19 +19,40 @@ import {
   Download,
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
-import { TooltipAnchor } from '@librechat/client';
+import { TooltipAnchor, disabledFillClasses } from '@librechat/client';
 import { useMessageContext, useShareContext } from '~/Providers';
 import { cn } from '~/utils';
 import useLazyHighlight from '~/components/Chat/Messages/Content/Parts/useLazyHighlight';
 import { useRCell } from './useRCell';
+import { useLocalize } from '~/hooks';
 import { statusLabel, statusTone, statusIcon } from './status';
+import { StatusLine, endingNotice } from './StatusLine';
 import { Output } from './Output';
 import type { RCellBlockProps } from './types';
+import type { TranslationKeys } from '~/hooks';
+
+function saveTooltipKey(isDirty: boolean, isSaving: boolean): TranslationKeys {
+  if (isDirty) {
+    return 'com_ui_note_save_revision';
+  }
+  return isSaving ? 'com_ui_note_saving' : 'com_ui_note_save_none';
+}
+
+function runBlockedKey(isDirty: boolean, hasCell: boolean, hasCode: boolean): TranslationKeys {
+  if (isDirty) {
+    return 'com_ui_note_run_unsaved';
+  }
+  if (!hasCell) {
+    return 'com_ui_note_run_binding';
+  }
+  return hasCode ? 'com_ui_note_run_blocked' : 'com_ui_note_run_empty';
+}
 
 export default function RCell(props: RCellBlockProps) {
+  const localize = useLocalize();
   const { conversationId, messageId } = useMessageContext();
   const { isSharedConvo } = useShareContext();
-  const { isAgentGenerated, isParentRunning } = props;
+  const { isAgentGenerated } = props;
   const {
     handleSelectHistory,
     code,
@@ -70,25 +91,29 @@ export default function RCell(props: RCellBlockProps) {
     !conversationId ||
     conversationId === 'new';
 
+  const runTooltipKey: TranslationKeys = runDisabled
+    ? runBlockedKey(isDirty, !!cellId, !!code.trim())
+    : 'com_ui_note_run';
+
   const containerStatusClass = useMemo(() => {
     if (isActive) {
-      return 'border-sky-500/50 ring-1 ring-sky-500/30 shadow-md';
+      return 'border-status-info/50 ring-1 ring-status-info/30 shadow-md';
     }
     if (execStatus === 'failed') {
-      return 'border-rose-500/50 ring-1 ring-rose-500/20 shadow-sm';
+      return 'border-status-error/50 ring-1 ring-status-error/20 shadow-sm';
     }
     if (execStatus === 'queued') {
-      return 'border-amber-500/50 ring-1 ring-amber-500/20 shadow-sm';
+      return 'border-status-warning/50 ring-1 ring-status-warning/20 shadow-sm';
     }
     return 'border-border-light dark:border-border-heavy shadow-sm';
   }, [isActive, execStatus]);
 
   const headerStatusBg = useMemo(() => {
     if (isActive) {
-      return 'border-sky-500/20 bg-sky-500/10 dark:bg-sky-950/20';
+      return 'border-status-info/20 bg-status-info/10';
     }
     if (execStatus === 'failed') {
-      return 'border-rose-500/20 bg-rose-500/10 dark:bg-rose-950/20';
+      return 'border-status-error/20 bg-status-error/10';
     }
     return 'border-border-light bg-surface-secondary/60 dark:border-border-heavy dark:bg-surface-secondary/30';
   }, [isActive, execStatus]);
@@ -96,7 +121,7 @@ export default function RCell(props: RCellBlockProps) {
   return (
     <div
       className={cn(
-        'my-3 w-full overflow-hidden rounded-xl border bg-surface-primary transition-all',
+        'bg-surface-primary my-3 w-full overflow-hidden rounded-xl border transition-all',
         containerStatusClass,
       )}
     >
@@ -106,59 +131,46 @@ export default function RCell(props: RCellBlockProps) {
           headerStatusBg,
         )}
       >
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 rounded border border-accent-primary/30 bg-accent-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-accent-primary">
-            <span className="size-1.5 animate-pulse rounded-full bg-accent-primary" />
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="border-accent-primary/30 bg-accent-primary/10 text-accent-primary text-2xs inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono font-semibold">
+            <span className="bg-accent-primary size-1.5 animate-pulse rounded-full" />
             {'<R>'}
           </span>
           {isAgentGenerated && (
-            <span className="hidden items-center gap-1 font-medium text-text-tertiary sm:inline-flex">
+            <span className="text-text-tertiary hidden items-center gap-1 font-medium sm:inline-flex">
               OB
             </span>
           )}
           {execution?.attempt && execution.attempt > 1 && (
             <TooltipAnchor
-              description={`Revision attempt #${execution.attempt}`}
+              description={localize('com_ui_note_revision_attempt', { 0: execution.attempt })}
               side="top"
               render={
-                <span className="cursor-default rounded bg-accent-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-accent-primary">
-                  v{execution.attempt}
+                <span className="bg-accent-primary/10 text-accent-primary text-3xs cursor-default rounded px-1.5 py-0.5 font-mono font-semibold">
+                  {localize('com_ui_note_revision_badge', { 0: execution.attempt })}
                 </span>
               }
             />
           )}
           {history.length > 1 && execution && history[0]?.id && execution.id !== history[0].id && (
             <TooltipAnchor
-              description="This execution was superseded by a newer run"
+              description={localize('com_ui_note_superseded_tooltip')}
               side="top"
               render={
-                <span className="cursor-default rounded bg-text-tertiary/15 px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">
-                  Superseded
+                <span className="bg-text-tertiary/15 text-text-tertiary text-3xs cursor-default rounded px-1.5 py-0.5 font-medium">
+                  {localize('com_ui_note_superseded')}
                 </span>
               }
             />
           )}
-          {isBootstrapping && (
-            <span className="inline-flex items-center gap-1 text-text-tertiary">
-              <Loader2 className="size-3 animate-spin" />
-              Binding…
-            </span>
-          )}
-          {execStatus && (
-            <span
-              className={cn('inline-flex items-center gap-1 font-medium', statusTone(execStatus))}
-            >
-              {statusIcon(execStatus)}
-              {statusLabel(execStatus)}
-            </span>
-          )}
+          <StatusLine execution={execution} isLoading={isBootstrapping} />
           {isDirty && (
             <TooltipAnchor
-              description="Unsaved modifications in cell"
+              description={localize('com_ui_note_unsaved_tooltip')}
               side="top"
               render={
-                <span className="cursor-default rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
-                  Unsaved
+                <span className="bg-status-warning/15 text-status-warning text-3xs cursor-default rounded px-1.5 py-0.5 font-semibold">
+                  {localize('com_ui_note_unsaved')}
                 </span>
               }
             />
@@ -168,17 +180,19 @@ export default function RCell(props: RCellBlockProps) {
         <div className="flex items-center gap-1">
           {!isSharedConvo && (
             <TooltipAnchor
-              description={isEditing ? 'View rendered code' : 'Edit code'}
+              description={localize(isEditing ? 'com_ui_note_view_code' : 'com_ui_note_edit_code')}
               side="top"
               render={
                 <button
                   type="button"
                   onClick={() => setIsEditing((prev) => !prev)}
                   className={cn(
-                    'inline-flex size-7 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary',
+                    'text-text-secondary hover:bg-surface-hover hover:text-text-primary inline-flex size-7 items-center justify-center rounded-md transition-colors',
                     isEditing && 'bg-surface-hover text-text-primary',
                   )}
-                  aria-label={isEditing ? 'Preview code' : 'Edit code'}
+                  aria-label={localize(
+                    isEditing ? 'com_ui_note_preview_code' : 'com_ui_note_edit_code',
+                  )}
                 >
                   {isEditing ? <Eye className="size-4" /> : <Pencil className="size-4" />}
                 </button>
@@ -187,17 +201,17 @@ export default function RCell(props: RCellBlockProps) {
           )}
 
           <TooltipAnchor
-            description={isCopied ? 'Copied!' : 'Copy R code'}
+            description={localize(isCopied ? 'com_ui_note_copied' : 'com_ui_note_copy_code')}
             side="top"
             render={
               <button
                 type="button"
                 onClick={handleCopy}
-                className="inline-flex size-7 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-                aria-label="Copy R code"
+                className="text-text-secondary hover:bg-surface-hover hover:text-text-primary inline-flex size-7 items-center justify-center rounded-md transition-colors"
+                aria-label={localize('com_ui_note_copy_code')}
               >
                 {isCopied ? (
-                  <Check className="size-4 text-emerald-500" />
+                  <Check className="text-status-success size-4" />
                 ) : (
                   <Copy className="size-4" />
                 )}
@@ -206,9 +220,7 @@ export default function RCell(props: RCellBlockProps) {
           />
 
           <TooltipAnchor
-            description={
-              !isDirty ? (isSaving ? 'Saving...' : 'No changes to save') : 'Save new revision'
-            }
+            description={localize(saveTooltipKey(isDirty, isSaving))}
             side="top"
             render={
               <button
@@ -219,12 +231,12 @@ export default function RCell(props: RCellBlockProps) {
                   'inline-flex size-7 items-center justify-center rounded-md transition-colors',
                   isDirty
                     ? 'bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/25 active:scale-95'
-                    : 'cursor-not-allowed text-text-tertiary opacity-50',
+                    : 'text-text-tertiary cursor-not-allowed opacity-50',
                 )}
-                aria-label="Save revision"
+                aria-label={localize('com_ui_note_save_revision_aria')}
               >
                 {isSaving ? (
-                  <Loader2 className="size-4 animate-spin text-accent-primary" />
+                  <Loader2 className="text-accent-primary size-4 animate-spin" />
                 ) : (
                   <Save className="size-4" />
                 )}
@@ -234,17 +246,17 @@ export default function RCell(props: RCellBlockProps) {
 
           {history.length > 0 && (
             <TooltipAnchor
-              description="Execution history"
+              description={localize('com_ui_note_history')}
               side="top"
               render={
                 <button
                   type="button"
                   onClick={() => setShowHistory((v) => !v)}
                   className={cn(
-                    'inline-flex size-7 items-center justify-center rounded-md transition-colors hover:bg-surface-hover',
+                    'hover:bg-surface-hover inline-flex size-7 items-center justify-center rounded-md transition-colors',
                     showHistory ? 'bg-surface-hover text-text-primary' : 'text-text-secondary',
                   )}
-                  aria-label="Execution history"
+                  aria-label={localize('com_ui_note_history')}
                 >
                   <History className="size-4" />
                 </button>
@@ -252,17 +264,21 @@ export default function RCell(props: RCellBlockProps) {
             />
           )}
 
-          {!isSharedConvo && (
-            isActive ? (
+          {!isSharedConvo &&
+            (isActive ? (
               <TooltipAnchor
-                description="Cancel active execution"
+                description={localize('com_ui_note_cancel_run')}
                 side="top"
                 render={
                   <button
                     type="button"
                     onClick={handleCancel}
-                    className="inline-flex size-7 items-center justify-center rounded-md bg-slate-600 text-white shadow-sm transition-all hover:bg-slate-700 active:scale-95"
-                    aria-label="Cancel execution"
+                    disabled={!!execution?.cancelRequested}
+                    className={cn(
+                      'bg-status-neutral text-text-inverted hover:bg-status-neutral/80 inline-flex size-7 items-center justify-center rounded-md shadow-sm transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-50',
+                      disabledFillClasses,
+                    )}
+                    aria-label={localize('com_ui_note_cancel_run')}
                   >
                     <Square className="size-3.5 fill-current" />
                   </button>
@@ -270,17 +286,7 @@ export default function RCell(props: RCellBlockProps) {
               />
             ) : (
               <TooltipAnchor
-                description={
-                  runDisabled
-                    ? isDirty
-                      ? 'Save changes before running'
-                      : !cellId
-                        ? 'Cell binding in progress'
-                        : !code.trim()
-                          ? 'Enter code to run'
-                          : 'Cannot run'
-                    : 'Run code in NoteKernel'
-                }
+                description={localize(runTooltipKey)}
                 side="top"
                 render={
                   <button
@@ -290,23 +296,22 @@ export default function RCell(props: RCellBlockProps) {
                     className={cn(
                       'inline-flex size-7 items-center justify-center rounded-md transition-all',
                       runDisabled
-                        ? 'cursor-not-allowed bg-emerald-600/30 text-white/50'
-                        : 'bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 active:scale-95',
+                        ? 'bg-surface-submit/30 text-text-on-status/50 cursor-not-allowed'
+                        : 'bg-surface-submit text-text-on-status hover:bg-surface-submit-hover shadow-sm active:scale-95',
                     )}
-                    aria-label="Run code in NoteKernel"
+                    aria-label={localize('com_ui_note_run')}
                   >
                     <Play className="size-3.5 fill-current" />
                   </button>
                 }
               />
-            )
-          )}
+            ))}
         </div>
       </div>
 
       <div className="bg-transparent p-2">
         {isEditing ? (
-          <div className="min-h-[120px] overflow-hidden rounded-lg border border-border-light/40">
+          <div className="border-border-light/40 min-h-[120px] overflow-hidden rounded-lg border">
             <Editor
               height="200px"
               defaultLanguage="r"
@@ -355,13 +360,13 @@ export default function RCell(props: RCellBlockProps) {
                 renderLineHighlight: 'line',
               }}
             />
-            <div className="bg-surface-secondary/40 px-3 py-1 text-[11px] text-text-tertiary">
-              Save a revision, then Run. Cancel is available while queued/running.
+            <div className="bg-surface-secondary/40 text-text-tertiary text-2xs px-3 py-1">
+              {localize('com_ui_note_edit_hint')}
             </div>
           </div>
         ) : (
-          <pre className="r-cell-code code-theme-dark overflow-x-auto whitespace-pre-wrap rounded-lg border border-slate-700/60 bg-slate-900 p-3 font-mono text-sm leading-6 text-slate-100">
-            <code className="hljs language-r !whitespace-pre-wrap !bg-transparent !p-0 !text-[14px] !leading-6">
+          <pre className="r-cell-code code-theme-dark border-border-xheavy/60 overflow-x-auto rounded-lg border p-3 font-mono text-sm leading-6 whitespace-pre-wrap">
+            <code className="hljs language-r !bg-transparent !p-0 !text-sm !leading-6 !whitespace-pre-wrap">
               {highlighted ?? (code || '# (Preparing R cell...)')}
             </code>
           </pre>
@@ -369,22 +374,22 @@ export default function RCell(props: RCellBlockProps) {
       </div>
 
       {showHistory && history.length > 0 && (
-        <div className="border-t border-border-light bg-surface-secondary/20 px-3 py-2 dark:border-border-heavy">
-          <div className="mb-1 text-[11px] font-semibold text-text-secondary">
-            Execution history
+        <div className="border-border-light bg-surface-secondary/20 dark:border-border-heavy border-t px-3 py-2">
+          <div className="text-text-secondary text-2xs mb-1 font-semibold">
+            {localize('com_ui_note_history')}
           </div>
-          <ul className="max-h-32 space-y-1 overflow-y-auto text-[11px]">
+          <ul className="text-2xs max-h-32 space-y-1 overflow-y-auto">
             {history.map((h) => (
               <li key={h.id}>
                 <button
                   type="button"
-                  className="flex w-full items-center justify-between rounded px-1.5 py-1 text-left hover:bg-surface-hover"
+                  className="hover:bg-surface-hover flex w-full items-center justify-between rounded px-1.5 py-1 text-left"
                   onClick={() => handleSelectHistory(h.id)}
                 >
                   <span className={cn('inline-flex items-center gap-1.5', statusTone(h.status))}>
-                    {statusIcon(h.status)}#{h.attempt} {statusLabel(h.status)}
+                    {statusIcon(h.status)}#{h.attempt} {statusLabel(localize, h.status)}
                   </span>
-                  <span className="font-mono text-text-tertiary">
+                  <span className="text-text-tertiary font-mono">
                     {h.finishedAt || h.startedAt || h.createdAt
                       ? new Date(h.finishedAt || h.startedAt || h.createdAt || '').toLocaleString()
                       : ''}
@@ -397,13 +402,19 @@ export default function RCell(props: RCellBlockProps) {
       )}
 
       <Output
-        execStatus={execStatus}
-        isParentRunning={isParentRunning}
         execution={execution}
         stdout={stdout}
-        executionError={executionError}
+        executionError={
+          // A stop, a cancel or an interruption is reported once, by the status line.
+          execStatus === 'timed_out' ||
+          execStatus === 'cancelled' ||
+          execution?.phase === 'interrupted'
+            ? null
+            : executionError
+        }
         authPlotUrls={authPlotUrls}
         tables={tables}
+        endingNotice={endingNotice(execution, localize)}
       />
     </div>
   );

@@ -30,6 +30,37 @@ export type NoteCellRevision = {
   createdAt?: string;
 };
 
+export type NoteCellPhase =
+  | 'preparing_files'
+  | 'waiting_for_slot'
+  | 'starting_pod'
+  | 'waiting_for_cell'
+  | 'starting_r'
+  | 'restoring_session'
+  | 'running'
+  | 'done'
+  | 'interrupted';
+
+export type NoteBookRef = {
+  function: string;
+  package: string;
+  book: string;
+  book_short: string;
+  book_title: string;
+  chapter: string;
+  heading: string;
+  url: string;
+  looked_up: boolean;
+};
+
+export type NoteBookRefs = {
+  status: 'from_book' | 'not_in_books';
+  shown: NoteBookRef | null;
+  refs: NoteBookRef[];
+  missing: Array<{ function: string; package: string }>;
+  book_versions: Record<string, string>;
+};
+
 export type NoteCellExecution = {
   id: string;
   cellId: string;
@@ -41,6 +72,11 @@ export type NoteCellExecution = {
   error?: string | null;
   stdout?: string | null;
   markdown?: string | null;
+  phase?: NoteCellPhase | null;
+  phaseStartedAt?: string | null;
+  rStartedAt?: string | null;
+  serverNow?: string | null;
+  bookRefs?: NoteBookRefs | null;
   createdAt?: string;
   startedAt?: string | null;
   finishedAt?: string | null;
@@ -77,6 +113,12 @@ export const noteCellsApi = {
       cellId?: string;
     },
   ) => request.post(`${base(conversationId)}/cells`, body) as Promise<NoteCell>,
+
+  /** The cell an agent tool call created; 404 until the agent's run has created it. */
+  findCellByBlockKey: (conversationId: string, blockKey: string) =>
+    request.get(
+      `${base(conversationId)}/cells?blockKey=${encodeURIComponent(blockKey)}`,
+    ) as Promise<NoteCell>,
 
   getCell: (conversationId: string, cellId: string) =>
     request.get(`${base(conversationId)}/cells/${encodeURIComponent(cellId)}`) as Promise<NoteCell>,

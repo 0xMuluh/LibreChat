@@ -1,13 +1,6 @@
 const mongoose = require('mongoose');
 
-const EXECUTION_STATUSES = [
-  'queued',
-  'running',
-  'completed',
-  'failed',
-  'timed_out',
-  'cancelled',
-];
+const EXECUTION_STATUSES = ['queued', 'running', 'completed', 'failed', 'timed_out', 'cancelled'];
 
 const noteCellSchema = new mongoose.Schema(
   {
@@ -47,7 +40,7 @@ const noteCellExecutionSchema = new mongoose.Schema(
     user: { type: String, required: true },
     attempt: { type: Number, default: 1 },
     status: { type: String, enum: EXECUTION_STATUSES, default: 'queued', index: true },
-    timeoutSeconds: { type: Number, default: 180 },
+    timeoutSeconds: { type: Number, default: 600 },
     cancelRequested: { type: Boolean, default: false },
     error: { type: String, default: null },
     stdout: { type: String, default: null },
@@ -56,6 +49,10 @@ const noteCellExecutionSchema = new mongoose.Schema(
     engineCellId: { type: String, default: null },
     startedAt: { type: Date, default: null },
     finishedAt: { type: Date, default: null },
+    phase: { type: String, default: null },
+    phaseStartedAt: { type: Date, default: null },
+    rStartedAt: { type: Date, default: null },
+    bookRefs: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { timestamps: true },
 );

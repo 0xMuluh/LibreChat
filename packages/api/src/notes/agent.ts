@@ -1,5 +1,8 @@
 import { Types } from 'mongoose';
 import { logger } from '@librechat/data-schemas';
+import { CANCELLED_MESSAGE, timedOutMessage } from './runner';
+import { createEventStore } from './events';
+import type { EngineRunner } from './runner';
 import type { Model } from 'mongoose';
 import type {
   Cell,
@@ -80,6 +83,8 @@ interface AgentLifecycle {
     content: string,
     timeoutSeconds?: number,
     targetCellId?: string,
+    /** Key the page already computes for the cell's card, so the card finds the run. */
+    blockKey?: string,
   ): Promise<AgentCellIds>;
   finish(
     conversationId: string,
@@ -95,13 +100,15 @@ export function createNoteAgentLifecycle(models: {
   NoteExecutionArtifact: Model<Artifact>;
   NoteExecutionEvent: Model<Event>;
 }): AgentLifecycle {
+  const { appendEvent } = createEventStore(models);
   return {
     async start(
       conversationId: string,
       user: string,
       content: string,
-      timeoutSeconds = 180,
+      timeoutSeconds = 600,
       targetCellId?: string,
+      blockKey?: string,
     ): Promise<AgentCellIds> {
       let cellId: Types.ObjectId;
       let revisionNumber = 1;
@@ -162,17 +169,12 @@ export function createNoteAgentLifecycle(models: {
             user,
             latestRevisionId: revisionId,
             latestExecutionId: executionId,
+            ...(blockKey ? { blockKey } : {}),
           },
         },
         { upsert: true },
       );
-      await models.NoteExecutionEvent.create({
-        executionId,
-        conversationId,
-        sequence: 1,
-        eventType: 'running',
-        status: 'running',
-      });
+      await appendEvent(executionId, conversationId, 'running', 'running');
       return {
         cellId: String(cellId),
         revisionId: String(revisionId),
@@ -194,14 +196,23 @@ export function createNoteAgentLifecycle(models: {
       if (execution.status !== 'running' && execution.status !== 'queued') {
         return { status: execution.status };
       }
+      // A cancel the user asked for stands even when the engine's result arrives after it.
       let status: Status = 'completed';
-      if (result.cancelled) {
+      let error = result.error || null;
+      if (result.cancelled || execution.cancelRequested) {
         status = 'cancelled';
+        // R is only restarted when it was running this cell.
+        error = execution.rStartedAt ? CANCELLED_MESSAGE : 'Cancelled.';
       } else if (result.timed_out) {
         status = 'timed_out';
+        error = timedOutMessage(result.stopped_after_seconds ?? execution.timeoutSeconds);
       } else if (result.success === false) {
         status = 'failed';
+        error = result.error || 'Execution failed';
       }
+      // Keep the execution non-terminal until its artifact rows exist. The page stops
+      // polling as soon as it sees a terminal status, so saving that status first would
+      // show a finished cell without its plots.
       const artifacts = buildNoteArtifacts(execution, result);
       if (artifacts.length) {
         await models.NoteExecutionArtifact.insertMany(artifacts);
@@ -212,24 +223,21 @@ export function createNoteAgentLifecycle(models: {
           $set: {
             status,
             finishedAt: new Date(),
-            stdout: result.stdout || '',
+            // A stopped run keeps the console text the user watched; the engine's own answer
+            // then holds only its notice. Without a result (interrupted, safety stop) it stays too.
+            stdout:
+              (status === 'cancelled' || status === 'timed_out') && execution.stdout
+                ? execution.stdout
+                : (result.stdout ?? execution.stdout ?? ''),
             markdown: result.markdown || '',
-            error: result.error || null,
+            error,
             engineCellId: result.cell_id || null,
             engineRunDir: result.engine_run_dir || result.run_dir || null,
+            bookRefs: result.book_refs ?? null,
           },
         },
       );
-      const last = await models.NoteExecutionEvent.findOne({ executionId: execution._id }).sort({
-        sequence: -1,
-      });
-      await models.NoteExecutionEvent.create({
-        executionId: execution._id,
-        conversationId,
-        sequence: (last?.sequence || 0) + 1,
-        eventType: status,
-        status,
-      });
+      await appendEvent(execution._id, conversationId, status, status, { error });
       return { status };
     },
   };
@@ -240,6 +248,8 @@ export type AgentCellRunner = (input: {
   conversationId: string;
   code: string;
   cellId?: string;
+  /** Id of the agent's tool call; the page keys the cell's card on it. */
+  toolCallId?: string;
   /** The reply's abort signal: Stop cancels the cell on the engine. */
   signal?: AbortSignal;
 }) => Promise<string>;
@@ -255,50 +265,23 @@ export function createAgentCellRunner(deps: {
   lifecycle: AgentLifecycle;
   resolveUser: (conversationId: string) => Promise<string | null>;
   bridgeConversationFiles: (conversationId: string, userId: string) => Promise<void>;
-  executeOnEngine: (input: {
-    code: string;
-    threadId: string;
-    executionId: string;
-    timeoutSeconds: number;
-  }) => Promise<NoteEngineResult>;
+  engine: EngineRunner;
   cancelExecution: (
     conversationId: string,
     userId: string,
     cellId: string,
     executionId: string,
   ) => Promise<unknown>;
+  /** Registers the run as followed by this server, so the restart check leaves it alone. */
+  track?: (executionId: string, job: Promise<unknown>) => void;
 }): AgentCellRunner {
-  return async function runAgentCell({
-    conversationId,
-    code,
-    cellId,
-    signal,
-  }: {
-    conversationId: string;
-    code: string;
-    cellId?: string;
-    signal?: AbortSignal;
-  }): Promise<string> {
-    let ids: AgentCellIds;
-    let user: string;
-    try {
-      const found = conversationId ? await deps.resolveUser(conversationId) : null;
-      if (!found) {
-        throw new Error('the note was not found');
-      }
-      user = found;
-      await deps.bridgeConversationFiles(conversationId, user);
-      ids = await deps.lifecycle.start(
-        conversationId,
-        user,
-        code,
-        AGENT_CELL_TIMEOUT_SECONDS,
-        cellId?.trim() || undefined,
-      );
-    } catch (error) {
-      return `Could not save the code cell; R was not executed: ${(error as Error).message}`;
-    }
-
+  async function runSavedCell(
+    ids: AgentCellIds,
+    user: string,
+    conversationId: string,
+    code: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
     // Stop takes the same path as the cell's Cancel button; the engine then answers "cancelled".
     const cancel = () => {
       deps
@@ -315,20 +298,21 @@ export function createAgentCellRunner(deps: {
 
     let result: NoteEngineResult;
     try {
-      result = await deps.executeOnEngine({
-        code,
-        threadId: conversationId,
+      await deps.engine.setPhase(ids.executionId, conversationId, 'preparing_files');
+      await deps.bridgeConversationFiles(conversationId, user).catch((error) => {
+        throw new Error(
+          `the note's files could not be copied, so R was not executed: ${(error as Error).message}`,
+        );
+      });
+      result = await deps.engine.run({
         executionId: ids.executionId,
+        conversationId,
+        code,
         timeoutSeconds: AGENT_CELL_TIMEOUT_SECONDS,
       });
     } catch (error) {
       const message = (error as Error).message;
-      result = {
-        success: false,
-        timed_out: (error as { code?: string }).code === 'TIMED_OUT',
-        error: message,
-        markdown: `Execution failed: ${message}`,
-      };
+      result = { success: false, error: message, markdown: `Execution failed: ${message}` };
     } finally {
       signal?.removeEventListener('abort', cancel);
     }
@@ -355,5 +339,30 @@ export function createAgentCellRunner(deps: {
       `<!-- noteCell cellId=${ids.cellId} executionId=${ids.executionId} status=${status} -->\n` +
       `[cell_id: "${ids.cellId}"]\n${result.markdown ?? ''}${warning}`
     );
+  }
+
+  return async function runAgentCell({ conversationId, code, cellId, toolCallId, signal }) {
+    let ids: AgentCellIds;
+    let user: string;
+    try {
+      const found = conversationId ? await deps.resolveUser(conversationId) : null;
+      if (!found) {
+        throw new Error('the note was not found');
+      }
+      user = found;
+      ids = await deps.lifecycle.start(
+        conversationId,
+        user,
+        code,
+        AGENT_CELL_TIMEOUT_SECONDS,
+        cellId?.trim() || undefined,
+        toolCallId ? `tool-${toolCallId}` : undefined,
+      );
+    } catch (error) {
+      return `Could not save the code cell; R was not executed: ${(error as Error).message}`;
+    }
+    const job = runSavedCell(ids, user, conversationId, code, signal);
+    deps.track?.(ids.executionId, job);
+    return job;
   };
 }
