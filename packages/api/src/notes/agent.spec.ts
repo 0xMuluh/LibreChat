@@ -128,11 +128,13 @@ test('updates existing cell in place when targetCellId is provided', async () =>
 describe('agent cells run through OmicsBase', () => {
   const bridge = jest.fn(async () => {});
   const execute = jest.fn();
+  const cancelExecution = jest.fn(async () => {});
   const run = createAgentCellRunner({
     lifecycle,
     resolveUser: async (conversationId) => (conversationId === 'note' ? 'alice' : null),
     bridgeConversationFiles: bridge,
     executeOnEngine: execute,
+    cancelExecution,
   });
   afterEach(() => jest.clearAllMocks());
 
@@ -189,5 +191,50 @@ describe('agent cells run through OmicsBase', () => {
     expect(execution.status).toBe('timed_out');
     expect(text).toContain('status=timed_out');
     expect(text).toContain('Execution failed: Cell execution timed out');
+  });
+
+  test('stopping the reply cancels the running cell on the engine', async () => {
+    const controller = new AbortController();
+    let answer: (result: unknown) => void = () => {};
+    execute.mockImplementationOnce(
+      () =>
+        new Promise<unknown>((resolve) => {
+          answer = resolve;
+        }) as Promise<never>,
+    );
+    cancelExecution.mockImplementationOnce(async () => {
+      answer({ success: false, cancelled: true, markdown: 'Cell execution cancelled' });
+    });
+    const pending = run({
+      conversationId: 'note',
+      code: 'Sys.sleep(999)',
+      signal: controller.signal,
+    });
+    while (!execute.mock.calls.length) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    controller.abort();
+    const text = await pending;
+    const execution = await models.NoteCellExecution.findOne({ conversationId: 'note' });
+    expect(cancelExecution).toHaveBeenCalledWith(
+      'note',
+      'alice',
+      String(execution.cellId),
+      String(execution._id),
+    );
+    expect(execution.status).toBe('cancelled');
+    expect(text).toContain('status=cancelled');
+  });
+
+  test('a reply stopped before the engine call still cancels the cell', async () => {
+    execute.mockResolvedValue({ success: false, cancelled: true, markdown: 'cancelled' });
+    await run({ conversationId: 'note', code: 'print(1)', signal: AbortSignal.abort() });
+    const execution = await models.NoteCellExecution.findOne({ conversationId: 'note' });
+    expect(cancelExecution).toHaveBeenCalledWith(
+      'note',
+      'alice',
+      String(execution.cellId),
+      String(execution._id),
+    );
   });
 });

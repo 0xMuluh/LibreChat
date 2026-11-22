@@ -1498,6 +1498,7 @@ Please follow these instructions when using tools from the respective MCP server
         conversationId: requestBody?.conversationId ?? '',
         code: String(toolArguments?.code ?? ''),
         cellId: toolArguments?.cell_id == null ? undefined : String(toolArguments.cell_id),
+        signal: options?.signal,
       });
       return formatToolContent({ content: [{ type: 'text', text }] }, provider, {
         serverName,
