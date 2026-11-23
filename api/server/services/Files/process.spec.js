@@ -531,12 +531,15 @@ describe('processAgentFileUpload', () => {
     req.file.originalname = 'tse.Rds';
     const upload = setupStoredFileUpload({ filename: 'tse.Rds' });
     await processAgentFileUpload({
-      req, res: mockRes, metadata: { ...makeMetadata(), message_file: true },
+      req,
+      res: mockRes,
+      metadata: { ...makeMetadata(), message_file: true },
     });
     expect(upload).toHaveBeenCalled();
     expect(extractInspectableFileText).not.toHaveBeenCalled();
     expect(db.createFile).toHaveBeenCalledWith(
-      expect.objectContaining({ filename: 'tse.Rds', type: 'application/x-r-rds' }), true,
+      expect.objectContaining({ filename: 'tse.Rds', type: 'application/x-r-rds' }),
+      true,
     );
   });
 

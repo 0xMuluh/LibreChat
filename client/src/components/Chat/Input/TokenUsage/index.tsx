@@ -11,17 +11,17 @@ import {
 import type { TConversation } from 'librechat-data-provider';
 import type { TokenUsageView } from '~/hooks/Chat/useTokenUsage';
 import type { CurrencyConfig } from '~/utils';
-import useCompactConversation, { supportsCompaction } from '~/hooks/Chat/useCompactConversation';
 import {
   useGetImpactsQuery,
   useGetStartupConfig,
   useGetLangfuseSessionLinkQuery,
 } from '~/data-provider';
+import useCompactConversation, { supportsCompaction } from '~/hooks/Chat/useCompactConversation';
 import Balance, { Summary as BalanceSummary } from '~/components/Balance';
 import useBalanceSummary from '~/hooks/useBalanceSummary';
-import Impacts from '~/components/Balance/Impacts';
 import useTokenUsage from '~/hooks/Chat/useTokenUsage';
 import { contextBreakdownExpandedAtom } from './store';
+import Impacts from '~/components/Balance/Impacts';
 import { formatTokens } from '~/utils';
 import { useLocalize } from '~/hooks';
 

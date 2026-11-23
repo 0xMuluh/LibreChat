@@ -80,6 +80,14 @@ export default function ExportModal({
     recursive,
   });
 
+  let includeOptionsLabel = localize('com_nav_not_supported');
+  if (exportOptionsSupport) {
+    includeOptionsLabel =
+      type === 'quarto'
+        ? 'Include YAML frontmatter'
+        : localize('com_nav_export_include_endpoint_options');
+  }
+
   return (
     <OGDialog open={open} onOpenChange={onOpenChange} triggerRef={triggerRef}>
       {children}
@@ -135,11 +143,7 @@ export default function ExportModal({
                       htmlFor="includeOptions"
                       className="text-sm leading-none font-medium"
                     >
-                      {exportOptionsSupport
-                        ? type === 'quarto'
-                          ? 'Include YAML frontmatter'
-                          : localize('com_nav_export_include_endpoint_options')
-                        : localize('com_nav_not_supported')}
+                      {includeOptionsLabel}
                     </Label>
                   </div>
                 </div>

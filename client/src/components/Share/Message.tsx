@@ -62,8 +62,7 @@ export default function Message(props: TMessageProps) {
   /** A share view has no conversation of its own, so the id comes from the shared message. A card
    *  that opens a child run needs it for its parent context, and stays disabled without one. */
   /** OmicsBase: a shared note's cells are looked up by its share id when it has no other. */
-  const conversationId =
-    message.conversationId ?? conversation?.conversationId ?? shareId ?? '';
+  const conversationId = message.conversationId ?? conversation?.conversationId ?? shareId ?? '';
   const subagentWakeup = wakeupDisplay?.kind === 'subagent' ? wakeupDisplay.tasks[0] : undefined;
   const Row = subagentWakeup == null ? MessageRow : WakeupRow;
   const isUserSide = isCreatedByUser && (wakeupDisplay == null || subagentWakeup != null);
