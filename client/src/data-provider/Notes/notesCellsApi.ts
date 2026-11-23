@@ -86,7 +86,8 @@ export type NoteCellExecution = {
 
 export type NoteCell = {
   id: string;
-  conversationId: string;
+  /** Left out when the cell is read through a share. */
+  conversationId?: string;
   messageId?: string | null;
   blockKey?: string | null;
   position?: number;

@@ -5,11 +5,17 @@ import { useShareContext } from '~/Providers';
 import {
   noteCellsApi,
   TERMINAL_STATUSES,
+  type NoteCell,
   type NoteCellExecution,
   type NoteArtifact,
 } from '~/data-provider/Notes/notesCellsApi';
 import { parseCellMeta, parseMarkdownOutput } from './parsing';
 import type { RCellBlockProps, TablePreview } from './types';
+
+/** True once the cell holds a revision saved after the tool call created it. */
+function holdsSavedRevision(cell: NoteCell): boolean {
+  return (cell.revision?.revision ?? 1) > 1;
+}
 
 export function useRCell(
   {
@@ -179,40 +185,41 @@ export function useRCell(
       if (isSharedConvo) {
         setIsBootstrapping(false);
         const resolvedCellId = cellIdProp || metaFromOutput.cellId || cellId;
-        const resolvedExecId = executionIdProp || metaFromOutput.executionId;
         if (resolvedCellId) {
           setCellId(resolvedCellId);
         }
-        if (resolvedExecId && resolvedCellId && conversationId) {
+        // In a shared view `conversationId` is the shareId, which the note routes accept
+        // for reading. The cell record, not the tool call, holds the code the owner sees.
+        if (resolvedCellId && conversationId) {
           try {
-            const full = await noteCellsApi.getExecution(
-              conversationId,
-              resolvedCellId,
-              resolvedExecId,
-            );
-            if (!cancelled) {
-              setExecution(full);
-              setHistory([full]);
-              await loadArtifacts(full);
+            const shared = await noteCellsApi.getCell(conversationId, resolvedCellId);
+            if (cancelled) {
+              return;
+            }
+            hasSavedRevision.current = holdsSavedRevision(shared);
+            if (hasSavedRevision.current) {
+              const saved = (shared.revision?.content ?? '').trim();
+              setCode(saved);
+              setSavedCode(saved);
+            }
+            const latest = shared.latestExecution;
+            if (latest) {
+              setExecution(latest);
+              setHistory([latest]);
+              if (TERMINAL_STATUSES.has(latest.status)) {
+                await loadArtifacts(latest);
+              } else {
+                startPolling(shared.id, latest.id);
+              }
+              return;
             }
           } catch {
-            if (!cancelled && initialOutput) {
-              const fallback: NoteCellExecution = {
-                id: resolvedExecId,
-                cellId: resolvedCellId,
-                revisionId: '',
-                attempt: 1,
-                timeoutSeconds: 180,
-                status: metaFromOutput.status || 'completed',
-                markdown: initialOutput.replace(/<!--.*?-->/g, '').trim(),
-              };
-              setExecution(fallback);
-              await loadArtifacts(fallback);
-            }
+            /* show the tool output below */
           }
-        } else if (initialOutput) {
+        }
+        if (!cancelled && initialOutput) {
           const fallback: NoteCellExecution = {
-            id: resolvedExecId || 'shared',
+            id: executionIdProp || metaFromOutput.executionId || 'shared',
             cellId: resolvedCellId || 'shared',
             revisionId: '',
             attempt: 1,
@@ -303,13 +310,15 @@ export function useRCell(
         // Agent cells already have a saved revision from execute_r_cell — don't look "Unsaved".
         const display = (initialCode || revContent || '').trim();
         const canonical = (revContent || display).trim();
-        hasSavedRevision.current = (cell.revision?.revision ?? 1) > 1;
+        hasSavedRevision.current = holdsSavedRevision(cell);
         setCode(isAgentGenerated && !hasSavedRevision.current ? display || canonical : canonical);
         setSavedCode(canonical || display);
         setUserEdited(false);
 
         let exec = cell.latestExecution || null;
-        const preferredExecId = executionIdProp || metaFromOutput.executionId;
+        // The cell's latest run belongs to the code it shows; the tool call's run is the fallback.
+        const preferredExecId =
+          cell.latestExecutionId || executionIdProp || metaFromOutput.executionId;
         if (preferredExecId && cell.id) {
           try {
             exec = await noteCellsApi.getExecution(conversationId, cell.id, preferredExecId);
