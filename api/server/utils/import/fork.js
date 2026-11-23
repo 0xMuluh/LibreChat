@@ -588,7 +588,7 @@ async function duplicateConversation({
   importBatchBuilder.sourceIsTemporary = isTemporaryRecord(originalConvo);
   importBatchBuilder.startConversation(originalConvo.endpoint ?? EModelEndpoint.openAI);
 
-  const idMapping = cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder, {
+  const idMapping = cloneMessagesWithTimestamps(originalMessages, importBatchBuilder, {
     nativeCopy: true,
   });
 

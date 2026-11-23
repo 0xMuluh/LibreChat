@@ -611,8 +611,13 @@ describe('Multi-entry batch parity', () => {
       tokenType: 'prompt',
       inputTokenCount: totalInput,
     });
-    const writeMultiplier = getCacheMultiplier({ model, cacheType: 'write' }) ?? promptMultiplier;
-    const readMultiplier = getCacheMultiplier({ model, cacheType: 'read' }) ?? promptMultiplier;
+    // Cache rates also have a long-context tier for this model (above the same threshold).
+    const writeMultiplier =
+      getCacheMultiplier({ model, cacheType: 'write', inputTokenCount: totalInput }) ??
+      promptMultiplier;
+    const readMultiplier =
+      getCacheMultiplier({ model, cacheType: 'read', inputTokenCount: totalInput }) ??
+      promptMultiplier;
 
     const expectedPromptCost =
       tokenUsage.promptTokens.input * premiumPromptRate +
