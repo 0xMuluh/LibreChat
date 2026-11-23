@@ -209,10 +209,12 @@ describe('createRunFileMessageEncoder', () => {
       harness.encode([csv], 'unknown'),
     ]);
 
-    expect(JSON.stringify(noReader[0].content)).toContain('region,total');
+    /* Tabular data reaches a child as its R workspace path, never as inlined rows. */
+    expect(JSON.stringify(noReader[0].content)).toContain('data/sales.csv');
+    expect(JSON.stringify(noReader[0].content)).not.toContain('region,total');
     expect(runsCode).toEqual([]);
     expect(unprovisioned).toEqual([]);
-    expect(JSON.stringify(searches[0].content)).toContain('region,total');
+    expect(JSON.stringify(searches[0].content)).toContain('data/sales.csv');
     expect(unknown).toEqual([]);
     expect(harness.extractText).toHaveBeenCalledWith(
       expect.objectContaining({ attachments: [{ ...csv, llmDeliveryPath: 'text' }] }),

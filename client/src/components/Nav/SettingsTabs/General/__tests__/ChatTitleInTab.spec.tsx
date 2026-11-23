@@ -11,7 +11,8 @@ import store from '~/store';
 const createConversation = (conversationId: string, title: string): TConversation =>
   ({ conversationId, title }) as TConversation;
 
-const getToggle = () => screen.getByRole('switch', { name: 'Display chat title in tab' });
+/** OmicsBase labels the setting for notes. */
+const getToggle = () => screen.getByRole('switch', { name: 'Display note title in tab' });
 
 function renderToggle({
   route,

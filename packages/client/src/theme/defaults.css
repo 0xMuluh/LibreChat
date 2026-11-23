@@ -624,3 +624,23 @@ html {
   --surface-sidebar: var(--surface-primary-alt);
   --surface-code-inline: var(--surface-hover-alt);
 }
+
+/* OmicsBase brand colours that no theme role carries, read by client/src/style.css: the R cell
+ * code pane, the aurora behind the sign-in and chat canvases, and the canvas they fade into. */
+:root {
+  --omicsbase-code-fill: 15 23 42;
+  --omicsbase-code-text: 241 245 249;
+  --omicsbase-code-comment: 100 116 139;
+  --omicsbase-code-keyword: var(--blue-400);
+  --omicsbase-code-string: 45 212 191;
+  --omicsbase-code-number: var(--amber-400);
+  --omicsbase-code-title: 244 114 182;
+  --omicsbase-code-symbol: 251 113 133;
+  --omicsbase-code-operator: 167 139 250;
+  --omicsbase-aurora-teal: 20 184 166;
+  --omicsbase-aurora-cyan: 34 211 238;
+  --omicsbase-aurora-lime: 163 230 53;
+  --omicsbase-aurora-amber: var(--amber-400);
+  --omicsbase-canvas-light: 250 250 250;
+  --omicsbase-canvas-dark: 5 8 12;
+}

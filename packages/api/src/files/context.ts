@@ -123,7 +123,10 @@ function isTabularText(textSample?: string): boolean {
   if (!textSample) {
     return false;
   }
-  const lines = textSample.split(/\r?\n/).filter((l) => l.trim().length > 0).slice(0, 5);
+  const lines = textSample
+    .split(/\r?\n/)
+    .filter((l) => l.trim().length > 0)
+    .slice(0, 5);
   if (lines.length < 2) {
     return false;
   }
@@ -139,8 +142,11 @@ function isTabularText(textSample?: string): boolean {
 /**
  * Dynamically determines whether an uploaded attachment should be passed to the LLM
  * as an R workspace data reference (data/<filename>) or inlined as raw document text.
+ * Storage source alone never makes a file data, so stored documents keep their extracted text.
  */
-export function isDataFileAttachment(file: any): boolean {
+export function isDataFileAttachment(
+  file: Partial<Pick<TFile, 'filename' | 'bytes' | 'text'>> | null | undefined,
+): boolean {
   if (!file) {
     return false;
   }
@@ -153,13 +159,9 @@ export function isDataFileAttachment(file: any): boolean {
   }
 
   // Size threshold: non-image files larger than 50 KB are treated as data files to save tokens
-  const limitBytes = Number(process.env.NOTE_DATA_MAX_INLINE_BYTES) || DEFAULT_INLINE_TEXT_LIMIT_BYTES;
+  const limitBytes =
+    Number(process.env.NOTE_DATA_MAX_INLINE_BYTES) || DEFAULT_INLINE_TEXT_LIMIT_BYTES;
   if (file.bytes && file.bytes > limitBytes) {
-    return true;
-  }
-
-  // Non-text file sources (e.g. binary upload without text extraction)
-  if (file.source && file.source !== FileSources.text) {
     return true;
   }
 

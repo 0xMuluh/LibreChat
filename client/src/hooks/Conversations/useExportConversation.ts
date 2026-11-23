@@ -366,6 +366,7 @@ export default function useExportConversation({
       pruneSuperseded: true,
     });
 
+    const exportFromJSON = await loadExportFromJSON();
     exportFromJSON({
       data: qmdData,
       fileName: filename,

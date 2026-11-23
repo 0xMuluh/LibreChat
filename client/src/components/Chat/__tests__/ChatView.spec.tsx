@@ -82,11 +82,17 @@ jest.mock('../Input/ChatForm', () => ({
   },
 }));
 jest.mock('../Input/ConversationStarters', () => ({ __esModule: true, default: () => <div /> }));
+/** OmicsBase: the new-note suggestions fetch examples and datasets; only their placement matters here. */
+jest.mock('~/components/Discover/StartStrip', () => ({
+  __esModule: true,
+  default: () => <div data-testid="start-strip" />,
+}));
 jest.mock('~/components/Projects/ProjectBadge', () => ({
   __esModule: true,
   default: ({ projectId }: { projectId: string }) => <div data-testid={`project-${projectId}`} />,
 }));
 
+/** The pane heading reads the app's English bundle, where OmicsBase calls a new chat a note. */
 describe('ChatView page heading', () => {
   beforeEach(() => {
     mockParams.mockReturnValue({});
@@ -103,7 +109,7 @@ describe('ChatView page heading', () => {
   test('announces a localized new chat heading on the landing page', () => {
     render(<ChatView />);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'New chat' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'New note' })).toBeInTheDocument();
   });
 
   test('uses the conversation title once a conversation is open', () => {
@@ -121,7 +127,7 @@ describe('ChatView page heading', () => {
 
     render(<ChatView />);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'New chat' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'New note' })).toBeInTheDocument();
   });
 
   test('prefers the localized heading over a stale title on the landing page', () => {
@@ -129,7 +135,7 @@ describe('ChatView page heading', () => {
 
     render(<ChatView />);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'New chat' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'New note' })).toBeInTheDocument();
   });
 
   test('ignores a Recoil title that belongs to a different conversation than the route', () => {
@@ -138,7 +144,7 @@ describe('ChatView page heading', () => {
 
     render(<ChatView />);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'New chat' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'New note' })).toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { level: 1, name: 'Previous chat' }),
     ).not.toBeInTheDocument();
@@ -314,5 +320,25 @@ describe('ChatView project badge', () => {
 
     expect(screen.queryByTestId(/^project-/)).not.toBeInTheDocument();
     expect(container.querySelector('[data-chat-pane="0"]')).not.toHaveClass('pt-9');
+  });
+});
+
+describe('ChatView start strip', () => {
+  test('suggests starting points under the composer of a new note', () => {
+    mockParams.mockReturnValue({});
+    mockConversation.mockReturnValue(null);
+
+    render(<ChatView />);
+
+    expect(screen.getByTestId('start-strip')).toBeInTheDocument();
+  });
+
+  test('leaves an open conversation without suggestions', () => {
+    mockParams.mockReturnValue({ conversationId: 'convo-1' });
+    mockConversation.mockReturnValue({ conversationId: 'convo-1', title: 'Deploy checklist' });
+
+    render(<ChatView />);
+
+    expect(screen.queryByTestId('start-strip')).not.toBeInTheDocument();
   });
 });

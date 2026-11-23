@@ -102,7 +102,8 @@ describe('ChatScreen', () => {
   it('greets a new chat with the new-chat heading, the full footer and the welcome screen', () => {
     const { container } = renderScreen({ conversationId: undefined, messages: null }, null);
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('New chat');
+    /* OmicsBase calls a new chat a note in the English bundle. */
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('New note');
     expect(screen.getByText('Welcome')).toBeInTheDocument();
     expect(composer()).toHaveAttribute('data-landing', 'true');
     expect(composer()).toHaveAttribute('data-footer-below', 'true');

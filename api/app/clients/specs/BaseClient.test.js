@@ -4267,7 +4267,9 @@ describe('BaseClient', () => {
         getTokenCount.mockRestore();
       }
       expect(assertFilesAllowed).toHaveBeenCalledWith([{ ...file, llmDeliveryPath: 'text' }]);
-      expect(JSON.stringify(result.content)).toContain('region,total');
+      /* OmicsBase delivers CSV text as an R workspace file instead of inlining it. */
+      expect(JSON.stringify(result.content)).toContain('data/late.csv');
+      expect(JSON.stringify(result.content)).not.toContain('region,total');
       expect(file.llmDeliveryPath).toBe('none');
       expect(TestClient.options.agent.fileConsumers).toEqual({
         executeCode: true,

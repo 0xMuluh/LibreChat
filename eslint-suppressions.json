@@ -108,7 +108,7 @@
   },
   "client/src/components/Chat/Landing.tsx": {
     "shadcn/no-restyle": {
-      "count": 14
+      "count": 18
     },
     "shadcn/require-static-classes": {
       "count": 2
@@ -271,6 +271,9 @@
     }
   },
   "client/src/components/Chat/ProjectLandingChip.tsx": {
+    "shadcn/no-raw-colors": {
+      "count": 4
+    },
     "shadcn/no-restyle": {
       "count": 14
     }
@@ -338,6 +341,37 @@
   "client/src/components/Conversations/UnpinButton.tsx": {
     "shadcn/no-restyle": {
       "count": 5
+    }
+  },
+  "client/src/components/Discover/ExampleCard.tsx": {
+    "shadcn/no-arbitrary-values": {
+      "count": 1
+    }
+  },
+  "client/src/components/Discover/OpenStudies.tsx": {
+    "design/disabled-recipe": {
+      "count": 1
+    },
+    "shadcn/no-arbitrary-values": {
+      "count": 3
+    }
+  },
+  "client/src/components/Discover/Pager.tsx": {
+    "design/disabled-recipe": {
+      "count": 2
+    },
+    "shadcn/no-arbitrary-values": {
+      "count": 2
+    }
+  },
+  "client/src/components/Discover/SearchBox.tsx": {
+    "shadcn/no-arbitrary-values": {
+      "count": 1
+    }
+  },
+  "client/src/components/Discover/StartStrip.tsx": {
+    "shadcn/no-arbitrary-values": {
+      "count": 3
     }
   },
   "client/src/components/Endpoints/ConvoIcon.tsx": {
@@ -597,6 +631,49 @@
       "count": 1
     }
   },
+  "client/src/components/Projects/Workspace/AgentLauncherCard.tsx": {
+    "shadcn/no-arbitrary-values": {
+      "count": 3
+    },
+    "shadcn/no-raw-colors": {
+      "count": 7
+    },
+    "shadcn/no-restyle": {
+      "count": 6
+    }
+  },
+  "client/src/components/Projects/Workspace/EngineDropdown.tsx": {
+    "shadcn/no-arbitrary-values": {
+      "count": 3
+    },
+    "shadcn/no-raw-colors": {
+      "count": 2
+    }
+  },
+  "client/src/components/Projects/Workspace/ReportPreviewFrame.tsx": {
+    "shadcn/no-restyle": {
+      "count": 4
+    }
+  },
+  "client/src/components/Projects/Workspace/ThreadDropdown.tsx": {
+    "shadcn/no-arbitrary-values": {
+      "count": 5
+    },
+    "shadcn/no-raw-colors": {
+      "count": 4
+    }
+  },
+  "client/src/components/Projects/Workspace/WorkspaceHeader.tsx": {
+    "shadcn/no-arbitrary-values": {
+      "count": 1
+    },
+    "shadcn/no-raw-colors": {
+      "count": 11
+    },
+    "shadcn/no-restyle": {
+      "count": 14
+    }
+  },
   "client/src/components/Prompts/buttons/AutoSendPrompt.tsx": {
     "shadcn/no-restyle": {
       "count": 3
@@ -683,7 +760,7 @@
   },
   "client/src/components/Share/ShareView.tsx": {
     "shadcn/no-restyle": {
-      "count": 9
+      "count": 8
     }
   },
   "client/src/components/SharePoint/SharePointPickerDialog.tsx": {

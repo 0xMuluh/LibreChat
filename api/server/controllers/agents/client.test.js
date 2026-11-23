@@ -7029,9 +7029,13 @@ describe('AgentClient - titleConvo', () => {
         [gone, kept],
         expect.any(Function),
       );
-      expect(replayed.fileContext).toContain('"expired.pdf"');
-      expect(replayed.fileContext).toContain('deleted from storage');
-      expect(replayed.fileContext).not.toContain('kept.pdf');
+      /* OmicsBase lists stored uploads as R workspace files ahead of the note. */
+      const missingNote = replayed.fileContext.slice(
+        replayed.fileContext.indexOf('deleted from storage'),
+      );
+      expect(missingNote).toContain('"expired.pdf"');
+      expect(missingNote).toContain('deleted from storage');
+      expect(missingNote).not.toContain('kept.pdf');
       expect(client.message_file_map['history-message'].map((file) => file.file_id)).toEqual([
         kept.file_id,
       ]);
@@ -7659,7 +7663,6 @@ describe('AgentClient - titleConvo', () => {
     });
 
     it.each([
-      ['CSV', 'csv-file', 'sample.csv', 'text/csv'],
       [
         'XLSX',
         'xlsx-file',
@@ -7699,6 +7702,24 @@ describe('AgentClient - titleConvo', () => {
         expect(files).toEqual([currentFile]);
       },
     );
+
+    it('keeps CSV uploads in the R workspace instead of sending them as request documents', async () => {
+      const currentFile = makeUploadedFile('csv-file', 'sample.csv', 'text/csv');
+      const message = {
+        messageId: 'msg-1',
+        parentMessageId: null,
+        sender: 'User',
+        text: 'Read this sample.csv.',
+        isCreatedByUser: true,
+      };
+      client.addDocuments = jest.fn();
+
+      const files = await client.processAttachments(message, [currentFile]);
+
+      expect(client.addDocuments).not.toHaveBeenCalled();
+      expect(message.documents).toBeUndefined();
+      expect(files).toEqual([currentFile]);
+    });
 
     it.each(['current', 'history', 'history-disabled'])(
       'resolves %s tool-routed text only for an authorized handoff without a reader',
@@ -7767,7 +7788,8 @@ describe('AgentClient - titleConvo', () => {
         if (location === 'history-disabled') {
           expect(handoffAgent.additional_instructions ?? '').not.toContain(file.text);
         } else {
-          expect(handoffAgent.additional_instructions).toContain(file.text);
+          /* OmicsBase hands CSV text over as an R workspace file, not inline. */
+          expect(handoffAgent.additional_instructions).toContain(`data/${file.filename}`);
           expect(client.turnScopedAttachmentsByAgentId.get('handoff-agent')).toEqual([
             { ...file, llmDeliveryPath: 'text' },
           ]);

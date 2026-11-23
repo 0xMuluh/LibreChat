@@ -851,7 +851,7 @@ describe('Conversation Operations', () => {
         { createdAtOnInsert: secondAnchor, preserveUpdatedAt: true },
       );
 
-      expect(firstSave?.title).toBe('New Chat');
+      expect(firstSave?.title).toBe('New Note');
       expect(firstSave?.isTemporary).toBe(false);
       expect(firstSave?.updatedAt ?? null).toBeNull();
       expect(new Date(firstSave?.createdAt ?? 0).toISOString()).toBe(firstAnchor.toISOString());
@@ -3137,9 +3137,9 @@ describe('Conversation Operations', () => {
       expect(result).toBeNull();
     });
 
-    it('should return "New Chat" if conversation not found', async () => {
+    it('should return "New Note" if conversation not found', async () => {
       const result = await getConvoTitle('user123', 'non-existent-id');
-      expect(result).toBe('New Chat');
+      expect(result).toBe('New Note');
     });
   });
 

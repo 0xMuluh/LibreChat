@@ -215,8 +215,9 @@ describe('ChatForm textarea identity', () => {
     await userEvent.type(textarea, 'one{Shift>}{Enter}{/Shift}two');
     expect(textarea).toHaveValue('one\ntwo');
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Collapse Chat' }));
-    expect(await screen.findByRole('button', { name: 'Expand Chat' })).toBeInTheDocument();
+    /* OmicsBase labels the composer controls for notes. */
+    fireEvent.click(await screen.findByRole('button', { name: 'Collapse Note' }));
+    expect(await screen.findByRole('button', { name: 'Expand Note' })).toBeInTheDocument();
     expect(screen.getByTestId('text-input')).toBe(textarea);
 
     act(() => {

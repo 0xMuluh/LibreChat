@@ -174,6 +174,11 @@ interface JobMeta {
 
 type RouteMeta = JobMeta | AttachedMeta;
 
+/** Whether a route leads to a machine of the user's own rather than a Roihu job. */
+function isMachine(meta: RouteMeta): meta is AttachedMeta {
+  return meta.kind === 'attached' || meta.kind === 'linked';
+}
+
 interface JobInfo {
   state: string;
   /** For a pending job, Slurm's estimate of the start, when it has one. */
@@ -393,7 +398,7 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
       return { state: 'none' };
     }
     const m = r.meta;
-    if (m.kind === 'attached' || m.kind === 'linked') {
+    if (isMachine(m)) {
       if (m.linkedAt == null) {
         return { state: r.connected ? 'running' : 'offline', machine: m.name };
       }
@@ -665,23 +670,20 @@ export function createRoihuClient(deps: RoihuDeps): RoihuClient {
     if (!r) {
       return { state: 'none' };
     }
-    if (r.meta.kind === 'attached') {
+    const m = r.meta;
+    if (isMachine(m)) {
       await removeRoute(userId, r.route);
       return {
         state: 'ended',
-        message: `${r.meta.name} is disconnected and can no longer reach OmicsBase. Remove its container there: docker rm -f omicsbase-reports`,
-      };
-    }
-    if (r.meta.kind === 'linked') {
-      await removeRoute(userId, r.route);
-      return {
-        state: 'ended',
-        message: `Disconnected from ${r.meta.name}. Its container keeps running there; remove it with docker rm -f omicsbase-reports.`,
+        message:
+          m.kind === 'attached'
+            ? `${m.name} is disconnected and can no longer reach OmicsBase. Remove its container there: docker rm -f omicsbase-reports`
+            : `Disconnected from ${m.name}. Its container keeps running there; remove it with docker rm -f omicsbase-reports.`,
       };
     }
     try {
-      const token = await decrypt(r.meta.token);
-      for (const id of [r.meta.jobId, r.meta.prepJobId]) {
+      const token = await decrypt(m.token);
+      for (const id of [m.jobId, m.prepJobId]) {
         if (id) {
           await firecrest(token, 'DELETE', `/compute/{system}/jobs/${id}`);
         }

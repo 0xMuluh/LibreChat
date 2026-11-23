@@ -25,8 +25,8 @@ import {
   renamedThemeColorTokens,
 } from '../theme';
 import { highContrastDarkTheme, highContrastLightTheme } from './highContrast';
-/** OmicsBase: its own palette is the built-in light and dark theme. */
-import { omicsbaseLight as defaultTheme, omicsbaseDark as darkTheme } from './omicsbase';
+import { defaultTheme } from './default';
+import { darkTheme } from './dark';
 
 /**
  * Compile-time guard: the categorical series scale is declared across three

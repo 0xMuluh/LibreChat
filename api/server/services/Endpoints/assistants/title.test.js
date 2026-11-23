@@ -75,12 +75,12 @@ describe('assistants addTitle content policy', () => {
       conversationId: 'conversation-generated',
     });
 
-    expect(mockCache.set).toHaveBeenCalledWith('user-1-conversation-generated', 'New Chat', 120000);
+    expect(mockCache.set).toHaveBeenCalledWith('user-1-conversation-generated', 'New Note', 120000);
     expect(mockSaveConvo).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         conversationId: 'conversation-generated',
-        title: 'New Chat',
+        title: 'New Note',
       }),
       expect.objectContaining({ noUpsert: true }),
     );
@@ -112,12 +112,12 @@ describe('assistants addTitle content policy', () => {
       conversationId: 'conversation-1',
     });
 
-    expect(mockCache.set).toHaveBeenCalledWith('user-1-conversation-1', 'New Chat', 120000);
+    expect(mockCache.set).toHaveBeenCalledWith('user-1-conversation-1', 'New Note', 120000);
     expect(mockSaveConvo).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         conversationId: 'conversation-1',
-        title: 'New Chat',
+        title: 'New Note',
       }),
       expect.objectContaining({ noUpsert: true }),
     );

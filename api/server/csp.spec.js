@@ -73,6 +73,9 @@ jest.mock(
   { virtual: true },
 );
 
+/* Same boot budget as index.spec.js: a cold or busy host needs well over 30 s to boot. */
+const BOOT_TIMEOUT_MS = 120_000;
+
 describe('Content Security Policy', () => {
   jest.setTimeout(30_000);
 
@@ -83,6 +86,7 @@ describe('Content Security Policy', () => {
   const originalReadFileSync = fs.readFileSync;
 
   beforeAll(async () => {
+    const bootDeadline = Date.now() + BOOT_TIMEOUT_MS;
     fs.readFileSync = function (filepath, options) {
       if (filepath.includes('index.html')) {
         return INDEX_HTML;
@@ -111,10 +115,10 @@ describe('Content Security Policy', () => {
     /* index.js listens at module scope and exports only the app, so capture the server to close it. */
     const listenSpy = jest.spyOn(express.application, 'listen');
     app = require('~/server');
-    await healthCheckPoll(app);
+    await healthCheckPoll(app, bootDeadline);
     server = listenSpy.mock.results[0].value;
     listenSpy.mockRestore();
-  });
+  }, BOOT_TIMEOUT_MS);
 
   afterAll(async () => {
     fs.readFileSync = originalReadFileSync;
@@ -144,7 +148,9 @@ describe('Content Security Policy', () => {
   it('leaves style tags and stylesheet links unstamped', async () => {
     const response = await request(app).get('/');
 
-    expect(response.text).toContain('<style>body{margin:0}</style>');
+    /* OmicsBase appends its logo styles inside the shell's first style tag. */
+    expect(response.text).toContain('<style>body{margin:0}');
+    expect(response.text).not.toContain('<style nonce');
     expect(response.text).toContain('<link rel="stylesheet" crossorigin href="./assets/app.css">');
     expect(response.headers['content-security-policy']).toContain(
       "style-src 'self' 'unsafe-inline'",
@@ -229,9 +235,8 @@ describe('Content Security Policy', () => {
   });
 });
 
-// Polls the /health endpoint every 30ms for up to 10 seconds to wait for the server to start completely
-async function healthCheckPoll(app, retries = 0) {
-  const maxRetries = Math.floor(10000 / 30);
+// Polls the /health endpoint every 30ms until the server is healthy or the boot deadline passes
+async function healthCheckPoll(app, deadline) {
   try {
     const response = await request(app).get('/health');
     if (response.status === 200) {
@@ -241,10 +246,10 @@ async function healthCheckPoll(app, retries = 0) {
     // Ignore connection errors during polling
   }
 
-  if (retries < maxRetries) {
+  if (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 30));
-    await healthCheckPoll(app, retries + 1);
+    await healthCheckPoll(app, deadline);
   } else {
-    throw new Error('App did not become healthy within 10 seconds.');
+    throw new Error(`App did not become healthy within ${BOOT_TIMEOUT_MS / 1000} seconds.`);
   }
 }

@@ -576,17 +576,20 @@ if (cluster.isMaster) {
     }
 
     /* OmicsBase: Dynamic branding injection into initial SPA HTML shell */
-    const appTitle = process.env.APP_TITLE || baseAppConfig?.interfaceConfig?.appTitle || 'OmicsBase';
+    const appTitle = process.env.APP_TITLE || appConfig?.interfaceConfig?.appTitle || 'OmicsBase';
     if (appTitle) {
       indexHTML = indexHTML.replace(/<title>.*?<\/title>/, `<title>${appTitle}</title>`);
-      indexHTML = indexHTML.replace(/content="LibreChat - [^"]*"/, `content="${appTitle} - High-throughput multi-omics analysis platform"`);
+      indexHTML = indexHTML.replace(
+        /content="LibreChat - [^"]*"/,
+        `content="${appTitle} - High-throughput multi-omics analysis platform"`,
+      );
       indexHTML = indexHTML.replace(
         /<link rel="icon"[^>]*32x32[^>]*>/,
-        '<link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />\n    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png" media="(prefers-color-scheme: dark)" />\n    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-light-32x32.png" media="(prefers-color-scheme: light)" />'
+        '<link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />\n    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png" media="(prefers-color-scheme: dark)" />\n    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-light-32x32.png" media="(prefers-color-scheme: light)" />',
       );
       indexHTML = indexHTML.replace(
         '</style>',
-        '  img[src*="assets/logo"] { transition: filter 0.15s ease-in-out; }\n      .dark img[src*="assets/logo"] { filter: invert(1) brightness(1.2); }\n    </style>'
+        '  img[src*="assets/logo"] { transition: filter 0.15s ease-in-out; }\n      .dark img[src*="assets/logo"] { filter: invert(1) brightness(1.2); }\n    </style>',
       );
     }
 
