@@ -581,11 +581,6 @@ async function duplicateConversation({
     '+privateTextTokens',
   );
 
-  const messagesToClone = getMessagesUpToTargetLevel(
-    originalMessages,
-    originalMessages[originalMessages.length - 1].messageId,
-  );
-
   const importBatchBuilder =
     legacyPii == null
       ? builderFactory(userId, interfaceConfig, filters)
