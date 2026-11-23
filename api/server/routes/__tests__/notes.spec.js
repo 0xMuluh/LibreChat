@@ -6,6 +6,7 @@ const mockNoteCells = {
   assertConversationAccess: jest.fn(),
   getCell: jest.fn(),
   getCellByBlockKey: jest.fn(),
+  getShareScope: jest.fn(),
   listCells: jest.fn(),
 };
 
@@ -15,6 +16,7 @@ jest.mock('~/server/middleware/optionalJwtAuth', () => (req, _res, next) => {
   }
   next();
 });
+jest.mock('~/server/middleware/canAccessSharedNote', () => (_req, _res, next) => next());
 jest.mock('~/server/services/NoteCells/service', () => mockNoteCells);
 
 const storedCell = () => ({
@@ -38,6 +40,7 @@ describe('note routes: cells read through a share', () => {
     mockNoteCells.getCell.mockResolvedValue(storedCell());
     mockNoteCells.getCellByBlockKey.mockResolvedValue(storedCell());
     mockNoteCells.listCells.mockResolvedValue([storedCell()]);
+    mockNoteCells.getShareScope.mockResolvedValue({ cellIds: new Set(['c1']), includeFiles: true });
   });
 
   const sharedAccess = () =>

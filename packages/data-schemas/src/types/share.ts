@@ -126,6 +126,15 @@ export interface SharedMessagesResult {
   updatedAt?: Date;
 }
 
+/** What a share publishes, read for server-side checks only; never sent to a viewer. */
+export interface SharedLinkSource {
+  conversationId: string;
+  user?: string;
+  snapshotFiles?: boolean;
+  /** The stored messages up to the share's target, with their tool calls. */
+  messages: Array<Pick<IMessage, 'messageId' | 'parentMessageId' | 'text' | 'content'>>;
+}
+
 export interface CreateShareResult {
   _id?: string;
   shareId: string;

@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { logger } = require('@librechat/data-schemas');
+const { cellRefsFilter } = require('@librechat/api');
 const models = require('./models');
 const { copyNoteFiles } = require('./engineClient');
 
@@ -102,7 +103,8 @@ async function updateClonedMessageNoteReferences({ targetConversationId, cellIdM
 /**
  * Clones NoteCells, revisions, executions, artifacts, events, and project workspace directory
  * from a source conversation to a target conversation. With `includeData: false` the workspace
- * copy leaves out the uploaded files and the saved R session.
+ * copy leaves out the uploaded files and the saved R session, and the runs keep no figures or
+ * tables. With `cellRefs` (from `collectCellRefs`) only the cells those refs name are cloned.
  */
 async function cloneNoteConversation({
   sourceConversationId,
@@ -110,6 +112,7 @@ async function cloneNoteConversation({
   targetUserId,
   messageIdMap = new Map(),
   includeData = true,
+  cellRefs,
 }) {
   if (!sourceConversationId || !targetConversationId || !targetUserId) {
     return;
@@ -120,7 +123,10 @@ async function cloneNoteConversation({
   }
 
   try {
-    const cells = await models.NoteCell.find({ conversationId: sourceConversationId }).lean();
+    const scope = cellRefs ? cellRefsFilter(cellRefs) : {};
+    const cells = scope
+      ? await models.NoteCell.find({ conversationId: sourceConversationId, ...scope }).lean()
+      : [];
     if (!cells || cells.length === 0) {
       await cloneProjectDirectory(sourceConversationId, targetConversationId, includeData);
       return;
@@ -181,10 +187,10 @@ async function cloneNoteConversation({
           finishedAt: exec.finishedAt || null,
         });
 
-        // 3. Clone artifacts for this execution
-        const artifacts = await models.NoteExecutionArtifact.find({
-          executionId: exec._id,
-        }).lean();
+        // 3. Clone artifacts for this execution, when the copy includes the note's files
+        const artifacts = includeData
+          ? await models.NoteExecutionArtifact.find({ executionId: exec._id }).lean()
+          : [];
         for (const art of artifacts) {
           await models.NoteExecutionArtifact.create({
             _id: new mongoose.Types.ObjectId(),

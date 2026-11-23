@@ -308,13 +308,7 @@ test('assertConversationAccess handles owner and read-only shared link resolutio
     findOne: jest.fn((query) => ({
       select: () => ({
         lean: async () => {
-          const matches = query.$or?.some(
-            (c: { shareId?: string; conversationId?: string }) =>
-              c.shareId === 'share123' ||
-              c.conversationId === 'share123' ||
-              c.conversationId === 'convo1',
-          );
-          if (matches) {
+          if (query.shareId === 'share123') {
             return { conversationId: 'convo1', user: 'alice', shareId: 'share123' };
           }
           return null;
@@ -357,10 +351,54 @@ test('assertConversationAccess handles owner and read-only shared link resolutio
   });
   expect(anonAccess).toEqual({ conversationId: 'convo1', userId: 'alice', isShared: true });
 
-  // 5. Invalid shareId rejected
+  // 5. The note's own conversation id does not open its share to others
+  await expect(
+    authService.assertConversationAccess('convo1', 'bob', { readOnly: true }),
+  ).rejects.toMatchObject({ status: 404 });
+
+  // 6. Invalid shareId rejected
   await expect(
     authService.assertConversationAccess('badshare', undefined, { readOnly: true }),
   ).rejects.toMatchObject({
     status: 404,
   });
+});
+
+test('a share scope holds only the cells its messages reference', async () => {
+  const shown = await service.createCell({ conversationId: 'chat', userId: 'alice' });
+  const byToolCall = await service.createCell({
+    conversationId: 'chat',
+    userId: 'alice',
+    blockKey: 'tool-call_2',
+  });
+  await service.createCell({ conversationId: 'chat', userId: 'alice', blockKey: 'tool-call_9' });
+  await service.createCell({ conversationId: 'other', userId: 'alice', blockKey: 'tool-call_2' });
+  const source = {
+    conversationId: 'chat',
+    user: 'alice',
+    snapshotFiles: false,
+    messages: [
+      {
+        content: [
+          { type: 'tool_call', tool_call: { id: 'call_1', output: `[cell_id: "${shown.id}"]` } },
+          { type: 'tool_call', tool_call: { id: 'call_2' } },
+        ],
+      },
+    ],
+  };
+  const sharing = createNoteService({
+    models,
+    getConversationModel: () => undefined,
+    getSharedLinkSource: async (shareId) => (shareId === 'share1' ? source : null),
+    bridgeConversationFiles: bridge,
+    startExecution: start,
+    getExecutionStatus: status,
+    fetchArtifactFromEngine: artifact,
+    signalCancel: cancel,
+  });
+
+  const scope = await sharing.getShareScope('share1');
+  expect([...(scope?.cellIds ?? [])].sort()).toEqual([shown.id, byToolCall.id].sort());
+  expect(scope?.includeFiles).toBe(false);
+  expect(await sharing.getShareScope('gone')).toBeNull();
 });

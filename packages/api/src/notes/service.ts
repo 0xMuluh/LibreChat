@@ -1,4 +1,6 @@
 import type { NoteDependencies } from './serviceTypes';
+import { isFileSnapshotKillSwitchActive } from '~/shared-links/config';
+import { cellRefsFilter, collectCellRefs } from './shareScope';
 import { createAgentCellRunner, createNoteAgentLifecycle } from './agent';
 import { createExecutionStore } from './executions';
 import { serializeArtifact } from './serialization';
@@ -20,8 +22,15 @@ export type NoteService = ReturnType<typeof createCellStore> &
       options?: { readOnly?: boolean },
     ): Promise<{ conversationId: string; userId: string; isShared?: boolean }>;
     resolveUserForConversation(conversationId: string): Promise<string | null>;
+    getShareScope(shareId: string): Promise<NoteShareScope | null>;
     serializeArtifact: typeof serializeArtifact;
   };
+
+/** What a share opens: the cells its messages reference, and their files if it includes them. */
+export interface NoteShareScope {
+  cellIds: Set<string>;
+  includeFiles: boolean;
+}
 
 export function createNoteService(deps: NoteDependencies): NoteService {
   const cells = createCellStore(deps.models);
@@ -54,8 +63,9 @@ export function createNoteService(deps: NoteDependencies): NoteService {
       const SharedLink = deps.getSharedLinkModel?.();
       if (SharedLink) {
         const now = new Date();
+        // Only the share's own id opens it; the note's conversation id stays private.
         const shared = await SharedLink.findOne({
-          $or: [{ shareId: conversationId }, { conversationId }],
+          shareId: conversationId,
           $and: [
             {
               $or: [
@@ -94,6 +104,28 @@ export function createNoteService(deps: NoteDependencies): NoteService {
     return convo?.user ? String(convo.user) : null;
   }
 
+  /** One read of the share's messages and one of its cells, per request. */
+  async function getShareScope(shareId: string): Promise<NoteShareScope | null> {
+    const source = await deps.getSharedLinkSource?.(shareId);
+    if (!source) {
+      return null;
+    }
+    const filter = source.user ? cellRefsFilter(collectCellRefs(source.messages)) : null;
+    const cells = filter
+      ? await deps.models.NoteCell.find({
+          conversationId: source.conversationId,
+          user: source.user,
+          ...filter,
+        })
+          .select('_id')
+          .lean()
+      : [];
+    return {
+      cellIds: new Set(cells.map((cell) => String(cell._id))),
+      includeFiles: source.snapshotFiles !== false && !isFileSnapshotKillSwitchActive(),
+    };
+  }
+
   return {
     createCell: cells.createCell,
     findOrCreateCell: cells.findOrCreateCell,
@@ -124,6 +156,7 @@ export function createNoteService(deps: NoteDependencies): NoteService {
     }),
     assertConversationAccess,
     resolveUserForConversation,
+    getShareScope,
     serializeArtifact,
   };
 }

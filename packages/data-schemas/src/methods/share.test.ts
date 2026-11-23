@@ -1197,6 +1197,56 @@ describe('Share Methods', () => {
     });
   });
 
+  describe('getSharedLinkSource', () => {
+    test('returns the stored messages up to the target, with their tool calls', async () => {
+      const userId = new mongoose.Types.ObjectId().toString();
+      const conversationId = `conv_${nanoid()}`;
+      const toolCall = { id: 'call_1', name: 'execute_r_cell', output: '[cell_id: "c1"]' };
+      const stored = await Message.insertMany(
+        [
+          { messageId: 'u1', parentMessageId: Constants.NO_PARENT, isCreatedByUser: true },
+          {
+            messageId: 'a1',
+            parentMessageId: 'u1',
+            isCreatedByUser: false,
+            content: [{ type: 'tool_call', tool_call: toolCall }],
+          },
+          { messageId: 'u2', parentMessageId: 'a1', isCreatedByUser: true },
+        ].map((message) => ({ ...message, conversationId, user: userId, text: 'x' })),
+      );
+      await SharedLink.create({
+        shareId: 'share-source',
+        conversationId,
+        user: userId,
+        targetMessageId: 'a1',
+        snapshotFiles: false,
+        messages: stored.map((message) => message._id),
+      });
+
+      const source = await shareMethods.getSharedLinkSource('share-source');
+
+      expect(source?.conversationId).toBe(conversationId);
+      expect(source?.user).toBe(userId);
+      expect(source?.snapshotFiles).toBe(false);
+      expect(source?.messages.map((message) => message.messageId).sort()).toEqual(['a1', 'u1']);
+      const answer = source?.messages.find((message) => message.messageId === 'a1');
+      expect(answer?.content).toEqual([{ type: 'tool_call', tool_call: toolCall }]);
+    });
+
+    test('returns null for an expired or unknown share', async () => {
+      await SharedLink.create({
+        shareId: 'share-expired',
+        conversationId: 'conv_old',
+        user: 'u',
+        expiredAt: new Date('2020-01-01T00:00:00.000Z'),
+        messages: [],
+      });
+
+      expect(await shareMethods.getSharedLinkSource('share-expired')).toBeNull();
+      expect(await shareMethods.getSharedLinkSource('share-unknown')).toBeNull();
+    });
+  });
+
   describe('getSharedLinks', () => {
     test('should retrieve paginated shared links for a user', async () => {
       const userId = new mongoose.Types.ObjectId().toString();

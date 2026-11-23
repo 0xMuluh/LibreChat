@@ -237,6 +237,37 @@ describe('canAccessSharedLink', () => {
     });
   });
 
+  describe('a route that names the shareId differently', () => {
+    test('applies the same check to the shareId it carries', async () => {
+      const notesGate = createSharedLinkAccessMiddleware({
+        mongoose,
+        aclService,
+        shareIdParam: 'conversationId',
+      });
+      const link = await createTestLink();
+      await grantPublicViewer(link._id);
+
+      const anonymous = createRes();
+      const turnedAway = jest.fn();
+      await notesGate(
+        createReq({ params: { conversationId: link.shareId } }),
+        anonymous,
+        turnedAway as unknown as NextFunction,
+      );
+      expect(anonymous._status).toBe(401);
+      expect(turnedAway).not.toHaveBeenCalled();
+
+      process.env.ALLOW_SHARED_LINKS_PUBLIC = 'true';
+      const next = jest.fn();
+      await notesGate(
+        createReq({ params: { conversationId: link.shareId } }),
+        createRes(),
+        next as unknown as NextFunction,
+      );
+      expect(next).toHaveBeenCalled();
+    });
+  });
+
   describe('private links', () => {
     test('returns 401 for unauthenticated user', async () => {
       const link = await createTestLink();
