@@ -233,6 +233,9 @@ export const tokenValues: Record<string, { prompt: number; completion: number }>
     'gemini-3.6-flash': { prompt: 0.75, completion: 3.75 },
     'gemini-3.7-flash': { prompt: 0.75, completion: 3.75 },
     'gemini-3.8-flash': { prompt: 0.75, completion: 3.75 },
+    /* Gemini 4 Argon and Carbon list price from 2026-12-01 (2/10 before), the highest Gemini 4
+       rate, so Gemini 4 models without their own entry do not fall to the generic `gemini` rate. */
+    'gemini-4': { prompt: 4, completion: 20 },
     'gemini-pro-vision': { prompt: 0.5, completion: 1.5 },
     grok: { prompt: 2.0, completion: 10.0 },
     'grok-beta': { prompt: 5.0, completion: 15.0 },
@@ -447,6 +450,8 @@ export const cacheTokenValues: Record<string, { write: number; read: number }> =
   'gemini-3.6-flash': { write: 0.75, read: 0.075 },
   'gemini-3.7-flash': { write: 0.75, read: 0.075 },
   'gemini-3.8-flash': { write: 0.75, read: 0.075 },
+  // Gemini 4 Argon and Carbon from 2026-12-01 (see tokenValues)
+  'gemini-4': { write: 4, read: 0.2 },
 };
 
 /**
@@ -486,6 +491,7 @@ export const premiumCacheTokenValues: Record<
   string,
   { threshold: number; write: number; read: number }
 > = {
+  'gemini-3.1': { threshold: 200000, write: 4, read: 0.4 },
   'gpt-5.4': { threshold: 272000, write: 5, read: 0.5 },
   'gpt-5.5': { threshold: 272000, write: 10, read: 1 },
   'gpt-5.6': { threshold: 272000, write: 10, read: 0.8 },
