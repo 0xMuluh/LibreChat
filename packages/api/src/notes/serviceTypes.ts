@@ -23,6 +23,13 @@ export interface NoteDependencies {
   getSharedLinkModel?: () =>
     | Model<{ conversationId: string; user: string; shareId: string; expiredAt?: Date }>
     | undefined;
+  /** The messages a share publishes, up to its target; null when the share is gone. */
+  getSharedLinkSource?: (shareId: string) => Promise<{
+    conversationId: string;
+    user?: string;
+    snapshotFiles?: boolean;
+    messages: Array<{ text?: string | null; content?: unknown }>;
+  } | null>;
   bridgeConversationFiles: (conversationId: string, userId: string) => Promise<void>;
   /** Starts the cell on the engine and returns at once. */
   startExecution: (input: NoteEngineStartInput) => Promise<{ phase?: Phase }>;

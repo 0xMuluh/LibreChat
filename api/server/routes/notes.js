@@ -1,5 +1,6 @@
 const express = require('express');
 const optionalJwtAuth = require('~/server/middleware/optionalJwtAuth');
+const canAccessSharedNote = require('~/server/middleware/canAccessSharedNote');
 const noteCells = require('~/server/services/NoteCells/service');
 
 const router = express.Router({ mergeParams: true });
@@ -29,13 +30,39 @@ function withArtifactUrls(conversationId, cellId, executionId, payload) {
   return payload;
 }
 
+/** A run's figures and tables reach a share's viewers only when the share includes files. */
+function executionForViewer(req, execution) {
+  if (!execution || !req.noteShare || req.noteShare.includeFiles) {
+    return execution;
+  }
+  return { ...execution, artifacts: [] };
+}
+
 /** A shared view reads cells by shareId; the share keeps the note's own conversation id hidden. */
 function forViewer(req, cell) {
   if (!req.noteIsShared) {
     return cell;
   }
   const { conversationId: _conversationId, ...visible } = cell;
+  if (visible.latestExecution) {
+    visible.latestExecution = executionForViewer(req, visible.latestExecution);
+  }
   return visible;
+}
+
+/** True when the request comes through a share that does not show this cell. */
+function hiddenByShare(req, cellId) {
+  return req.noteShare != null && !req.noteShare.cellIds.has(String(cellId));
+}
+
+/** A share shows only the cells its messages reference, up to its target message. */
+async function loadShareScope(req, res, next) {
+  const scope = await noteCells.getShareScope(req.params.conversationId);
+  if (!scope) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+  req.noteShare = scope;
+  return next();
 }
 
 const authed = express.Router({ mergeParams: true });
@@ -51,14 +78,11 @@ authed.use(
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
+    let access;
     try {
-      const access = await noteCells.assertConversationAccess(conversationId, userId, {
+      access = await noteCells.assertConversationAccess(conversationId, userId, {
         readOnly: isReadOnly,
       });
-      req.noteUserId = access.userId;
-      req.noteConversationId = access.conversationId;
-      req.noteIsShared = access.isShared === true;
-      return next();
     } catch (err) {
       if (
         err.status === 404 &&
@@ -72,8 +96,23 @@ authed.use(
       }
       return sendError(res, err);
     }
+    req.noteUserId = access.userId;
+    req.noteConversationId = access.conversationId;
+    req.noteIsShared = access.isShared === true;
+    if (!req.noteIsShared) {
+      return next();
+    }
+    // A share opens to whom the share page opens (public, signed in, or named people).
+    return canAccessSharedNote(req, res, () => loadShareScope(req, res, next).catch(next));
   }),
 );
+
+authed.param('cellId', (req, res, next, cellId) => {
+  if (hiddenByShare(req, cellId)) {
+    return res.status(404).json({ error: 'Cell not found' });
+  }
+  return next();
+});
 
 authed.get(
   '/cells',
@@ -88,6 +127,9 @@ authed.get(
         req.noteUserId,
         blockKey,
       );
+      if (hiddenByShare(req, cell.id)) {
+        return res.status(404).json({ error: 'Cell not found' });
+      }
       if (cell.latestExecution) {
         withArtifactUrls(
           req.params.conversationId,
@@ -98,7 +140,11 @@ authed.get(
       }
       return res.json(forViewer(req, cell));
     }
-    const cells = await noteCells.listCells(req.noteConversationId, req.noteUserId);
+    const cells = await noteCells.listCells(
+      req.noteConversationId,
+      req.noteUserId,
+      req.noteShare?.cellIds,
+    );
     for (const cell of cells) {
       if (cell.latestExecution) {
         withArtifactUrls(
@@ -213,7 +259,7 @@ authed.get(
       req.params.executionId,
       execution,
     );
-    res.json(execution);
+    res.json(executionForViewer(req, execution));
   }),
 );
 
@@ -235,6 +281,9 @@ authed.get(
 authed.get(
   '/cells/:cellId/executions/:executionId/artifacts/:artifactId/content',
   asyncHandler(async (req, res) => {
+    if (req.noteShare && !req.noteShare.includeFiles) {
+      return res.status(404).json({ error: 'Artifact not found' });
+    }
     const { buffer, contentType, artifact } = await noteCells.getArtifactContent(
       req.noteConversationId,
       req.noteUserId,

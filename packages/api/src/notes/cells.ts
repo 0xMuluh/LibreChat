@@ -12,7 +12,12 @@ import type { SerializedCell, SerializedRevision } from './serialization';
 export interface CellStore {
   createCell(input: CellInput): Promise<SerializedCell>;
   findOrCreateCell(input: CellInput): Promise<SerializedCell>;
-  listCells(conversationId: string, userId: string): Promise<SerializedCell[]>;
+  /** All of the note's cells, or only `onlyCellIds` when given. */
+  listCells(
+    conversationId: string,
+    userId: string,
+    onlyCellIds?: Iterable<string>,
+  ): Promise<SerializedCell[]>;
   getCell(conversationId: string, userId: string, cellId: string): Promise<SerializedCell>;
   /** The cell an agent tool call made, by the key the page computes for its card. */
   getCellByBlockKey(
@@ -92,11 +97,12 @@ export function createCellStore(models: NoteModels): CellStore {
     return createCell({ conversationId, userId, content, messageId, blockKey });
   }
 
-  async function listCells(conversationId: string, userId: string) {
-    const cells = await NoteCell.find({ conversationId, user: userId }).sort({
-      position: 1,
-      createdAt: 1,
-    });
+  async function listCells(conversationId: string, userId: string, onlyCellIds?: Iterable<string>) {
+    const cells = await NoteCell.find({
+      conversationId,
+      user: userId,
+      ...(onlyCellIds ? { _id: { $in: [...onlyCellIds] } } : {}),
+    }).sort({ position: 1, createdAt: 1 });
     const out = [];
     for (const cell of cells) {
       const revision = cell.latestRevisionId

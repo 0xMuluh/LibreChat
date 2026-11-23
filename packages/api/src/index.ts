@@ -145,6 +145,8 @@ export type * from './types';
 export { createNoteAgentLifecycle, buildNoteArtifacts } from './notes/agent';
 
 export { createNoteService } from './notes/service';
+export type { NoteShareScope } from './notes/service';
+export { collectCellRefs, cellRefsFilter } from './notes/shareScope';
 
 export * from './tools/approval';
 

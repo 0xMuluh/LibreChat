@@ -1,6 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const {
   cloneLineage,
+  collectCellRefs,
   saveCopiedMessage,
   createNativeCopyPreflight,
   withoutTraceRefs,
@@ -521,6 +522,8 @@ async function forkSharedConversation({
             messageIdMap: idMapping,
             // The share's "files and data" switch also decides whether a copy gets the data.
             includeData: snapshotFiles !== false && sharedLink.snapshotFiles !== false,
+            // Only the cells the copied messages show; later or unreferenced cells stay private.
+            cellRefs: collectCellRefs(sourceMessages),
           });
         }
       }
