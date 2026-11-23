@@ -17,7 +17,6 @@ import {
   SystemRoles,
   setTokenHeader,
   isSystemRoleName,
-  buildLoginRedirectUrl,
   clearTwoFactorSetupToken,
   persistTwoFactorSetupToken,
   TWO_FACTOR_FEDERATED_LOGIN_BLOCKED_CODE,

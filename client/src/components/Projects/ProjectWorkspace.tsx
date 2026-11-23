@@ -40,11 +40,11 @@ import { useElementSize, useLocalize, useNewConvo } from '~/hooks';
 import useDocumentDirection from '~/hooks/useDocumentDirection';
 import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
+import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import ProjectDeleteDialog from './ProjectDeleteDialog';
 import ProjectResources from './ProjectResources';
 import ProjectChatList from './ProjectChatList';
 import WorkspaceCanvas from './WorkspaceCanvas';
-import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import { clearMessagesCache } from '~/utils';
 import ProjectEditor from './ProjectEditor';
 import store from '~/store';
@@ -301,7 +301,7 @@ export default function ProjectWorkspace() {
           className="border-border-light bg-surface-secondary text-text-primary flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium"
         >
           <MessageSquare className="size-4" aria-hidden="true" />
-          <span>Notes</span>
+          <span>{localize('com_ui_chats')}</span>
           <span className="bg-surface-tertiary text-text-secondary rounded-full px-2 py-0.5 text-xs">
             {project.conversationCount}
           </span>
@@ -314,7 +314,7 @@ export default function ProjectWorkspace() {
           className="text-text-secondary hover:text-text-primary flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition-colors"
         >
           <Layout className="size-4" aria-hidden="true" />
-          <span>Workspace</span>
+          <span>{localize('com_ui_project_workspace')}</span>
         </button>
       </div>
     </div>

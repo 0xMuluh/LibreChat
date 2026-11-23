@@ -91,12 +91,11 @@ function Footer({ className, startupConfig, configuredOnly = false }: FooterProp
     </a>
   );
 
-  const configuredFooter =
-    typeof config?.customFooter === 'string'
-      ? config.customFooter.trim()
-        ? config.customFooter
-        : ''
-      : null;
+  /** `null` when no footer is configured; an empty string when it is configured blank. */
+  let configuredFooter: string | null = null;
+  if (typeof config?.customFooter === 'string') {
+    configuredFooter = config.customFooter.trim() ? config.customFooter : '';
+  }
   /** The generic disclaimer is the part a conversation drops; operator content is not. */
   const genericFooter = configuredOnly
     ? ''

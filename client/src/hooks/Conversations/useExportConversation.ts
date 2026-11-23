@@ -11,10 +11,10 @@ import {
 } from '~/hooks/ScreenshotContext';
 import useBuildMessageTree from '~/hooks/Messages/useBuildMessageTree';
 import { isUnacknowledgedUserMessage } from '~/utils/messages';
+import { synthesizeThreadToQuarto } from './formatQuarto';
 import { importWithRecovery } from '~/lib/assets/lazy';
 import { NotificationSeverity } from '~/common';
 import { formatMessageText } from './format';
-import { synthesizeThreadToQuarto } from './formatQuarto';
 import { cleanupPreset } from '~/utils';
 import { useLocalize } from '~/hooks';
 

@@ -215,7 +215,10 @@ function SharedView() {
             config?.interface?.analyticsConsent !== false
           }
         />
-        <ShareMessagesProvider messages={data.messages} conversationId={shareId || data.conversationId}>
+        <ShareMessagesProvider
+          messages={data.messages}
+          conversationId={shareId || data.conversationId}
+        >
           <MessagesView messagesTree={messagesTree} conversationId={SHARED_CONVO_KEY} />
         </ShareMessagesProvider>
       </>
@@ -329,7 +332,7 @@ function ShareTitle({ title }: { title?: string }) {
       render={
         <h1
           data-testid="share-title"
-          className="text-text-primary focus-visible:ring-text-primary cursor-default line-clamp-3 break-words text-2xl font-semibold focus-visible:ring-2 focus-visible:outline-hidden md:line-clamp-1 md:text-4xl"
+          className="text-text-primary focus-visible:ring-text-primary line-clamp-3 cursor-default text-2xl font-semibold break-words focus-visible:ring-2 focus-visible:outline-hidden md:line-clamp-1 md:text-4xl"
         >
           {title}
         </h1>

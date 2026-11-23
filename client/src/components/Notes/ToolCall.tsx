@@ -96,8 +96,7 @@ export function useNoteTool({
 }
 
 /** Whether a tool call is an agent's R cell, whatever MCP server prefix its name carries. */
-export const isNoteToolCall = (name?: string): boolean =>
-  name?.includes('execute_r_cell') === true;
+export const isNoteToolCall = (name?: string): boolean => name?.includes('execute_r_cell') === true;
 
 /**
  * An agent's R cell call, drawn as a note cell. Until the call carries code or output there is

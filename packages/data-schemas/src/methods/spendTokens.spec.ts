@@ -976,7 +976,9 @@ describe('spendTokens', () => {
       const premiumPromptRate = premiumTokenValues['gemini-3.1'].prompt;
       const premiumCompletionRate = premiumTokenValues['gemini-3.1'].completion;
       const inputTokenCount =
-        tokenUsage.promptTokens.input + tokenUsage.promptTokens.write + tokenUsage.promptTokens.read;
+        tokenUsage.promptTokens.input +
+        tokenUsage.promptTokens.write +
+        tokenUsage.promptTokens.read;
       const writeRate = getCacheMultiplier({ model, cacheType: 'write', inputTokenCount });
       const readRate = getCacheMultiplier({ model, cacheType: 'read', inputTokenCount });
 

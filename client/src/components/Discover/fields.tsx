@@ -197,16 +197,225 @@ export const FIELD_NODES: FieldNode[] = [
   },
 ];
 
-/** Translation keys of a node's card: a tagline, then items each with a detail line. */
-export const nodeText = (node: FieldNode, localReports = false) => ({
-  tagline: `com_discover_node_${node.id}_tagline` as TranslationKeys,
-  items: Array.from({ length: node.items }, (_, i) => ({
-    title: `com_discover_node_${node.id}_item${i + 1}` as TranslationKeys,
-    detail: (localReports && node.id === 'reports' && i === 0
-      ? 'com_discover_node_reports_item1_detail_local'
-      : `com_discover_node_${node.id}_item${i + 1}_detail`) as TranslationKeys,
-  })),
-});
+/** Translation keys of each node's card: a tagline, then items each with a detail line.
+ *  Written out, not built from the node id, so every key is type-checked and visible to
+ *  the unused-key check. */
+const NODE_TEXT: Record<
+  string,
+  { tagline: TranslationKeys; items: { title: TranslationKeys; detail: TranslationKeys }[] }
+> = {
+  hub: {
+    tagline: 'com_discover_node_hub_tagline',
+    items: [
+      { title: 'com_discover_node_hub_item1', detail: 'com_discover_node_hub_item1_detail' },
+      { title: 'com_discover_node_hub_item2', detail: 'com_discover_node_hub_item2_detail' },
+      { title: 'com_discover_node_hub_item3', detail: 'com_discover_node_hub_item3_detail' },
+      { title: 'com_discover_node_hub_item4', detail: 'com_discover_node_hub_item4_detail' },
+    ],
+  },
+  microbiome: {
+    tagline: 'com_discover_node_microbiome_tagline',
+    items: [
+      {
+        title: 'com_discover_node_microbiome_item1',
+        detail: 'com_discover_node_microbiome_item1_detail',
+      },
+      {
+        title: 'com_discover_node_microbiome_item2',
+        detail: 'com_discover_node_microbiome_item2_detail',
+      },
+      {
+        title: 'com_discover_node_microbiome_item3',
+        detail: 'com_discover_node_microbiome_item3_detail',
+      },
+      {
+        title: 'com_discover_node_microbiome_item4',
+        detail: 'com_discover_node_microbiome_item4_detail',
+      },
+    ],
+  },
+  transcriptomics: {
+    tagline: 'com_discover_node_transcriptomics_tagline',
+    items: [
+      {
+        title: 'com_discover_node_transcriptomics_item1',
+        detail: 'com_discover_node_transcriptomics_item1_detail',
+      },
+      {
+        title: 'com_discover_node_transcriptomics_item2',
+        detail: 'com_discover_node_transcriptomics_item2_detail',
+      },
+      {
+        title: 'com_discover_node_transcriptomics_item3',
+        detail: 'com_discover_node_transcriptomics_item3_detail',
+      },
+      {
+        title: 'com_discover_node_transcriptomics_item4',
+        detail: 'com_discover_node_transcriptomics_item4_detail',
+      },
+    ],
+  },
+  singlecell: {
+    tagline: 'com_discover_node_singlecell_tagline',
+    items: [
+      {
+        title: 'com_discover_node_singlecell_item1',
+        detail: 'com_discover_node_singlecell_item1_detail',
+      },
+      {
+        title: 'com_discover_node_singlecell_item2',
+        detail: 'com_discover_node_singlecell_item2_detail',
+      },
+      {
+        title: 'com_discover_node_singlecell_item3',
+        detail: 'com_discover_node_singlecell_item3_detail',
+      },
+      {
+        title: 'com_discover_node_singlecell_item4',
+        detail: 'com_discover_node_singlecell_item4_detail',
+      },
+    ],
+  },
+  spatial: {
+    tagline: 'com_discover_node_spatial_tagline',
+    items: [
+      {
+        title: 'com_discover_node_spatial_item1',
+        detail: 'com_discover_node_spatial_item1_detail',
+      },
+      {
+        title: 'com_discover_node_spatial_item2',
+        detail: 'com_discover_node_spatial_item2_detail',
+      },
+      {
+        title: 'com_discover_node_spatial_item3',
+        detail: 'com_discover_node_spatial_item3_detail',
+      },
+      {
+        title: 'com_discover_node_spatial_item4',
+        detail: 'com_discover_node_spatial_item4_detail',
+      },
+    ],
+  },
+  proteomics: {
+    tagline: 'com_discover_node_proteomics_tagline',
+    items: [
+      {
+        title: 'com_discover_node_proteomics_item1',
+        detail: 'com_discover_node_proteomics_item1_detail',
+      },
+      {
+        title: 'com_discover_node_proteomics_item2',
+        detail: 'com_discover_node_proteomics_item2_detail',
+      },
+      {
+        title: 'com_discover_node_proteomics_item3',
+        detail: 'com_discover_node_proteomics_item3_detail',
+      },
+      {
+        title: 'com_discover_node_proteomics_item4',
+        detail: 'com_discover_node_proteomics_item4_detail',
+      },
+    ],
+  },
+  functional: {
+    tagline: 'com_discover_node_functional_tagline',
+    items: [
+      {
+        title: 'com_discover_node_functional_item1',
+        detail: 'com_discover_node_functional_item1_detail',
+      },
+      {
+        title: 'com_discover_node_functional_item2',
+        detail: 'com_discover_node_functional_item2_detail',
+      },
+      {
+        title: 'com_discover_node_functional_item3',
+        detail: 'com_discover_node_functional_item3_detail',
+      },
+      {
+        title: 'com_discover_node_functional_item4',
+        detail: 'com_discover_node_functional_item4_detail',
+      },
+    ],
+  },
+  genomes: {
+    tagline: 'com_discover_node_genomes_tagline',
+    items: [
+      {
+        title: 'com_discover_node_genomes_item1',
+        detail: 'com_discover_node_genomes_item1_detail',
+      },
+      {
+        title: 'com_discover_node_genomes_item2',
+        detail: 'com_discover_node_genomes_item2_detail',
+      },
+      {
+        title: 'com_discover_node_genomes_item3',
+        detail: 'com_discover_node_genomes_item3_detail',
+      },
+      {
+        title: 'com_discover_node_genomes_item4',
+        detail: 'com_discover_node_genomes_item4_detail',
+      },
+    ],
+  },
+  multiomics: {
+    tagline: 'com_discover_node_multiomics_tagline',
+    items: [
+      {
+        title: 'com_discover_node_multiomics_item1',
+        detail: 'com_discover_node_multiomics_item1_detail',
+      },
+      {
+        title: 'com_discover_node_multiomics_item2',
+        detail: 'com_discover_node_multiomics_item2_detail',
+      },
+      {
+        title: 'com_discover_node_multiomics_item3',
+        detail: 'com_discover_node_multiomics_item3_detail',
+      },
+      {
+        title: 'com_discover_node_multiomics_item4',
+        detail: 'com_discover_node_multiomics_item4_detail',
+      },
+    ],
+  },
+  reports: {
+    tagline: 'com_discover_node_reports_tagline',
+    items: [
+      {
+        title: 'com_discover_node_reports_item1',
+        detail: 'com_discover_node_reports_item1_detail',
+      },
+      {
+        title: 'com_discover_node_reports_item2',
+        detail: 'com_discover_node_reports_item2_detail',
+      },
+      {
+        title: 'com_discover_node_reports_item3',
+        detail: 'com_discover_node_reports_item3_detail',
+      },
+      {
+        title: 'com_discover_node_reports_item4',
+        detail: 'com_discover_node_reports_item4_detail',
+      },
+    ],
+  },
+};
+
+/** A node's card keys; Reports on this machine describes the local workspace, not Roihu. */
+export const nodeText = (node: FieldNode, localReports = false) => {
+  const text = NODE_TEXT[node.id];
+  return {
+    tagline: text.tagline,
+    items: text.items.map((item, i) =>
+      localReports && node.id === 'reports' && i === 0
+        ? { ...item, detail: 'com_discover_node_reports_item1_detail_local' as const }
+        : item,
+    ),
+  };
+};
 
 /** The network label; Reports on this machine is not on Roihu. */
 export const nodeShort = (node: FieldNode, localReports = false): TranslationKeys =>
