@@ -4,12 +4,14 @@ import { noteCellsApi } from '~/data-provider/Notes/notesCellsApi';
 import { useRCell } from '../useRCell';
 
 jest.mock('@librechat/client', () => ({ useToastContext: () => ({ showToast: jest.fn() }) }));
-jest.mock('~/Providers', () => ({ useShareContext: () => ({ isSharedConvo: false }) }));
+const mockShareContext = { isSharedConvo: false };
+jest.mock('~/Providers', () => ({ useShareContext: () => mockShareContext }));
 jest.mock('~/data-provider/Notes/notesCellsApi', () => ({
   ...jest.requireActual('~/data-provider/Notes/notesCellsApi'),
   noteCellsApi: {
     findCellByBlockKey: jest.fn(),
     createOrFindCell: jest.fn(),
+    getCell: jest.fn(),
     appendRevision: jest.fn(),
     getExecution: jest.fn(),
     listExecutions: jest.fn(),
@@ -61,6 +63,7 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.useRealTimers();
+  mockShareContext.isSharedConvo = false;
 });
 
 describe('useRCell: a live agent cell attaches by blockKey', () => {
@@ -248,5 +251,122 @@ describe('useRCell: the code shown is the code that runs', () => {
     toggle(result);
     expect(result.current.code).toBe(toolCode);
     expect(result.current.isDirty).toBe(false);
+  });
+  it('shows the latest run after a reload, not the run of the tool call', async () => {
+    api.createOrFindCell.mockResolvedValue({
+      ...storedCell(2, editedCode),
+      latestExecutionId: 'e2',
+    });
+    api.getExecution.mockImplementation(async (_convo, _cell, id) =>
+      execution({ id, status: 'completed' }),
+    );
+
+    const { result } = renderHook(() =>
+      useRCell(
+        {
+          initialCode: toolCode,
+          isAgentGenerated: true,
+          blockKey: 'tool-call_1',
+          cellId: 'c1',
+          executionId: 'e1',
+        },
+        'convo1',
+        'msg1',
+      ),
+    );
+    await tick();
+
+    expect(api.getExecution).toHaveBeenCalledWith('convo1', 'c1', 'e2');
+    expect(result.current.code).toBe(editedCode);
+    expect(result.current.execution?.id).toBe('e2');
+  });
+});
+
+describe('useRCell: a shared note shows what the owner sees', () => {
+  const toolCode = 'tse <- addAlpha(tse)';
+  const editedCode = 'tse <- addAlpha(tse, index = "shannon")';
+  const toolOutput =
+    '<!-- noteCell cellId=c1 executionId=e1 status=completed -->\n[cell_id: "c1"]\nrichness 12';
+  const sharedCell = (number: number, content: string, latest: NoteCellExecution): NoteCell => ({
+    id: 'c1',
+    blockKey: 'tool-call_1',
+    latestExecutionId: latest.id,
+    revision: { id: `r${number}`, cellId: 'c1', revision: number, language: 'r', content },
+    latestExecution: latest,
+  });
+  // In a shared view the message context carries the shareId as the conversation id.
+  const sharedAgentCell = () =>
+    renderHook(() =>
+      useRCell(
+        {
+          initialCode: toolCode,
+          initialOutput: toolOutput,
+          isAgentGenerated: true,
+          blockKey: 'tool-call_1',
+          cellId: 'c1',
+          executionId: 'e1',
+        },
+        'share1',
+        'msg1',
+      ),
+    );
+
+  beforeEach(() => {
+    mockShareContext.isSharedConvo = true;
+  });
+
+  it('shows the saved revision and its latest run for a cell the owner edited and re-ran', async () => {
+    const rerun = execution({ id: 'e2', revisionId: 'r2', status: 'completed', stdout: 'shannon' });
+    api.getCell.mockResolvedValue(sharedCell(2, `${editedCode}\n`, rerun));
+
+    const { result } = sharedAgentCell();
+    await tick();
+
+    expect(api.getCell).toHaveBeenCalledWith('share1', 'c1');
+    expect(api.createOrFindCell).not.toHaveBeenCalled();
+    expect(api.getExecution).not.toHaveBeenCalled();
+    expect(result.current.code).toBe(editedCode);
+    expect(result.current.isDirty).toBe(false);
+    expect(result.current.execution?.id).toBe('e2');
+    expect(result.current.stdout).toBe('shannon');
+    expect(result.current.isBootstrapping).toBe(false);
+  });
+
+  it('shows the tool call code for a cell that was never edited', async () => {
+    const run = execution({ id: 'e1', status: 'completed', stdout: 'richness 12' });
+    api.getCell.mockResolvedValue(sharedCell(1, `${toolCode}\n# stored copy`, run));
+
+    const { result } = sharedAgentCell();
+    await tick();
+
+    expect(result.current.code).toBe(toolCode);
+    expect(result.current.execution?.id).toBe('e1');
+  });
+
+  it('follows a run the owner has in progress', async () => {
+    const running = execution({ id: 'e2', status: 'running' });
+    api.getCell.mockResolvedValue(sharedCell(2, editedCode, running));
+    api.getExecution.mockResolvedValue(execution({ id: 'e2', status: 'completed' }));
+
+    const { result } = sharedAgentCell();
+    // Let the cell read settle without advancing the 1.5 s poll.
+    await act(async () => {});
+    expect(result.current.isActive).toBe(true);
+    expect(api.getExecution).not.toHaveBeenCalled();
+
+    await tick();
+    expect(api.getExecution).toHaveBeenCalledWith('share1', 'c1', 'e2');
+    expect(result.current.execution?.status).toBe('completed');
+  });
+
+  it('shows the tool output when the cell cannot be read', async () => {
+    api.getCell.mockRejectedValue(new Error('404'));
+
+    const { result } = sharedAgentCell();
+    await tick();
+
+    expect(result.current.code).toBe(toolCode);
+    expect(result.current.execution?.id).toBe('e1');
+    expect(result.current.execution?.markdown).toBe('[cell_id: "c1"]\nrichness 12');
   });
 });

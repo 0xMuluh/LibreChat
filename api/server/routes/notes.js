@@ -29,6 +29,15 @@ function withArtifactUrls(conversationId, cellId, executionId, payload) {
   return payload;
 }
 
+/** A shared view reads cells by shareId; the share keeps the note's own conversation id hidden. */
+function forViewer(req, cell) {
+  if (!req.noteIsShared) {
+    return cell;
+  }
+  const { conversationId: _conversationId, ...visible } = cell;
+  return visible;
+}
+
 const authed = express.Router({ mergeParams: true });
 authed.use(optionalJwtAuth);
 
@@ -48,6 +57,7 @@ authed.use(
       });
       req.noteUserId = access.userId;
       req.noteConversationId = access.conversationId;
+      req.noteIsShared = access.isShared === true;
       return next();
     } catch (err) {
       if (
@@ -86,7 +96,7 @@ authed.get(
           cell.latestExecution,
         );
       }
-      return res.json(cell);
+      return res.json(forViewer(req, cell));
     }
     const cells = await noteCells.listCells(req.noteConversationId, req.noteUserId);
     for (const cell of cells) {
@@ -99,7 +109,7 @@ authed.get(
         );
       }
     }
-    res.json({ cells });
+    res.json({ cells: cells.map((cell) => forViewer(req, cell)) });
   }),
 );
 
@@ -131,7 +141,7 @@ authed.get(
         cell.latestExecution,
       );
     }
-    res.json(cell);
+    res.json(forViewer(req, cell));
   }),
 );
 
