@@ -259,9 +259,12 @@ export const tokenValues: Record<string, { prompt: number; completion: number }>
     'gemini-3.6-flash': { prompt: 0.75, completion: 3.75 },
     'gemini-3.7-flash': { prompt: 0.75, completion: 3.75 },
     'gemini-3.8-flash': { prompt: 0.75, completion: 3.75 },
-    // Gemini 4 Argon introductory pricing through 2026-11-30; revert to { prompt: 4, completion: 20 } on 2026-12-01.
-    'gemini-4-argon': { prompt: 2, completion: 10 },
+    /* Gemini 4 Argon billed at its list price from 2026-12-01 (2/10 before), so we do not
+       under-bill in the last days of the introductory price. `gemini-4` is the fallback for
+       Gemini 4 models without their own entry, so they do not fall to the generic `gemini` rate. */
+    'gemini-4-argon': { prompt: 4, completion: 20 },
     'gemini-4-hydrogen': getGeminiHydrogenRates(),
+    'gemini-4': { prompt: 4, completion: 20 },
     'gemini-pro-vision': { prompt: 0.5, completion: 1.5 },
     grok: { prompt: 2.0, completion: 10.0 },
     'grok-beta': { prompt: 5.0, completion: 15.0 },
@@ -485,9 +488,10 @@ export const cacheTokenValues: Record<string, CacheRates> = {
   'gemini-3.6-flash': { write: 0.75, read: 0.075 },
   'gemini-3.7-flash': { write: 0.75, read: 0.075 },
   'gemini-3.8-flash': { write: 0.75, read: 0.075 },
-  // Gemini 4 Argon (implicit caching only) introductory pricing through 2026-11-30; revert to { write: 4, read: 0.2 } on 2026-12-01.
-  'gemini-4-argon': { write: 2, read: 0.1 },
+  // Gemini 4 Argon from 2026-12-01 (see tokenValues); `gemini-4` is the fallback
+  'gemini-4-argon': { write: 4, read: 0.2 },
   'gemini-4-hydrogen': { write: 1.5, read: getGeminiHydrogenRates().read },
+  'gemini-4': { write: 4, read: 0.2 },
 };
 
 /**
@@ -533,6 +537,7 @@ export const premiumCacheTokenValues: Record<
 > = {
   'claude-haiku-5-5': { threshold: 100000, write: 0.625, read: 0.05 },
   'claude-haiku-5.5': { threshold: 100000, write: 0.625, read: 0.05 },
+  'gemini-3.1': { threshold: 200000, write: 4, read: 0.4 },
   'gpt-5.4': { threshold: 272000, write: 5, read: 0.5 },
   'gpt-5.5': { threshold: 272000, write: 10, read: 1 },
   'gpt-5.6': { threshold: 272000, write: 10, read: 0.8 },

@@ -955,6 +955,7 @@ export function createShareMethods(mongoose: typeof import('mongoose')): {
     shareId: string,
     fileId: string,
   ) => Promise<{ file: t.SharedFileSnapshot | null; hasSnapshots: boolean; optedOut: boolean }>;
+  getSharedLinkSource: (shareId: string) => Promise<t.SharedLinkSource | null>;
   backfillSharedLinkFiles: (
     shareId: string,
     fileId?: string,
@@ -1180,6 +1181,35 @@ export function createShareMethods(mongoose: typeof import('mongoose')): {
       });
       throw new ShareServiceError('Error getting share link', 'SHARE_FETCH_ERROR');
     }
+  }
+
+  /**
+   * The stored messages a share publishes, cut at its target like `getSharedMessages`, for
+   * server-side checks of what the share exposes. Ids are not anonymized, so never send
+   * the result to a viewer.
+   */
+  async function getSharedLinkSource(shareId: string): Promise<t.SharedLinkSource | null> {
+    const SharedLink = mongoose.models.SharedLink as Model<t.ISharedLink>;
+    const share = (await SharedLink.findOne({
+      shareId,
+      ...activeExpirationFilter<t.ISharedLink>(),
+    })
+      .populate({ path: 'messages', select: 'messageId parentMessageId text content' })
+      .select('conversationId user targetMessageId snapshotFiles messages')
+      .lean()) as (t.ISharedLink & { messages: t.IMessage[] }) | null;
+    if (!share?.conversationId) {
+      return null;
+    }
+    const stored = share.messages ?? [];
+    const messages = share.targetMessageId
+      ? getMessagesUpToTarget(stored, share.targetMessageId)
+      : stored;
+    return {
+      conversationId: share.conversationId,
+      user: share.user,
+      snapshotFiles: share.snapshotFiles,
+      messages,
+    };
   }
 
   /**
@@ -1779,6 +1809,7 @@ export function createShareMethods(mongoose: typeof import('mongoose')): {
     deleteSharedLink,
     getSharedMessages,
     getSharedLinkFile,
+    getSharedLinkSource,
     backfillSharedLinkFiles,
     deleteAllSharedLinks,
     deleteConvoSharedLink,

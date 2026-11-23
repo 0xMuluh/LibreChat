@@ -17,6 +17,8 @@ export interface SharedLinkAccessDeps {
   mongoose: typeof import('mongoose');
   aclService?: AccessControlService;
   findActiveSharedLink?: ShareMethods['findActiveSharedLink'];
+  /** Route parameter that holds the shareId; `shareId` unless a route names it otherwise. */
+  shareIdParam?: string;
 }
 
 function isAutoMigrateEnabled(): boolean {
@@ -26,7 +28,7 @@ function isAutoMigrateEnabled(): boolean {
 }
 
 export function createSharedLinkAccessMiddleware(deps: SharedLinkAccessDeps) {
-  const { mongoose: mg } = deps;
+  const { mongoose: mg, shareIdParam = 'shareId' } = deps;
   const aclService = deps.aclService ?? new AccessControlService(mg);
   const findActiveSharedLink = deps.findActiveSharedLink ?? createMethods(mg).findActiveSharedLink;
 
@@ -42,7 +44,7 @@ export function createSharedLinkAccessMiddleware(deps: SharedLinkAccessDeps) {
     res: Response,
     next: NextFunction,
   ): Promise<void> {
-    const { shareId } = req.params;
+    const shareId = req.params[shareIdParam];
     if (!shareId) {
       res.status(400).json({ message: 'Missing shareId' });
       return;

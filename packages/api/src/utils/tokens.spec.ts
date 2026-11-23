@@ -196,6 +196,12 @@ describe('Gemini 3.8 Flash', () => {
   });
 });
 
+describe('Gemini 4 Argon', () => {
+  it('resolves the 1,048,576-token context window, not the generic gemini window', () => {
+    expect(getModelMaxTokens('gemini-4-argon', EModelEndpoint.google)).toBe(1048576);
+  });
+});
+
 describe('GPT point releases', () => {
   it('inherit their family context window', () => {
     for (const model of ['gpt-6.1-sol', 'gpt-6.1-sol-2026-10-01', 'openai/gpt-6.1-sol']) {

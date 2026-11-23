@@ -1845,20 +1845,6 @@ describe('Google Model Tests', () => {
     );
   });
 
-  it('should apply the introductory Gemini 4 Argon rates', () => {
-    for (const model of ['gemini-4-argon', 'models/gemini-4-argon']) {
-      expect(getValueKey(model, EModelEndpoint.google)).toBe('gemini-4-argon');
-      expect(getMultiplier({ model, tokenType: 'prompt', endpoint: EModelEndpoint.google })).toBe(
-        2,
-      );
-      expect(
-        getMultiplier({ model, tokenType: 'completion', endpoint: EModelEndpoint.google }),
-      ).toBe(10);
-      expect(getCacheMultiplier({ model, cacheType: 'write' })).toBe(2);
-      expect(getCacheMultiplier({ model, cacheType: 'read' })).toBe(0.1);
-    }
-  });
-
   it('should not apply a long-context premium tier to Gemini 4 Argon', () => {
     expect(getPremiumRate('gemini-4-argon', 'prompt', 900000)).toBeNull();
   });
@@ -1874,6 +1860,36 @@ describe('Google Model Tests', () => {
       expect(getCacheMultiplier({ model, cacheType: 'write' })).toBe(0.75);
       expect(getCacheMultiplier({ model, cacheType: 'read' })).toBe(0.075);
     }
+  });
+
+  it('should price Gemini 4 Argon at its December 2026 list rate, not the generic gemini rate', () => {
+    for (const model of ['gemini-4-argon', 'models/gemini-4-argon']) {
+      expect(getValueKey(model, EModelEndpoint.google)).toBe('gemini-4-argon');
+      expect(getMultiplier({ model, tokenType: 'prompt', endpoint: EModelEndpoint.google })).toBe(
+        4,
+      );
+      expect(
+        getMultiplier({ model, tokenType: 'completion', endpoint: EModelEndpoint.google }),
+      ).toBe(20);
+      expect(getCacheMultiplier({ model, cacheType: 'write' })).toBe(4);
+      expect(getCacheMultiplier({ model, cacheType: 'read' })).toBe(0.2);
+      expect(getMultiplier({ model, tokenType: 'prompt' })).not.toBe(tokenValues.gemini.prompt);
+    }
+  });
+
+  it('should price Gemini 4 models without their own entry at the gemini-4 fallback', () => {
+    const model = 'gemini-4-carbon';
+    expect(getValueKey(model, EModelEndpoint.google)).toBe('gemini-4');
+    expect(getMultiplier({ model, tokenType: 'prompt', endpoint: EModelEndpoint.google })).toBe(4);
+    expect(getMultiplier({ model, tokenType: 'completion', endpoint: EModelEndpoint.google })).toBe(
+      20,
+    );
+  });
+
+  it('should bill Gemini 3.1 Pro cache reads at the long-context rate above 200k', () => {
+    const model = 'gemini-3.1-pro-preview';
+    expect(getCacheMultiplier({ model, cacheType: 'read', inputTokenCount: 200001 })).toBe(0.4);
+    expect(getCacheMultiplier({ model, cacheType: 'read', inputTokenCount: 200000 })).toBe(0.2);
   });
 
   it('should return correct rates for Gemini 3.5 Flash-Lite', () => {

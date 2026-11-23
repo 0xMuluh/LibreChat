@@ -2066,4 +2066,41 @@ describe('forkSharedConversation: the note data', () => {
       expect.objectContaining({ sourceConversationId: 'src', includeData }),
     );
   });
+
+  test('copies only the cells the copied messages reference', async () => {
+    withLink({ conversationId: 'src', snapshotFiles: true });
+    getSharedMessages.mockResolvedValue({
+      shareId: 'share123',
+      conversationId: 'convo_anon',
+      title: 'Shared Title',
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      messages: [
+        { messageId: 'm1', parentMessageId: Constants.NO_PARENT, text: 'q', isCreatedByUser: true },
+        {
+          messageId: 'm2',
+          parentMessageId: 'm1',
+          text: '',
+          isCreatedByUser: false,
+          content: [
+            {
+              type: 'tool_call',
+              tool_call: { id: 'call_1', output: '[cell_id: "6560a1b2c3d4e5f6a7b8c9d0"]' },
+            },
+          ],
+        },
+      ],
+    });
+
+    await forkSharedConversation({
+      shareId: 'share123',
+      shareResourceId: 'r1',
+      requestUserId: 'user1',
+    });
+
+    expect(cloneNoteConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cellRefs: { cellIds: ['6560a1b2c3d4e5f6a7b8c9d0'], blockKeys: ['tool-call_1'] },
+      }),
+    );
+  });
 });

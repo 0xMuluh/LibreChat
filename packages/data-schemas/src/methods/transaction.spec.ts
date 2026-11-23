@@ -868,8 +868,12 @@ describe('Premium Token Pricing Integration Tests', () => {
       tokenType: 'prompt',
       inputTokenCount: totalInput,
     });
-    const writeMultiplier = getCacheMultiplier({ model, cacheType: 'write' }) ?? promptMultiplier;
-    const readMultiplier = getCacheMultiplier({ model, cacheType: 'read' }) ?? promptMultiplier;
+    const writeMultiplier =
+      getCacheMultiplier({ model, cacheType: 'write', inputTokenCount: totalInput }) ??
+      promptMultiplier;
+    const readMultiplier =
+      getCacheMultiplier({ model, cacheType: 'read', inputTokenCount: totalInput }) ??
+      promptMultiplier;
 
     const expectedPromptCost =
       tokenUsage.promptTokens.input * premiumPromptRate +
@@ -1057,8 +1061,12 @@ describe('Premium Token Pricing Integration Tests', () => {
       tokenType: 'prompt',
       inputTokenCount: totalInput,
     });
-    const writeMultiplier = getCacheMultiplier({ model, cacheType: 'write' }) ?? promptMultiplier;
-    const readMultiplier = getCacheMultiplier({ model, cacheType: 'read' }) ?? promptMultiplier;
+    const writeMultiplier =
+      getCacheMultiplier({ model, cacheType: 'write', inputTokenCount: totalInput }) ??
+      promptMultiplier;
+    const readMultiplier =
+      getCacheMultiplier({ model, cacheType: 'read', inputTokenCount: totalInput }) ??
+      promptMultiplier;
 
     const expectedPromptCost =
       tokenUsage.promptTokens.input * premiumPromptRate +
