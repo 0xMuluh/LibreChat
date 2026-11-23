@@ -37,6 +37,10 @@ const createTestRouter = (basename = '/', initialEntry?: string) => {
         element: <div data-testid="login-page">Login Page</div>,
       },
       {
+        path: '/welcome',
+        element: <div data-testid="welcome-page">Welcome Page</div>,
+      },
+      {
         path: '/c/:id',
         element: <TestComponent />,
       },
@@ -78,16 +82,37 @@ describe('useAuthRedirect', () => {
     expect(getByTestId('test-component')).toBeInTheDocument();
   });
 
-  it('should redirect to /login when user is not authenticated', async () => {
+  /** OmicsBase: a signed-out visitor starting fresh sees the public welcome page. */
+  it('should redirect to /welcome from the root when user is not authenticated', async () => {
     (useAuthContext as jest.Mock).mockReturnValue({
       user: null,
       isAuthenticated: false,
     });
 
     const router = createTestRouter();
+    const { getByTestId } = render(<RouterProvider router={router} />);
+
+    await waitFor(
+      () => {
+        expect(router.state.location.pathname).toBe('/welcome');
+        expect(getByTestId('welcome-page')).toBeInTheDocument();
+      },
+      { timeout: 1000 },
+    );
+    expect(router.state.historyAction).toBe('REPLACE');
+  });
+
+  /** Any other page goes to the login; the root goes to the welcome page (above). */
+  it('should redirect to /login when user is not authenticated', async () => {
+    (useAuthContext as jest.Mock).mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+    });
+
+    const router = createTestRouter('/', '/c/abc123');
     const { getByTestId, queryByTestId } = render(<RouterProvider router={router} />);
 
-    expect(router.state.location.pathname).toBe('/');
+    expect(router.state.location.pathname).toBe('/c/abc123');
     expect(getByTestId('test-component')).toBeInTheDocument();
 
     // Wait for the redirect to happen (300ms timeout + navigation)
@@ -112,11 +137,11 @@ describe('useAuthRedirect', () => {
     });
 
     // Test with basename="/librechat" (simulates subdirectory deployment)
-    const router = createTestRouter('/librechat');
+    const router = createTestRouter('/librechat', '/librechat/c/abc123');
     const { getByTestId } = render(<RouterProvider router={router} />);
 
     // Full pathname includes basename
-    expect(router.state.location.pathname).toBe('/librechat/');
+    expect(router.state.location.pathname).toBe('/librechat/c/abc123');
 
     // Wait for the redirect - router handles basename internally
     await waitFor(
@@ -139,7 +164,7 @@ describe('useAuthRedirect', () => {
       isAuthenticated: false,
     });
 
-    const router = createTestRouter('/librechat');
+    const router = createTestRouter('/librechat', '/librechat/c/abc123');
     const { getByTestId } = render(<RouterProvider router={router} />);
 
     await waitFor(

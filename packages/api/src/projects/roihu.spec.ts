@@ -1,4 +1,4 @@
-import type { RoihuConfig } from './roihu';
+import type { PairingView, RoihuConfig } from './roihu';
 import { createRoihuClient, roihuConfig, validateLaunch, UserFacingError } from './roihu';
 
 const config: RoihuConfig = {
@@ -14,6 +14,14 @@ const config: RoihuConfig = {
 };
 
 const goodInput = { project: 'project_2010578', cores: 2, memory: 8, hours: 4, token: 'tok' };
+
+/** The one-time code of a relay pairing; a local install's pairing has none. */
+function pairingCode(pairing: PairingView): string {
+  if (pairing.code === undefined) {
+    throw new Error('the pairing has no code');
+  }
+  return pairing.code;
+}
 
 /** In-memory stand-ins for the router's private interface and FirecREST. */
 function fakeWorld(
@@ -433,23 +441,24 @@ describe('createRoihuClient', () => {
   it('a pairing code attaches one machine, which shows by name until it is disconnected', async () => {
     const w = fakeWorld();
     const pairing = await w.client.pair('u1');
+    const code = pairingCode(pairing);
     expect(pairing.command).toBe(
       'docker run -d --restart unless-stopped --name omicsbase-reports ' +
         '-v omicsbase-reports:/home/openhands -v omicsbase-projects:/projects ' +
         'ghcr.io/0xmuluh/omicsbase-reports:v1.41.0-roihu1 ' +
-        `https://omicsbase.example --pair ${pairing.code} --name "$(hostname)"`,
+        `https://omicsbase.example --pair ${code} --name "$(hostname)"`,
     );
     expect(pairing.image).toBe('ghcr.io/0xmuluh/omicsbase-reports:v1.41.0-roihu1');
     expect(pairing.expires).toBe(2e9);
     expect(pairing.now).toBeCloseTo(Date.now() / 1000, -1);
-    expect(await w.client.claim(pairing.code, 'lab-pc')).toEqual({
+    expect(await w.client.claim(code, 'lab-pc')).toEqual({
       relayUrl: 'https://relay',
       relayFingerprint: 'fp',
       relayRemote: 'R:127.0.0.1:18101',
       relayAuth: 'job-r1:pw',
       sessionKey: 'attached-key',
     });
-    await expect(w.client.claim(pairing.code, 'lab-pc')).rejects.toMatchObject({ status: 404 });
+    await expect(w.client.claim(code, 'lab-pc')).rejects.toMatchObject({ status: 404 });
     expect(await w.client.view('u1')).toEqual({ state: 'offline', machine: 'lab-pc' });
     w.routes.r1.connected = true;
     expect(await w.client.view('u1')).toEqual({ state: 'running', machine: 'lab-pc' });
@@ -464,7 +473,7 @@ describe('createRoihuClient', () => {
     await w.client.launch('u1', goodInput);
     await expect(w.client.pair('u1')).rejects.toMatchObject({ status: 409 });
     const other = await w.client.pair('u2');
-    await w.client.claim(other.code, 'pc');
+    await w.client.claim(pairingCode(other), 'pc');
     await expect(w.client.launch('u2', goodInput)).rejects.toMatchObject({ status: 409 });
   });
 

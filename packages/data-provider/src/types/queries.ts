@@ -135,6 +135,25 @@ export type ToolCallPartResponse = {
   tool_call: FullToolCall;
 };
 
+/** A file whose owner a client resolves: the tool call it was saved under, with its scope. */
+export type SubagentAttachmentFile = { toolCallId: string; agentId?: string; stepId?: string };
+
+export type SubagentAttachmentCallsParams = {
+  conversationId: string;
+  messageId: string;
+  files: SubagentAttachmentFile[];
+};
+
+export type SubagentAttachmentCallsResponse = {
+  /** Each subagent call of the stored message whose transcript holds a call the files name. */
+  parts: Array<{
+    toolCallId: string;
+    stepId?: string;
+    agentId?: string;
+    calls: a.Agents.SubagentAttachmentCall[];
+  }>;
+};
+
 /* Shared Links */
 export type SharedMessagesResponse = Omit<s.TSharedLink, 'messages'> & {
   messages: s.TMessage[];
@@ -292,9 +311,11 @@ export interface MCPServerStatus {
   requiresOAuth: boolean;
   /** The server connects only inside a chat request because its config reads BODY placeholders. */
   requestScoped?: boolean;
-  /** Whether all declared per-user variables are present for an on-demand connection. */
+  /** Whether all declared per-user variables are present. */
   configurationState?: 'configured' | 'needs_configuration';
   connectionState: 'disconnected' | 'connecting' | 'connected' | 'error';
+  /** An unavailable status read proves no transport, authorization, or configuration state. */
+  connectionStateSource?: 'unobserved' | 'transport' | 'authorization' | 'unavailable';
   authorizationState?:
     | 'not_required'
     | 'authorizing'

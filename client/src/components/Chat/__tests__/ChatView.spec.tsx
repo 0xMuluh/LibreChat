@@ -20,25 +20,40 @@ jest.mock('~/hooks/AuthContext', () => ({
   useAuthContext: () => ({ isAuthenticated: false, user: null, roles: {} }),
 }));
 
+jest.mock('~/hooks/Chat/target', () => ({
+  __esModule: true,
+  default: () => ({ ready: true, pending: false, failed: false, retry: jest.fn() }),
+}));
+
 jest.mock('~/data-provider', () => ({
-  useGetMessagesByConvoId: () => ({ data: null, isLoading: false, isFetching: false }),
+  useCachedMessages: () => ({ data: null }),
   useProjectQuery: () => ({ data: undefined }),
 }));
 
 /**
- * Heading selection only needs route params + conversation state. Stub the chat
- * helper surface so the suite can inject matching vs stale IDs without standing
- * up SSE, message trees, or full ChatRoute synchronization.
+ * Heading selection only needs route params + conversation state. Stub the session so the
+ * suite can inject matching vs stale IDs without standing up the chat host, SSE, message trees,
+ * or full ChatRoute synchronization.
  */
+jest.mock('@librechat/chat/react', () => {
+  const actual = jest.requireActual('@librechat/chat/react');
+  return {
+    ...actual,
+    ChatSessionProvider: ({
+      children,
+    }: {
+      children: (session: { messages: null; isLoading: boolean }) => React.ReactNode;
+    }) => (
+      <actual.ChatContext.Provider value={{ conversation: mockConversation() }}>
+        {children({ messages: null, isLoading: false })}
+      </actual.ChatContext.Provider>
+    ),
+  };
+});
+
 jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => (key === 'com_ui_new_chat' ? 'New chat' : key),
-  useChatHelpers: () => ({ conversation: mockConversation() }),
   useAddedResponse: () => ({}),
-  useAdaptiveSSE: jest.fn(),
-  useResumeOnLoad: jest.fn(),
-  useQueueDrain: jest.fn(),
-  useQueuedTurnReveal: jest.fn(),
-  useScrollbarGutterSeed: jest.fn(),
 }));
 
 jest.mock('../Presentation', () => ({
@@ -47,7 +62,7 @@ jest.mock('../Presentation', () => ({
 }));
 jest.mock('../Header', () => ({ __esModule: true, default: () => <div /> }));
 let mockConfiguredFooter = false;
-let mockLandingFooter = true;
+let mockLandingFooter: boolean | 'composer' = true;
 jest.mock('../Footer', () => ({
   __esModule: true,
   default: ({ configuredOnly }: { configuredOnly?: boolean }) => (
@@ -58,17 +73,26 @@ jest.mock('../Footer', () => ({
 }));
 jest.mock('../Landing', () => ({ __esModule: true, default: () => <div /> }));
 jest.mock('~/components/Lia', () => ({ __esModule: true, default: () => null }));
-jest.mock('../Messages/MessagesView', () => ({ __esModule: true, default: () => <div /> }));
 jest.mock('../Input/ChatForm', () => ({
   __esModule: true,
   default: (props: Record<string, unknown>) => {
     mockChatFormProps(props);
-    mockAskHostSaveDrafts(jest.requireActual('../ask/state').useAskAnswerHost());
+    mockAskHostSaveDrafts(jest.requireActual('@librechat/chat/react').useAskAnswerHost());
     return <div />;
   },
 }));
 jest.mock('../Input/ConversationStarters', () => ({ __esModule: true, default: () => <div /> }));
+/** OmicsBase: the new-note suggestions fetch examples and datasets; only their placement matters here. */
+jest.mock('~/components/Discover/StartStrip', () => ({
+  __esModule: true,
+  default: () => <div data-testid="start-strip" />,
+}));
+jest.mock('~/components/Projects/ProjectBadge', () => ({
+  __esModule: true,
+  default: ({ projectId }: { projectId: string }) => <div data-testid={`project-${projectId}`} />,
+}));
 
+/** The pane heading reads the app's English bundle, where OmicsBase calls a new chat a note. */
 describe('ChatView page heading', () => {
   beforeEach(() => {
     mockParams.mockReturnValue({});
@@ -85,7 +109,7 @@ describe('ChatView page heading', () => {
   test('announces a localized new chat heading on the landing page', () => {
     render(<ChatView />);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'New chat' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'New note' })).toBeInTheDocument();
   });
 
   test('uses the conversation title once a conversation is open', () => {
@@ -103,7 +127,7 @@ describe('ChatView page heading', () => {
 
     render(<ChatView />);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'New chat' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'New note' })).toBeInTheDocument();
   });
 
   test('prefers the localized heading over a stale title on the landing page', () => {
@@ -111,7 +135,7 @@ describe('ChatView page heading', () => {
 
     render(<ChatView />);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'New chat' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'New note' })).toBeInTheDocument();
   });
 
   test('ignores a Recoil title that belongs to a different conversation than the route', () => {
@@ -120,7 +144,7 @@ describe('ChatView page heading', () => {
 
     render(<ChatView />);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'New chat' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'New note' })).toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { level: 1, name: 'Previous chat' }),
     ).not.toBeInTheDocument();
@@ -139,11 +163,11 @@ describe('ChatView composer preferences', () => {
    *  reaching into app-global state the composer only consumes. ChatView now owns the
    *  read and passes it down, the same boundary `showComposerTips` already follows. */
   test('reads the persisted enterToSend preference and passes it into ChatForm', () => {
-    localStorage.setItem('enterToSend', JSON.stringify(true));
+    localStorage.setItem('enterToSend', JSON.stringify(false));
 
     render(<ChatView />);
 
-    expect(mockChatFormProps).toHaveBeenCalledWith(expect.objectContaining({ enterToSend: true }));
+    expect(mockChatFormProps).toHaveBeenCalledWith(expect.objectContaining({ enterToSend: false }));
   });
 
   /** The same boundary for the dictation preferences: ChatForm consumes them
@@ -166,7 +190,7 @@ describe('ChatView composer preferences', () => {
   test('falls back to the atom default when nothing is persisted', () => {
     render(<ChatView />);
 
-    expect(mockChatFormProps).toHaveBeenCalledWith(expect.objectContaining({ enterToSend: false }));
+    expect(mockChatFormProps).toHaveBeenCalledWith(expect.objectContaining({ enterToSend: true }));
   });
 });
 
@@ -238,6 +262,17 @@ describe('ChatView landing footer', () => {
     );
   });
 
+  test('gives the footer its own room when the deployment places it under the composer', () => {
+    mockLandingFooter = 'composer';
+
+    render(<ChatView />);
+
+    expect(screen.getByTestId('landing-footer')).toBeInTheDocument();
+    expect(mockChatFormProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ footerBelow: false }),
+    );
+  });
+
   test('drops the welcome screen footer when the deployment turns it off', () => {
     mockLandingFooter = false;
 
@@ -261,5 +296,49 @@ describe('ChatView landing footer', () => {
     expect(mockChatFormProps).toHaveBeenLastCalledWith(
       expect.objectContaining({ footerBelow: true }),
     );
+  });
+});
+
+describe('ChatView project badge', () => {
+  beforeEach(() => {
+    mockParams.mockReturnValue({ conversationId: 'convo-1' });
+  });
+
+  test('pins the conversation project above a column that leaves room for it', () => {
+    mockConversation.mockReturnValue({ conversationId: 'convo-1', chatProjectId: 'atlas' });
+
+    const { container } = render(<ChatView />);
+
+    expect(screen.getByTestId('project-atlas')).toBeInTheDocument();
+    expect(container.querySelector('[data-chat-pane="0"]')).toHaveClass('pt-9');
+  });
+
+  test('leaves the column unpadded for a conversation outside any project', () => {
+    mockConversation.mockReturnValue({ conversationId: 'convo-1' });
+
+    const { container } = render(<ChatView />);
+
+    expect(screen.queryByTestId(/^project-/)).not.toBeInTheDocument();
+    expect(container.querySelector('[data-chat-pane="0"]')).not.toHaveClass('pt-9');
+  });
+});
+
+describe('ChatView start strip', () => {
+  test('suggests starting points under the composer of a new note', () => {
+    mockParams.mockReturnValue({});
+    mockConversation.mockReturnValue(null);
+
+    render(<ChatView />);
+
+    expect(screen.getByTestId('start-strip')).toBeInTheDocument();
+  });
+
+  test('leaves an open conversation without suggestions', () => {
+    mockParams.mockReturnValue({ conversationId: 'convo-1' });
+    mockConversation.mockReturnValue({ conversationId: 'convo-1', title: 'Deploy checklist' });
+
+    render(<ChatView />);
+
+    expect(screen.queryByTestId('start-strip')).not.toBeInTheDocument();
   });
 });

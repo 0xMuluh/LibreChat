@@ -298,7 +298,7 @@ describe('index.html deployment theme boot script', () => {
       localStorage.setItem('color-theme', 'dark');
       boot();
       expect(root().getAttribute('style')).toBeNull();
-      expect(document.head.textContent).toContain('background-color: #0d0d0d');
+      expect(document.head.textContent).toContain('background-color: #05080c');
     });
   });
 
@@ -349,7 +349,7 @@ describe('index.html deployment theme boot script', () => {
     );
     writeThemeCache(entry);
     boot();
-    expect(document.head.textContent).toContain('background-color: #0d0d0d');
+    expect(document.head.textContent).toContain('background-color: #05080c');
     expect(document.head.textContent).not.toContain('</style>');
   });
 
@@ -429,7 +429,7 @@ describe('index.html deployment theme boot script', () => {
     localStorage.setItem('deployment-theme', '{not json');
     boot();
     expect(root().getAttribute('style')).toBeNull();
-    expect(document.head.textContent).toContain('background-color: #0d0d0d');
+    expect(document.head.textContent).toContain('background-color: #05080c');
   });
 
   it('is dropped by the provider, so a withdrawn theme restores the stylesheet, not the copy', () => {

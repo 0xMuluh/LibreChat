@@ -39,8 +39,6 @@
 
 /* Custom Variables */
 :root {
-  --white: 255 255 255;
-  --black: 0 0 0;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-base: 1rem;
@@ -130,17 +128,22 @@ html {
 /* High contrast appearance modes.
  *
  * Every `IThemeRGB` token is delivered by the theme registry as an inline custom
- * property on <html> (see packages/client/src/theme/themes/highContrast.ts), so
+ * property on <html> (see packages/data-provider/src/themes/highContrast.ts), so
  * this block only covers what the token layer cannot reach: the CSS-only
  * variables and hard-coded literals elsewhere in this stylesheet. Every ratio
  * quoted below is measured against the mode's own canvas, pure white or pure
  * black. */
+/* +1 in LTR, -1 in RTL: lets a keyframe mirror its horizontal travel. */
+:root {
+  --dir-sign: 1;
+}
+[dir='rtl'] {
+  --dir-sign: -1;
+}
+
 html.high-contrast {
   /* A 0.5rem bar is a small target to hit and a thin thing to see. */
   --scrollbar-size: 0.75rem;
-  /* Keep both animated text stops at the AAA ratios declared by the palette. */
-  --shimmer-base-alpha: 1;
-  --shimmer-dip-alpha: 1;
 }
 html.high-contrast ::-webkit-scrollbar-thumb {
   /* The 10%-alpha thumb is invisible against a pure black or white canvas. */
@@ -286,36 +289,6 @@ html.high-contrast.dark .btn-neutral:hover {
   background-color: rgb(var(--surface-hover));
 }
 
-.icon-sm {
-  stroke-width: 2;
-  height: 1rem;
-  width: 1rem;
-}
-.icon-md,
-.icon-md-heavy {
-  stroke-width: 1.5;
-  height: 1.125rem;
-  width: 1.125rem;
-}
-.icon-md-heavy {
-  stroke-width: 2.5;
-}
-.icon-lg {
-  stroke-width: 1.5;
-  height: 1.5rem;
-  width: 1.5rem;
-}
-.icon-xl {
-  stroke-width: 1.5;
-  height: 1.75rem;
-  width: 1.75rem;
-}
-.icon-2xl {
-  stroke-width: 1.5;
-  height: 2rem;
-  width: 2rem;
-}
-
 /* Forced-colors overrides the `background-color: currentColor` a masked CustomIcon
  * paints with. */
 @media (forced-colors: active) {
@@ -345,17 +318,47 @@ html.high-contrast.dark .btn-neutral:hover {
     --tw-shadow: 0 0 transparent;
     -webkit-appearance: none;
     appearance: none;
-    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%238e8ea0' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
-    background-position: right 0.5rem center;
+    background-image:
+      linear-gradient(
+        to top right,
+        transparent calc(50% - 0.056em),
+        currentColor calc(50% - 0.056em),
+        currentColor calc(50% + 0.056em),
+        transparent calc(50% + 0.056em)
+      ),
+      linear-gradient(
+        to bottom right,
+        transparent calc(50% - 0.056em),
+        currentColor calc(50% - 0.056em),
+        currentColor calc(50% + 0.056em),
+        transparent calc(50% + 0.056em)
+      );
+    background-position:
+      right calc(0.5rem + 0.75em) center,
+      right calc(0.5rem + 0.45em) center;
     background-repeat: no-repeat;
-    background-size: 1.5em 1.5em;
-    padding-right: 2.5rem;
+    background-size: 0.3em 0.3em;
+    padding-inline-end: 2.5rem;
     background-color: rgb(var(--select-fill));
     border-color: rgb(var(--select-edge));
     border-radius: 0;
     border-width: 1px;
     font-size: 1rem;
     line-height: 1.5rem;
+  }
+  [dir='rtl'] select {
+    background-position:
+      left calc(0.5rem + 0.45em) center,
+      left calc(0.5rem + 0.75em) center;
+  }
+}
+
+/* Forced colors computes `background-image` to none unless it holds a `url()`, which
+ * removes the gradient arrow; hand the indicator back to the browser. */
+@media (forced-colors: active) {
+  select {
+    -webkit-appearance: menulist;
+    appearance: menulist;
   }
 }
 
@@ -533,15 +536,15 @@ p > small {
   margin-top: 0.8em;
 }
 .prose :where(blockquote):not(:where([class~='not-prose'] *)) {
-  border-left-color: var(--tw-prose-quote-borders);
-  border-left-width: 0.25rem;
+  border-inline-start-color: var(--tw-prose-quote-borders);
+  border-inline-start-width: 0.25rem;
   color: var(--tw-prose-quotes);
   font-style: italic;
   font-style: normal;
   font-weight: 500;
   margin-bottom: 1.6em;
   margin-top: 1.6em;
-  padding-left: 1em;
+  padding-inline-start: 1em;
   quotes: '\201C' '\201D' '\2018' '\2019';
 }
 .prose :where(blockquote p:first-of-type):not(:where([class~='not-prose'] *)):before {
@@ -622,6 +625,14 @@ p > small {
   padding: 0.125rem 0.25rem;
   border-radius: 0.35rem;
 }
+.prose :where(code):not(:where([class~='not-prose'] *, pre *)) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.katex,
+.katex-display {
+  direction: ltr;
+}
 .prose :where(a code):not(:where([class~='not-prose'] *)) {
   color: inherit;
 }
@@ -679,7 +690,7 @@ p > small {
   margin-bottom: 2em;
   margin-top: 2em;
   table-layout: auto;
-  text-align: left;
+  text-align: start;
   width: 100%;
 }
 .prose :where(thead):not(:where([class~='not-prose'] *)) {
@@ -690,8 +701,8 @@ p > small {
   color: var(--tw-prose-headings);
   font-weight: 600;
   padding-bottom: 0.5714286em;
-  padding-left: 0.5714286em;
-  padding-right: 0.5714286em;
+  padding-inline-start: 0.5714286em;
+  padding-inline-end: 0.5714286em;
   vertical-align: bottom;
 }
 .prose :where(tbody tr):not(:where([class~='not-prose'] *)) {
@@ -768,7 +779,7 @@ p > small {
   margin-top: 0.5em;
 }
 .prose :where(ul > li):not(:where([class~='not-prose'] *)) {
-  padding-left: 0.375em;
+  padding-inline-start: 0.375em;
 }
 .prose :where(.prose > ul > li p):not(:where([class~='not-prose'] *)) {
   margin-bottom: 0.75em;
@@ -800,19 +811,19 @@ p > small {
   margin-top: 0.4em;
 }
 .prose :where(thead th:first-child):not(:where([class~='not-prose'] *)) {
-  padding-left: 0;
+  padding-inline-start: 0;
 }
 .prose :where(thead th:last-child):not(:where([class~='not-prose'] *)) {
-  padding-right: 0;
+  padding-inline-end: 0;
 }
 .prose :where(tbody td, tfoot td):not(:where([class~='not-prose'] *)) {
   padding: 0.5714286em;
 }
 .prose :where(tbody td:first-child, tfoot td:first-child):not(:where([class~='not-prose'] *)) {
-  padding-left: 0;
+  padding-inline-start: 0;
 }
 .prose :where(tbody td:last-child, tfoot td:last-child):not(:where([class~='not-prose'] *)) {
-  padding-right: 0;
+  padding-inline-end: 0;
 }
 .prose :where(.prose > :first-child):not(:where([class~='not-prose'] *)) {
   margin-top: 0;
@@ -859,6 +870,8 @@ code.language-md {
 code.hljs,
 code[class*='language-'],
 pre[class*='language-'] {
+  direction: ltr;
+  unicode-bidi: isolate;
   word-wrap: normal;
   background: none;
   color: rgb(var(--syntax-text));
@@ -926,32 +939,32 @@ pre[class*='language-'] {
 /* OB1-parity R cell syntax colors (dark code pane on Soft Daisy) */
 .r-cell-code.code-theme-dark,
 .r-cell-code.code-theme-dark code.hljs {
-  color: #f1f5f9;
-  background: #0f172a !important;
+  color: rgb(var(--omicsbase-code-text));
+  background: rgb(var(--omicsbase-code-fill)) !important;
 }
 .r-cell-code .hljs-comment,
 .r-cell-code .hljs-meta {
-  color: #64748b;
+  color: rgb(var(--omicsbase-code-comment));
 }
 .r-cell-code .hljs-keyword,
 .r-cell-code .hljs-literal,
 .r-cell-code .hljs-doctag,
 .r-cell-code .hljs-formula {
-  color: #60a5fa;
+  color: rgb(var(--omicsbase-code-keyword));
 }
 .r-cell-code .hljs-string,
 .r-cell-code .hljs-addition,
 .r-cell-code .hljs-attribute,
 .r-cell-code .hljs-meta-string,
 .r-cell-code .hljs-regexp {
-  color: #2dd4bf;
+  color: rgb(var(--omicsbase-code-string));
 }
 .r-cell-code .hljs-number,
 .r-cell-code .hljs-attr,
 .r-cell-code .hljs-variable,
 .r-cell-code .hljs-template-variable,
 .r-cell-code .hljs-type {
-  color: #fbbf24;
+  color: rgb(var(--omicsbase-code-number));
 }
 .r-cell-code .hljs-built_in,
 .r-cell-code .hljs-title,
@@ -959,26 +972,26 @@ pre[class*='language-'] {
 .r-cell-code .hljs-name,
 .r-cell-code .hljs-selector-id,
 .r-cell-code .hljs-selector-class {
-  color: #f472b6;
+  color: rgb(var(--omicsbase-code-title));
 }
 .r-cell-code .hljs-function .hljs-title,
 .r-cell-code .hljs-title.function_ {
-  color: #f472b6;
+  color: rgb(var(--omicsbase-code-title));
 }
 .r-cell-code .hljs-symbol,
 .r-cell-code .hljs-bullet,
 .r-cell-code .hljs-link {
-  color: #fb7185;
+  color: rgb(var(--omicsbase-code-symbol));
 }
 .r-cell-code .hljs-operator,
 .r-cell-code .hljs-punctuation {
-  color: #a78bfa;
+  color: rgb(var(--omicsbase-code-operator));
 }
 
 /* Tailwind 3 gave every button a pointer cursor and Tailwind 4 leaves the
  * platform default, so this shim is what keeps the affordance. It belongs in
  * `base`: unlayered it would outrank every utility in the sheet, and
- * `cursor-default` on `SelectDropDown` or `disabled:cursor-not-allowed` on a
+ * `cursor-default` on a trigger or `disabled:cursor-not-allowed` on a
  * disabled button would stop meaning anything. */
 @layer base {
   [role='button'],
@@ -1019,61 +1032,6 @@ pre[class*='language-'] {
 .btn:disabled {
   cursor: not-allowed;
   opacity: 0.5;
-}
-.btn-primary {
-  --tw-bg-opacity: 1;
-  --tw-text-opacity: 1;
-  background-color: rgba(28, 87, 87, var(--tw-bg-opacity)); /* Soft Daisy #1c5757 */
-  color: rgba(255, 255, 255, var(--tw-text-opacity));
-}
-.btn-primary:hover {
-  --tw-bg-opacity: 1;
-  background-color: rgba(10, 67, 67, var(--tw-bg-opacity));
-}
-.btn-primary:focus {
-  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width)
-    var(--tw-ring-offset-color);
-  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width))
-    var(--tw-ring-color);
-  --tw-ring-offset-width: 2px;
-  box-shadow:
-    var(--tw-ring-offset-shadow),
-    var(--tw-ring-shadow),
-    0 0 transparent;
-  box-shadow:
-    var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 transparent);
-}
-.btn-primary.focus-visible {
-  --tw-ring-opacity: 1;
-  --tw-ring-color: rgba(56, 126, 126, var(--tw-ring-opacity)); /* Soft Daisy ring */
-}
-.btn-primary:focus-visible {
-  --tw-ring-opacity: 1;
-  --tw-ring-color: rgba(56, 126, 126, var(--tw-ring-opacity));
-}
-.btn-primary:disabled:hover {
-  --tw-bg-opacity: 1;
-  background-color: rgba(28, 87, 87, var(--tw-bg-opacity));
-}
-.btn-secondary {
-  --tw-border-opacity: 1;
-  --tw-bg-opacity: 1;
-  --tw-text-opacity: 1;
-  background-color: transparent;
-  background-color: rgba(56, 126, 126, var(--tw-bg-opacity));
-  color: rgba(255, 255, 255, var(--tw-text-opacity));
-}
-.btn-secondary:hover {
-  --tw-bg-opacity: 1;
-  border-color: rgba(0, 0, 0, 0.1);
-  color: rgba(64, 65, 79, var(--tw-text-opacity));
-  background-color: rgba(236, 236, 241, var(--tw-bg-opacity));
-}
-.dark .btn-secondary:hover {
-  --tw-bg-opacity: 1;
-  border-color: rgba(8, 82, 78, var(--tw-border-opacity));
-  color: rgba(255, 255, 240, var(--tw-text-opacity));
-  background-color: rgba(8, 82, 78, var(--tw-bg-opacity));
 }
 .btn-neutral {
   --tw-bg-opacity: 1;
@@ -1251,9 +1209,9 @@ html[data-drawer-nav] body {
 .markdown blockquote {
   --tw-border-opacity: 1;
   border-color: rgb(var(--prose-quote-bar));
-  border-left-width: 2px;
+  border-inline-start-width: 2px;
   line-height: 1rem;
-  padding-left: 1rem;
+  padding-inline-start: 1rem;
 }
 
 .markdown table {
@@ -1267,37 +1225,37 @@ html[data-drawer-nav] body {
 .markdown th {
   background-color: rgb(var(--table-header-fill));
   border-bottom-width: 1px;
-  border-left-width: 1px;
+  border-inline-start-width: 1px;
   border-top-width: 1px;
   padding: 0.25rem 0.75rem;
 }
 
 .markdown th:first-child {
-  border-top-left-radius: 0.375rem;
+  border-start-start-radius: 0.375rem;
 }
 
 .markdown th:last-child {
-  border-right-width: 1px;
+  border-inline-end-width: 1px;
   border-color: rgb(var(--border-medium));
-  border-top-right-radius: 0.375rem;
+  border-start-end-radius: 0.375rem;
 }
 
 .markdown td {
   border-bottom-width: 1px;
-  border-left-width: 1px;
+  border-inline-start-width: 1px;
   padding: 0.25rem 0.75rem;
 }
 
 .markdown td:last-child {
-  border-right-width: 1px;
+  border-inline-end-width: 1px;
 }
 
 .markdown tbody tr:last-child td:first-child {
-  border-bottom-left-radius: 0.375rem;
+  border-end-start-radius: 0.375rem;
 }
 
 .markdown tbody tr:last-child td:last-child {
-  border-bottom-right-radius: 0.375rem;
+  border-end-end-radius: 0.375rem;
 }
 
 /* The column rules take the inset share of the border-medium edge, so a theme that draws no inset
@@ -1307,10 +1265,10 @@ html[data-drawer-nav] body {
  * edge that is visually outermost with no selector on direction. The selectors outrank the cell
  * rules above, which restate the edge in one declaration, and leave high contrast to its own. */
 html:not(.high-contrast) .markdown :is(th, td) {
-  border-left-color: rgb(
+  border-inline-start-color: rgb(
     var(--border-medium) / calc(var(--border-medium-alpha, 1) * var(--theme-border-inset-alpha, 1))
   );
-  border-right-color: rgb(
+  border-inline-end-color: rgb(
     var(--border-medium) / calc(var(--border-medium-alpha, 1) * var(--theme-border-inset-alpha, 1))
   );
 }
@@ -1404,9 +1362,9 @@ html {
 .markdown blockquote {
   --tw-border-opacity: 1;
   border-color: rgb(var(--prose-quote-bar));
-  border-left-width: 2px;
+  border-inline-start-width: 2px;
   line-height: 1rem;
-  padding-left: 1rem;
+  padding-inline-start: 1rem;
 }
 .markdown table {
   --tw-border-spacing-x: 0px;
@@ -1420,34 +1378,34 @@ html {
   background-color: rgb(var(--table-header-fill));
   color: rgb(var(--table-header-text));
   border-bottom-width: 1px;
-  border-left-width: 1px;
+  border-inline-start-width: 1px;
   border-top-width: 1px;
   border-color: rgb(var(--border-medium));
   padding: 0.25rem 0.75rem;
   font-weight: 600;
 }
 .markdown th:first-child {
-  border-top-left-radius: var(--theme-control-radius, 0.75rem);
+  border-start-start-radius: var(--theme-control-radius, 0.75rem);
 }
 .markdown th:last-child {
-  border-right-width: 1px;
-  border-top-right-radius: var(--theme-control-radius, 0.75rem);
+  border-inline-end-width: 1px;
+  border-start-end-radius: var(--theme-control-radius, 0.75rem);
 }
 .markdown td {
   border-bottom-width: 1px;
-  border-left-width: 1px;
+  border-inline-start-width: 1px;
   border-color: rgb(var(--border-medium));
   padding: 0.25rem 0.75rem;
 }
 .markdown td:last-child {
-  border-right-width: 1px;
+  border-inline-end-width: 1px;
   border-color: rgb(var(--border-medium));
 }
 .markdown tbody tr:last-child td:first-child {
-  border-bottom-left-radius: var(--theme-control-radius, 0.75rem);
+  border-end-start-radius: var(--theme-control-radius, 0.75rem);
 }
 .markdown tbody tr:last-child td:last-child {
-  border-bottom-right-radius: var(--theme-control-radius, 0.75rem);
+  border-end-end-radius: var(--theme-control-radius, 0.75rem);
 }
 .markdown a {
   text-decoration-line: underline;
@@ -1520,48 +1478,6 @@ html {
   }
 }
 
-/* Pre-response dot: enters on the streamed-text fade curve, then breathes
-   on opacity — replaces the legacy scale throb so waiting and text arrival
-   share one motion language.
-
-   Custom CSS exception: this indicator is a `::after` pseudo-element on the
-   `.result-thinking` hook, shown only while an ancestor carries `.submitting`
-   and the hook itself is `:empty`. No `@librechat/client` primitive can
-   express "render only while an ancestor is in state X and I have no
-   children" — a component would have to own that state, which the streaming
-   markdown path deliberately keeps in the DOM so the dot costs no React
-   renders per token. Scoped to the one selector, colored from
-   `--text-primary` so both themes follow, and disabled under
-   prefers-reduced-motion. */
-@keyframes lc-dot-breathe {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
-}
-.submitting .result-thinking:empty:last-child:after {
-  animation:
-    lc-fade-in 250ms ease-out both,
-    lc-dot-breathe 1.5s ease-in-out 250ms infinite;
-  background-color: rgb(var(--text-primary));
-  border-radius: 50%;
-  content: ' ';
-  display: block;
-  height: 0.75rem;
-  position: absolute;
-  top: -0.6875rem;
-  width: 0.75rem;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .submitting .result-thinking:empty:last-child:after {
-    animation: none;
-  }
-}
-
 .avatar-stroke {
   position: relative;
 }
@@ -1628,115 +1544,6 @@ html {
   --tw-shadow-colored: inset 0 0 0 0 1px var(--tw-shadow-color);
 }
 
-.result-streaming > :not(ol):not(ul):not(pre):last-child:after,
-.result-streaming > pre:last-child code:after {
-  display: inline-block;
-  content: '⬤';
-  width: 0.75rem;
-  height: 0.75rem;
-  font-family:
-    system-ui,
-    Inter,
-    Söhne Circle,
-    -apple-system,
-    Segoe UI,
-    Roboto,
-    Ubuntu,
-    Cantarell,
-    Noto Sans,
-    sans-serif;
-  line-height: normal;
-  margin-left: 0.25rem;
-  vertical-align: middle;
-  font-size: 0.5rem;
-}
-
-@supports (selector(:has(*))) {
-  .result-streaming > :is(ul, ol):last-child > li:last-child:not(:has(> :is(ul, ol, pre))):after {
-    content: '⬤';
-    font-family:
-      system-ui,
-      Inter,
-      Söhne Circle,
-      -apple-system,
-      Segoe UI,
-      Roboto,
-      Ubuntu,
-      Cantarell,
-      Noto Sans,
-      sans-serif;
-    line-height: normal;
-    margin-left: 0.25rem;
-    vertical-align: middle;
-    font-size: 0.5rem;
-    display: inline-block;
-    width: 0.75rem;
-    height: 0.75rem;
-  }
-}
-
-@supports not (selector(:has(*))) {
-  .result-streaming > ol:last-child > li:last-child:after,
-  .result-streaming > ul:last-child > li:last-child:after {
-    content: '⬤';
-    font-family:
-      system-ui,
-      Inter,
-      Söhne Circle,
-      -apple-system,
-      Segoe UI,
-      Roboto,
-      Ubuntu,
-      Cantarell,
-      Noto Sans,
-      sans-serif;
-    line-height: normal;
-    margin-left: 0.25rem;
-    vertical-align: middle;
-    font-size: 0.5rem;
-    display: inline-block;
-    width: 0.75rem;
-    height: 0.75rem;
-  }
-
-  .result-streaming > ol:last-child > li:last-child > :is(ul, ol, pre) ~ :after,
-  .result-streaming > ul:last-child > li:last-child > :is(ul, ol, pre) ~ :after {
-    display: none;
-  }
-
-  .result-streaming > ol:last-child > li:last-child > pre:last-child code:after,
-  .result-streaming > ul:last-child > li:last-child > pre:last-child code:after {
-    display: inline-block;
-  }
-}
-
-/* Remove cursors when streaming is complete */
-.result-streaming:not(.submitting) :is(ul, ol) li:after {
-  display: none !important;
-}
-
-/* Smooth streaming: one-shot fade-in on newly streamed words.
-   Duration must match FADE_DURATION_MS in Chat/Messages/Content/animate.tsx */
-@keyframes lc-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-[data-lc-fade] {
-  animation: lc-fade-in 250ms ease-out both;
-  animation-delay: var(--lc-delay, 0ms);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  [data-lc-fade] {
-    animation: none;
-  }
-}
-
 /* Ordered Listing */
 .prose :where(ol[type='A']):not(:where([class~='not-prose'] *)) {
   list-style-type: upper-alpha;
@@ -1790,7 +1597,7 @@ html {
   list-style-position: outside;
   margin-top: 1em;
   margin-bottom: 1em;
-  padding-left: 1em;
+  padding-inline-start: 1em;
 }
 
 .prose li,
@@ -1808,7 +1615,7 @@ html {
 .prose ol > li,
 .markdown ol > li {
   position: relative;
-  padding-left: 0.375em;
+  padding-inline-start: 0.375em;
 }
 
 .prose ol > li::marker,
@@ -1836,7 +1643,7 @@ html {
 
 .prose ul > li,
 .markdown ul > li {
-  padding-left: 0.375em;
+  padding-inline-start: 0.375em;
 }
 
 .prose ul > li::marker,
@@ -1938,6 +1745,9 @@ html {
   transform-origin: 50% 50%;
 }
 
+/* `.message-content` is also published in @librechat/client (theme/parts.css) for other hosts.
+ * That stylesheet loads before this one, so `.prose` and `.markdown` above would win; keeping the
+ * rule here at its original place preserves the app's message line height and width. */
 .message-content,
 .message-editor-text {
   font-size: var(--markdown-font-size, var(--font-size-base));
@@ -1952,8 +1762,7 @@ html {
 
 /* iOS zooms into a focused field under 16px and the installed PWA never zooms back out. */
 @media (any-pointer: coarse) {
-  .message-editor-text,
-  .composer-text {
+  .message-editor-text {
     font-size: max(16px, var(--markdown-font-size, var(--font-size-base)));
   }
 }
@@ -1972,26 +1781,6 @@ html {
   font-size: var(--markdown-font-size, var(--font-size-base));
 }
 
-.tool-status-text {
-  font-size: calc(0.9 * var(--markdown-font-size, var(--font-size-base)));
-  line-height: calc(1.25 * 0.9 * var(--markdown-font-size, var(--font-size-base)));
-}
-
-.progress-text-wrapper {
-  font-size: calc(0.9 * var(--markdown-font-size, var(--font-size-base)));
-  line-height: calc(1.25 * 0.9 * var(--markdown-font-size, var(--font-size-base)));
-}
-
-.progress-text-content {
-  font-size: inherit;
-  line-height: inherit;
-}
-
-.progress-text-wrapper button {
-  font-size: inherit;
-  line-height: inherit;
-}
-
 .tooltip {
   z-index: 150;
   cursor: pointer;
@@ -1999,8 +1788,8 @@ html {
   background-color: rgb(var(--surface-tooltip, var(--surface-primary)));
   padding-top: var(--theme-tooltip-padding-y, 0.25rem);
   padding-bottom: var(--theme-tooltip-padding-y, 0.25rem);
-  padding-left: var(--theme-tooltip-padding-x, 0.5rem);
-  padding-right: var(--theme-tooltip-padding-x, 0.5rem);
+  padding-inline-start: var(--theme-tooltip-padding-x, 0.5rem);
+  padding-inline-end: var(--theme-tooltip-padding-x, 0.5rem);
   font-size: var(--theme-tooltip-text-size, 1rem);
   line-height: 1.5;
   color: rgb(var(--text-tooltip, var(--text-primary)));
@@ -2109,7 +1898,7 @@ html[data-input-modality='keyboard']
   transition-duration: 150ms;
   scale: 0.95;
   margin-top: 4px;
-  margin-right: -2px;
+  margin-inline-end: -2px;
 }
 
 .popover-animate {
@@ -2173,6 +1962,15 @@ html[data-input-modality='keyboard']
 .popover-ui.popover-from-left[data-enter] {
   translate: 0 0;
 }
+[dir='rtl'] .popover-ui.popover-from-left,
+.popover-ui.popover-from-left:dir(rtl) {
+  transform-origin: right;
+  translate: 0.5rem 0;
+}
+[dir='rtl'] .popover-ui.popover-from-left[data-enter],
+.popover-ui.popover-from-left[data-enter]:dir(rtl) {
+  translate: 0 0;
+}
 
 .animate-popover-top,
 .animate-popover {
@@ -2202,6 +2000,15 @@ html[data-input-modality='keyboard']
   opacity: 1;
   transform: scale(1) translateX(0);
 }
+[dir='rtl'] .animate-popover-left,
+.animate-popover-left:dir(rtl) {
+  transform-origin: right;
+  transform: scale(0.95) translateX(0.5rem);
+}
+[dir='rtl'] .animate-popover-left[data-enter],
+.animate-popover-left[data-enter]:dir(rtl) {
+  transform: scale(1) translateX(0);
+}
 
 /* Corners */
 .animate-popover-top-left {
@@ -2216,62 +2023,22 @@ html[data-input-modality='keyboard']
   opacity: 1;
   transform: scale(1) translate(0, 0);
 }
-
-/**
- * Composer popovers. Its own curve rather than `animate-popover`'s: these are
- * large surfaces, and the shared 150ms ease-in-out reads as a snap at that size.
- * Decelerating hard from the first frame and then settling is what makes a panel
- * feel placed rather than switched on. Leaving is quicker than entering, so
- * dismissing never feels like waiting.
- */
-.animate-composer-popover {
-  /* Ariakit resolves this to the edge nearest the trigger, so the panel grows
-     out of the button whether it opens below or flips above. `animate-popover`
-     pins the origin to the top and translates down, which is right one way
-     round and backwards the other. */
-  transform-origin: var(--popover-transform-origin, top center);
-  opacity: 0;
-  transform: scale(0.94);
-  transition:
-    opacity 190ms cubic-bezier(0.32, 0.72, 0, 1),
-    transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
-  will-change: transform, opacity;
+[dir='rtl'] .animate-popover-top-left,
+.animate-popover-top-left:dir(rtl) {
+  transform-origin: top right;
+  transform: scale(0.95) translate(0.5rem, -0.5rem);
 }
-/* Resizable anchored panels share the composer entrance and exit clock. */
-.animate-composer-popover-resize {
-  transition-property: opacity, transform, width, max-height;
-}
-.animate-composer-popover[data-enter] {
-  opacity: 1;
-  transform: scale(1);
-}
-.animate-composer-popover[data-leave] {
-  transition-duration: 120ms, 140ms;
+[dir='rtl'] .animate-popover-top-left[data-enter],
+.animate-popover-top-left[data-enter]:dir(rtl) {
+  transform: scale(1) translate(0, 0);
 }
 
 /* The Thinking pill's label slot resizes with the popover it opens: same
-   duration and curve as the opacity leg above. */
+   duration and curve as the opacity leg of `.animate-composer-popover`. */
 .composer-slot-resize {
   transition: width 190ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/**
- * Palette list. `.scrollbar-hover` fades its thumb in on pointer-over, so on a
- * list this dense the scrollbar reads as appearing out of nowhere, and where
- * the platform draws classic rather than overlay scrollbars, a gutter that only
- * exists while the thumb does shifts every row sideways under the cursor. The
- * thumb stays drawn and the gutter stays reserved; the class is only applied
- * when the list actually overflows, so a short list keeps its full width.
- *
- * Standard properties only, deliberately: styling `::-webkit-scrollbar` opts an
- * element out of overlay scrollbars altogether, which would spend 8px of gutter
- * on the platforms that never had the problem.
- */
-.composer-palette-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: rgb(var(--border-medium) / var(--border-medium-alpha, 1)) transparent;
-  scrollbar-gutter: stable;
-}
 /**
  * The thinking-level slider's stops. Position and size glide on a spring with a
  * slight overshoot, so the thumb and the fill settle onto a stop rather than
@@ -2362,80 +2129,18 @@ html[data-input-modality='keyboard']
   animation: composer-label-in-down 280ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/** Trigger glyphs that turn as their popover opens, on the same curve. */
-.animate-composer-icon {
-  /* Tailwind v4's rotate-* utilities set `rotate`, not `transform`. */
-  transition-property: transform, rotate;
-  transition-duration: 260ms;
-  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-/**
- * The palette growing or shrinking as its list rearranges. The rows themselves
- * are moved from `Palette.tsx`, which plays each one back to where it was after
- * the list has been redrawn; a re-inserted node drops any transition it was
- * about to run, and starring an entry re-inserts every row it passed. The
- * panel's own height has no such problem: the list box is never re-inserted.
- */
-.composer-palette-rows .ReactVirtualized__Grid {
-  transition: height 260ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-/* Held for the frame a search redraws in: the list is being replaced rather
-   than rearranged there, and growing into its new size reads as the panel
-   lagging behind the typing. */
-.composer-palette-instant .ReactVirtualized__Grid {
-  transition-duration: 0s;
-}
-@keyframes composer-palette-row {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-.animate-composer-palette-row {
-  animation: composer-palette-row 200ms cubic-bezier(0.32, 0.72, 0, 1) both;
-}
-@keyframes composer-palette-row-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-/* Accelerating away, unlike everything else here: the shared decelerating curve
-   spends this beat almost entirely at zero, leaving the rows gone well before
-   the list starts closing over them. */
-.animate-composer-palette-row-out {
-  animation: composer-palette-row-out 110ms cubic-bezier(0.4, 0, 1, 1) both;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .animate-composer-popover,
-  .animate-composer-popover[data-enter],
-  .animate-composer-popover[data-leave],
-  .animate-composer-icon,
   .composer-slot-resize,
   .composer-effort-glide,
   .composer-effort-thumb,
-  .composer-effort-fill,
-  .composer-palette-rows .ReactVirtualized__Grid {
+  .composer-effort-fill {
     transition-duration: 1ms;
   }
-  .animate-composer-palette-row,
-  .animate-composer-palette-row-out,
   .composer-label-out-up,
   .composer-label-out-down,
   .composer-label-in-up,
   .composer-label-in-down {
     animation-duration: 1ms;
-  }
-  .animate-composer-popover,
-  .animate-composer-popover[data-enter],
-  .animate-composer-popover[data-leave] {
-    transform: none;
   }
 }
 
@@ -2463,10 +2168,6 @@ html[data-input-modality='keyboard']
 .animate-gradient-x {
   background-size: 200% 200%;
   animation: gradient-x 15s ease infinite;
-}
-
-.animate-pulse-slow {
-  animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 @keyframes fadeIn {
@@ -2510,51 +2211,6 @@ html[data-input-modality='keyboard']
 
 .badge-icon {
   transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* The sweep every in-flight label shares: a running tool call, streaming
-   reasoning, the elapsed timer. Painted from theme roles rather than fixed
-   black/white keyed off `.dark`, so a stored or custom theme restates it the
-   way it restates any other color. Unset, the base falls back to whatever
-   `--text-primary` is in scope AT THE LABEL — resolving it in a `:root`
-   declaration instead would freeze the default and ignore theme scopes applied
-   further down. Dark declares a base outright: its established value is dimmer
-   than that theme's text color rather than equal to it. */
-.shimmer {
-  display: inline-block;
-  position: relative;
-  background: linear-gradient(
-    90deg,
-    rgb(var(--shimmer-base, var(--text-primary)) / var(--shimmer-base-alpha, 1)) 25%,
-    rgb(var(--shimmer-dip) / var(--shimmer-dip-alpha, 1)) 50%,
-    rgb(var(--shimmer-base, var(--text-primary)) / var(--shimmer-base-alpha, 1)) 75%
-  );
-  background-size: 200% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: shimmer 4s linear infinite;
-}
-
-/* Halting the animation alone is not a fallback: the background would settle
-   at position 0 and show only half the sweep, stranding the tail of the label
-   in the near-invisible dip. Drop the gradient and hand the glyphs back to the
-   color they would have had. */
-@media (prefers-reduced-motion: reduce) {
-  .shimmer {
-    background: none;
-    animation: none;
-    -webkit-text-fill-color: currentcolor;
-  }
 }
 
 .sharepoint-picker-bg {
@@ -2603,20 +2259,52 @@ html.dark .omicsbase-aurora {
   position: absolute;
   inset: -10%;
   background:
-    radial-gradient(ellipse 55% 45% at 18% 30%, rgba(20, 184, 166, 0.35), transparent 62%),
-    radial-gradient(ellipse 50% 40% at 82% 22%, rgba(34, 211, 238, 0.26), transparent 58%),
-    radial-gradient(ellipse 60% 50% at 55% 70%, rgba(163, 230, 53, 0.12), transparent 65%),
-    radial-gradient(ellipse 40% 35% at 70% 55%, rgba(251, 191, 36, 0.1), transparent 60%);
+    radial-gradient(
+      ellipse 55% 45% at 18% 30%,
+      rgb(var(--omicsbase-aurora-teal) / 0.35),
+      transparent 62%
+    ),
+    radial-gradient(
+      ellipse 50% 40% at 82% 22%,
+      rgb(var(--omicsbase-aurora-cyan) / 0.26),
+      transparent 58%
+    ),
+    radial-gradient(
+      ellipse 60% 50% at 55% 70%,
+      rgb(var(--omicsbase-aurora-lime) / 0.12),
+      transparent 65%
+    ),
+    radial-gradient(
+      ellipse 40% 35% at 70% 55%,
+      rgb(var(--omicsbase-aurora-amber) / 0.1),
+      transparent 60%
+    );
   filter: blur(8px);
   animation: omicsbase-aurora-drift 18s ease-in-out infinite alternate;
 }
 
 html.dark .omicsbase-aurora-glow {
   background:
-    radial-gradient(ellipse 55% 45% at 18% 30%, rgba(20, 184, 166, 0.38), transparent 62%),
-    radial-gradient(ellipse 50% 40% at 82% 22%, rgba(34, 211, 238, 0.28), transparent 58%),
-    radial-gradient(ellipse 60% 50% at 55% 70%, rgba(163, 230, 53, 0.12), transparent 65%),
-    radial-gradient(ellipse 40% 35% at 70% 55%, rgba(251, 191, 36, 0.1), transparent 60%);
+    radial-gradient(
+      ellipse 55% 45% at 18% 30%,
+      rgb(var(--omicsbase-aurora-teal) / 0.38),
+      transparent 62%
+    ),
+    radial-gradient(
+      ellipse 50% 40% at 82% 22%,
+      rgb(var(--omicsbase-aurora-cyan) / 0.28),
+      transparent 58%
+    ),
+    radial-gradient(
+      ellipse 60% 50% at 55% 70%,
+      rgb(var(--omicsbase-aurora-lime) / 0.12),
+      transparent 65%
+    ),
+    radial-gradient(
+      ellipse 40% 35% at 70% 55%,
+      rgb(var(--omicsbase-aurora-amber) / 0.1),
+      transparent 60%
+    );
   filter: blur(8px);
 }
 
@@ -2626,8 +2314,8 @@ html.dark .omicsbase-aurora-glow {
   background: radial-gradient(
     ellipse at 50% 42%,
     transparent 0%,
-    rgba(250, 250, 250, 0.12) 55%,
-    rgb(250, 250, 250) 100%
+    rgb(var(--omicsbase-canvas-light) / 0.12) 55%,
+    rgb(var(--omicsbase-canvas-light)) 100%
   );
 }
 
@@ -2635,8 +2323,8 @@ html.dark .omicsbase-aurora-vignette {
   background: radial-gradient(
     ellipse at 50% 42%,
     transparent 0%,
-    rgba(5, 8, 12, 0.35) 55%,
-    rgb(5, 8, 12) 100%
+    rgb(var(--omicsbase-canvas-dark) / 0.35) 55%,
+    rgb(var(--omicsbase-canvas-dark)) 100%
   );
 }
 
@@ -2656,9 +2344,14 @@ html.dark .omicsbase-aurora-vignette {
 }
 
 html:not(.dark) .bg-presentation {
-  background-color: rgb(250 250 250);
+  background-color: rgb(var(--omicsbase-canvas-light));
 }
 
 html.dark .bg-presentation {
-  background-color: rgb(5 8 12);
+  background-color: rgb(var(--omicsbase-canvas-dark));
+}
+
+/* react-virtualized writes an inline `direction: ltr` on its scroll container; only !important beats an inline style, and without it every virtualized list stays LTR in an RTL UI. */
+.ReactVirtualized__Grid {
+  direction: inherit !important;
 }

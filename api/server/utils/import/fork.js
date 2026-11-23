@@ -581,11 +581,6 @@ async function duplicateConversation({
     '+privateTextTokens',
   );
 
-  const messagesToClone = getMessagesUpToTargetLevel(
-    originalMessages,
-    originalMessages[originalMessages.length - 1].messageId,
-  );
-
   const importBatchBuilder =
     legacyPii == null
       ? builderFactory(userId, interfaceConfig, filters)
@@ -593,7 +588,7 @@ async function duplicateConversation({
   importBatchBuilder.sourceIsTemporary = isTemporaryRecord(originalConvo);
   importBatchBuilder.startConversation(originalConvo.endpoint ?? EModelEndpoint.openAI);
 
-  const idMapping = cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder, {
+  const idMapping = cloneMessagesWithTimestamps(originalMessages, importBatchBuilder, {
     nativeCopy: true,
   });
 

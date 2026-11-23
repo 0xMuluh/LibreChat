@@ -207,14 +207,14 @@ describe('agents addTitle', () => {
       onTitleGenerated,
     });
 
-    expect(mockCache.set).toHaveBeenCalledWith('user-1-cid-filtered', 'New Chat', 120000);
+    expect(mockCache.set).toHaveBeenCalledWith('user-1-cid-filtered', 'New Note', 120000);
     expect(onTitleGenerated).toHaveBeenCalledWith({
       conversationId: 'cid-filtered',
-      title: 'New Chat',
+      title: 'New Note',
     });
     expect(mockSaveConvo).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ conversationId: 'cid-filtered', title: 'New Chat' }),
+      expect.objectContaining({ conversationId: 'cid-filtered', title: 'New Note' }),
       expect.objectContaining({ noUpsert: true }),
     );
   });

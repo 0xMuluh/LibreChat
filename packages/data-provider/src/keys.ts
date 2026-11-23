@@ -1,7 +1,13 @@
 export enum QueryKeys {
+  slackApps = 'slackApps',
+  slackWorkspaces = 'slackWorkspaces',
+  agentChannelWorkspaceRoutes = 'agentChannelWorkspaceRoutes',
+  agentChannelWorkspaceTarget = 'agentChannelWorkspaceTarget',
   messages = 'messages',
   /* Full content of one tool-call part, fetched when its preview is not enough */
   toolCallPart = 'toolCallPart',
+  /* Child calls of a message's subagent transcripts that files reaching it late belong to */
+  subagentAttachmentCalls = 'subagentAttachmentCalls',
   ownerMessageTexts = 'ownerMessageTexts',
   sharedMessages = 'sharedMessages',
   sharedStartupConfig = 'sharedStartupConfig',
@@ -14,6 +20,8 @@ export enum QueryKeys {
   searchEnabled = 'searchEnabled',
   langfuseConnection = 'langfuseConnection',
   langfuseSessionLink = 'langfuseSessionLink',
+  langfusePrompts = 'langfusePrompts',
+  langfusePrompt = 'langfusePrompt',
   conversationTraceAvailability = 'conversationTraceAvailability',
   conversationTraceRecords = 'conversationTraceRecords',
   conversationTraceRecord = 'conversationTraceRecord',
@@ -35,6 +43,11 @@ export enum QueryKeys {
   assistant = 'assistant',
   agents = 'agents',
   agent = 'agent',
+  agentChannels = 'agentChannels',
+  responseReview = 'responseReview',
+  channelLinkTicket = 'channelLinkTicket',
+  channelLinks = 'channelLinks',
+  agentChannelManifest = 'agentChannelManifest',
   files = 'files',
   fileConfig = 'fileConfig',
   tools = 'tools',
@@ -57,6 +70,8 @@ export enum QueryKeys {
   promptGroups = 'promptGroups',
   allPromptGroups = 'allPromptGroups',
   promptGroup = 'promptGroup',
+  promptGroupContent = 'promptGroupContent',
+  promptGroupRevisions = 'promptGroupRevisions',
   projects = 'projects',
   project = 'project',
   projectFiles = 'projectFiles',
@@ -65,6 +80,7 @@ export enum QueryKeys {
   categories = 'categories',
   randomPrompts = 'randomPrompts',
   agentCategories = 'agentCategories',
+  modelSpecHandoffs = 'modelSpecHandoffs',
   marketplaceAgents = 'marketplaceAgents',
   roles = 'roles',
   rolesList = 'rolesList',
@@ -88,6 +104,8 @@ export enum QueryKeys {
   runningConversation = 'runningConversation',
   /* Agent API Keys */
   agentApiKeys = 'agentApiKeys',
+  apiKeyMCPConsent = 'apiKeyMCPConsent',
+  apiKeyAgents = 'apiKeyAgents',
   /* Skills */
   skills = 'skills',
   skill = 'skill',
@@ -105,13 +123,18 @@ export enum QueryKeys {
   /* Scheduled chats */
   schedules = 'schedules',
   scheduleMCPConsent = 'scheduleMCPConsent',
+  scheduleMCPOffer = 'scheduleMCPOffer',
   schedule = 'schedule',
   parentSubagents = 'parentSubagents',
   subagentThread = 'subagentThread',
+  subagentThreadToolCallPart = 'subagentThreadToolCallPart',
+  subagentTaskContent = 'subagentTaskContent',
+  subagentControlReceipt = 'subagentControlReceipt',
   backgroundTasks = 'backgroundTasks',
   conversationPullRequest = 'conversationPullRequest',
   pullRequestConnection = 'pullRequestConnection',
   codeEnvironments = 'codeEnvironments',
+  codeSetupAttempt = 'codeSetupAttempt',
   agentQueuedTurns = 'agentQueuedTurns',
   /* Combined Pinned-section display order (favorites + pinned chats) */
   pinnedOrder = 'pinnedOrder',
@@ -119,6 +142,8 @@ export enum QueryKeys {
 
 // Dynamic query keys that require parameters
 export const DynamicQueryKeys = {
+  codeSetupAttempt: (attemptId: string, userId: string) =>
+    [QueryKeys.codeSetupAttempt, userId, attemptId] as const,
   agentFiles: (agentId: string) => ['agentFiles', agentId] as const,
   projectFiles: (projectId: string) => [QueryKeys.projectFiles, projectId] as const,
   projectAvailableFiles: (projectId: string) =>
@@ -127,6 +152,16 @@ export const DynamicQueryKeys = {
 } as const;
 
 export enum MutationKeys {
+  slackApps = 'slackApps',
+  slackWorkspaces = 'slackWorkspaces',
+  agentChannelWorkspaceRoutes = 'agentChannelWorkspaceRoutes',
+  approveCodeSetup = 'approveCodeSetup',
+  denyCodeSetup = 'denyCodeSetup',
+  responseReviewDecision = 'responseReviewDecision',
+  responseCancel = 'responseCancel',
+  agentChannels = 'agentChannels',
+  channelLinkTicket = 'channelLinkTicket',
+  channelLinks = 'channelLinks',
   resetToolApprovalGrants = 'resetToolApprovalGrants',
   subagentControl = 'subagentControl',
   cancelBackgroundTasks = 'cancelBackgroundTasks',
@@ -139,7 +174,11 @@ export enum MutationKeys {
   updatePinnedOrder = 'updatePinnedOrder',
   updateLangfuseConnection = 'updateLangfuseConnection',
   testLangfuseConnection = 'testLangfuseConnection',
+  updateLangfusePromptSync = 'updateLangfusePromptSync',
+  syncLangfusePrompts = 'syncLangfusePrompts',
   createAgentApiKey = 'createAgentApiKey',
+  confirmApiKeyMCPConsent = 'confirmApiKeyMCPConsent',
+  revokeApiKeyMCPConsent = 'revokeApiKeyMCPConsent',
   deleteAgentApiKey = 'deleteAgentApiKey',
   fileUpload = 'fileUpload',
   fileDelete = 'fileDelete',
@@ -164,6 +203,7 @@ export enum MutationKeys {
   updateRole = 'updateRole',
   enableTwoFactor = 'enableTwoFactor',
   verifyTwoFactor = 'verifyTwoFactor',
+  cancelTwoFactorSetup = 'cancelTwoFactorSetup',
   registerPasskey = 'registerPasskey',
   renamePasskey = 'renamePasskey',
   deletePasskey = 'deletePasskey',

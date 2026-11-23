@@ -23,6 +23,7 @@ const mockCreateProjectHandlers = jest.fn(() => ({
   addProjectFile: mockHandler,
   removeProjectFile: mockHandler,
 }));
+const mockCreateWorkspaceHandler = jest.fn(() => mockHandler);
 const mockRequireJwtAuth = jest.fn((req, _res, next) => {
   req.user = { id: 'project-user', tenantId: 'tenant-a' };
   next();
@@ -32,7 +33,10 @@ const mockConfigMiddleware = jest.fn((req, _res, next) => {
   next();
 });
 
-jest.mock('@librechat/api', () => ({ createProjectHandlers: mockCreateProjectHandlers }));
+jest.mock('@librechat/api', () => ({
+  createProjectHandlers: mockCreateProjectHandlers,
+  createWorkspaceHandler: mockCreateWorkspaceHandler,
+}));
 jest.mock('~/models', () => ({
   listChatProjects: jest.fn(),
   createChatProject: jest.fn(),
@@ -63,6 +67,12 @@ const routeCases = [
     name: 'assign conversations',
     method: 'put',
     path: '/api/projects/conversations/conversation-id',
+    resolvesConfig: false,
+  },
+  {
+    name: 'open project workspaces',
+    method: 'post',
+    path: '/api/projects/project-id/workspace',
     resolvesConfig: false,
   },
   {

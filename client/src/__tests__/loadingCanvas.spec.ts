@@ -42,7 +42,7 @@ describe('loading canvas', () => {
   it.each([
     ['high-contrast-dark', [], '#000000'],
     ['high-contrast-light', [], '#ffffff'],
-    ['dark', [], '#0d0d0d'],
+    ['dark', [], '#05080c'],
     ['light', [], '#ffffff'],
   ])('paints the stored %s mode', (stored, matching, expected) => {
     expect(canvasFor(stored, matching as string[])).toBe(expected);
@@ -53,14 +53,14 @@ describe('loading canvas', () => {
    *  for the whole application load. */
   it('follows both OS preferences under system', () => {
     expect(canvasFor('system', [DARK_SCHEME, MORE_CONTRAST])).toBe('#000000');
-    expect(canvasFor('system', [DARK_SCHEME])).toBe('#0d0d0d');
+    expect(canvasFor('system', [DARK_SCHEME])).toBe('#05080c');
     expect(canvasFor('system', [MORE_CONTRAST])).toBe('#ffffff');
     expect(canvasFor('system', [])).toBe('#ffffff');
   });
 
   /** A Windows Contrast Theme reports `forced-colors: active` with
    *  `prefers-contrast: custom`, never `more`, so keying the canvas off `more`
-   *  alone flashes #0d0d0d on the platform the theme README names. */
+   *  alone flashes #05080c on the platform the theme README names. */
   it('treats a forced-colors palette as a contrast request', () => {
     expect(canvasFor('system', [DARK_SCHEME, CUSTOM_CONTRAST, FORCED_COLORS])).toBe('#000000');
     expect(canvasFor('system', [DARK_SCHEME, FORCED_COLORS])).toBe('#000000');
@@ -69,7 +69,7 @@ describe('loading canvas', () => {
   /** An unset or unrecognised value is what `getInitialTheme` resolves as
    *  `system`, so the canvas has to resolve it the same way. */
   it('treats an unset or unknown mode as system', () => {
-    expect(canvasFor(null, [DARK_SCHEME])).toBe('#0d0d0d');
+    expect(canvasFor(null, [DARK_SCHEME])).toBe('#05080c');
     expect(canvasFor(null, [DARK_SCHEME, MORE_CONTRAST])).toBe('#000000');
     expect(canvasFor('sepia', [DARK_SCHEME, MORE_CONTRAST])).toBe('#000000');
   });

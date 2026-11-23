@@ -2,6 +2,7 @@ import {
   memo,
   forwardRef,
   useCallback,
+  useLayoutEffect,
   useMemo,
   RefAttributes,
   ForwardRefExoticComponent,
@@ -12,7 +13,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import type { FocusOutline } from './Focus';
 import { useDialogDepth, usePopoverZIndex } from './OriginalDialog';
 import { focusOutlineVariants } from './Focus';
-import { cn } from '~/utils';
+import { cn, resolveSide } from '~/utils';
 import './Tooltip.css';
 
 interface TooltipAnchorProps extends Ariakit.TooltipAnchorProps {
@@ -25,6 +26,29 @@ interface TooltipAnchorProps extends Ariakit.TooltipAnchorProps {
   /** Overrides the popup's z-index, for anchors inside a host layer above the default. */
   zIndex?: number;
   side?: 'top' | 'bottom' | 'left' | 'right';
+}
+
+type Sanitizer = ReturnType<typeof DOMPurify>;
+
+let sanitizer: Sanitizer | undefined;
+
+/**
+ * One sanitizer for every tooltip, built the first time a tooltip has markup to show. Building
+ * one is not cheap (it copies its allow lists and probes the document), and a tooltip with a
+ * plain description never uses it: an instance per tooltip was most of what a toolbar button
+ * cost to mount, on pages that mount hundreds of them.
+ */
+function getSanitizer(): Sanitizer {
+  if (sanitizer == null) {
+    sanitizer = DOMPurify();
+    sanitizer.addHook('afterSanitizeAttributes', (node) => {
+      if (node.tagName && node.tagName === 'A') {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+      }
+    });
+  }
+  return sanitizer;
 }
 
 /**
@@ -53,23 +77,12 @@ const TooltipPopup = memo(function TooltipPopup({
   const popoverZIndex = usePopoverZIndex();
   const resolvedZIndex = zIndex ?? (dialogDepth > 0 ? popoverZIndex : undefined);
 
-  const sanitizer = useMemo(() => {
-    const instance = DOMPurify();
-    instance.addHook('afterSanitizeAttributes', (node) => {
-      if (node.tagName && node.tagName === 'A') {
-        node.setAttribute('target', '_blank');
-        node.setAttribute('rel', 'noopener noreferrer');
-      }
-    });
-    return instance;
-  }, []);
-
   const sanitizedHTML = useMemo(() => {
     if (!enableHTML) {
       return '';
     }
     try {
-      return sanitizer.sanitize(description, {
+      return getSanitizer().sanitize(description, {
         ALLOWED_TAGS: ['a', 'strong', 'b', 'em', 'i', 'br', 'code'],
         ALLOWED_ATTR: ['href', 'class', 'target', 'rel'],
         ALLOW_DATA_ATTR: false,
@@ -79,7 +92,7 @@ const TooltipPopup = memo(function TooltipPopup({
       console.error('Sanitization failed', error);
       return description;
     }
-  }, [enableHTML, description, sanitizer]);
+  }, [enableHTML, description]);
 
   const { x, y } = useMemo(() => {
     const dir = placement.split('-')[0];
@@ -149,6 +162,18 @@ export const TooltipAnchor: ForwardRefExoticComponent<
   ref,
 ) {
   const tooltip = Ariakit.useTooltipStore({ placement: side });
+
+  /** `side` is physical; resolve it against the anchor's own direction so `right` stays the
+   *  inline-end side in an RTL layout without every caller having to know. The selector re-runs
+   *  on every store change, opening included, so a language switch that flips the direction
+   *  without remounting is still picked up. Selecting the resolved side, not the anchor element,
+   *  keeps each anchor to one render on mount: message rows mount hundreds of them at once. */
+  const placement = Ariakit.useStoreState(tooltip, (state) =>
+    resolveSide(side, state.anchorElement),
+  );
+  useLayoutEffect(() => {
+    tooltip.setState('placement', placement);
+  }, [tooltip, placement]);
 
   /**
    * `role="button"` renders a plain element with no native activation, so Enter and

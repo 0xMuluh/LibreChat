@@ -1,5 +1,17 @@
 import { memo } from 'react';
-import { Part as ChatPart } from '@librechat/chat/components';
+import {
+  Part as ChatPart,
+  ToolCall,
+  ToolPreparation,
+  Container,
+  AskUserQuestionCall,
+} from '@librechat/chat/components';
+import {
+  isBashProgrammaticToolCall,
+  getAskUserQuestionPart,
+  getActivityLabelPart,
+  getActivityLabelText,
+} from '@librechat/chat';
 import {
   Tools,
   Constants,
@@ -36,28 +48,19 @@ import {
   SubagentCall,
   SteerPart,
 } from './Parts';
-import {
-  getCachedPreview,
-  getActivityLabelPart,
-  getActivityLabelText,
-  getPartKeyIndex,
-} from '~/utils';
+import { NoteToolCall, isNoteToolCall } from '~/components/Notes/ToolCall';
+import { getCachedPreview, getPartKeyIndex } from '~/utils';
 import BackgroundTaskCall from './Parts/BackgroundTaskCall';
-import { getAskUserQuestionPart } from '~/utils/approval';
-import AskUserQuestionCall from './AskUserQuestionCall';
-import { isBashProgrammaticToolCall } from './routing';
 import { isError } from './ToolOutput/OutputRenderer';
-import { ToolPreparation } from './preparation';
 import { ErrorMessage } from './MessageContent';
 import AskUserQuestion from './AskUserQuestion';
 import RetrievalCall from './RetrievalCall';
 import ToolApproval from './ToolApproval';
 import AgentHandoff from './AgentHandoff';
 import CodeAnalyze from './CodeAnalyze';
-import Container from './Container';
 import WebSearch from './WebSearch';
-import ToolCall from './ToolCall';
 import Image from './Image';
+import './toolCallSlots';
 
 const isFailedImageCall = (
   output: string | null | undefined,
@@ -157,7 +160,6 @@ const renderFileAuthoring =
       initialProgress={toolCall.progress ?? 0.1}
       isSubmitting={isSubmitting}
       runStepStatus={toolCall.runStepStatus}
-      runStepDurationMs={toolCall.runStepDurationMs}
       attachments={attachments}
       hideAttachments={hideAttachments}
       onExpand={onToolExpand}
@@ -317,7 +319,6 @@ const tools: Record<string, ToolRenderer> = {
       initialProgress={toolCall.progress ?? 0.1}
       isSubmitting={isSubmitting}
       runStepStatus={toolCall.runStepStatus}
-      runStepDurationMs={toolCall.runStepDurationMs}
       attachments={attachments}
       hideAttachments={hideAttachments}
       onExpand={onToolExpand}
@@ -407,8 +408,35 @@ const renderDefaultTool: ToolRenderer = ({
   />
 );
 
+/**
+ * OmicsBase: an agent's R cell draws as a note cell. In flight follows the generic card's rule
+ * (`resolveToolCallPhase`), read from the reported progress.
+ */
+const renderNoteCell: ToolRenderer = (props) => {
+  const { toolCall, toolCallId, isSubmitting } = props;
+  const output = toolCall.output ?? '';
+  const running =
+    toolCall.runStepStatus == null &&
+    !isError(output) &&
+    isSubmitting &&
+    (toolCall.progress ?? 0.1) < 1;
+  return (
+    <NoteToolCall
+      name={toolCall.name || ''}
+      args={toolCall.args ?? ''}
+      output={output}
+      running={running}
+      toolCallId={toolCallId}
+      fallback={renderDefaultTool(props)}
+    />
+  );
+};
+
 /** Calls a name alone cannot route: programmatic bash by its arguments, handoffs by prefix. */
 const matchTool = ({ name, args }: AgentToolCall): ToolRenderer | undefined => {
+  if (isNoteToolCall(name)) {
+    return renderNoteCell;
+  }
   if (isBashProgrammaticToolCall(name, args)) {
     return renderBashProgrammatic;
   }
@@ -681,7 +709,7 @@ const renderers: PartRenderers = {
       const failed = part.status === 'failed' || part.status === 'partial';
       return (
         <div
-          className={`my-1 pl-1 text-sm break-words italic ${failed ? 'text-text-warning' : 'text-text-secondary'}`}
+          className={`my-1 ps-1 text-sm break-words italic ${failed ? 'text-text-warning' : 'text-text-secondary'}`}
         >
           {display}
         </div>
