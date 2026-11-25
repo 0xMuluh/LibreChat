@@ -23,6 +23,7 @@ export * from './reasoning';
 export * from './toolTiming';
 /* artifacts  */
 export * from './artifacts';
+export * from './noteFiles';
 /* schema helpers  */
 export * from './parsers';
 /* custom/dynamic configurations  */

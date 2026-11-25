@@ -1,6 +1,6 @@
 import React, { memo, useMemo, useRef, useEffect } from 'react';
 import { strongDirection } from '@librechat/chat';
-import { PermissionTypes, Permissions, apiBaseUrl } from 'librechat-data-provider';
+import { PermissionTypes, Permissions, apiBaseUrl, engineRunFile } from 'librechat-data-provider';
 import type { Element, ElementContent } from 'hast';
 import {
   handleDoubleClick,
@@ -114,7 +114,7 @@ type TAnchorProps = {
   children: React.ReactNode;
 };
 
-export const a: React.ElementType = memo(function MarkdownAnchor({ href, children }: TAnchorProps) {
+function LinkedAnchor({ href, children }: TAnchorProps) {
   const { useUser, useToast } = useMessagePartsHost();
   const user = useUser();
   const showToast = useToast();
@@ -183,6 +183,15 @@ export const a: React.ElementType = memo(function MarkdownAnchor({ href, childre
       {children}
     </a>
   );
+}
+
+/** Older replies link plots and tables at the notes engine, which readers cannot open; their
+ *  cells show them, so such a link keeps only its text. */
+export const a: React.ElementType = memo(function MarkdownAnchor({ href, children }: TAnchorProps) {
+  if (engineRunFile(href)) {
+    return <>{children}</>;
+  }
+  return <LinkedAnchor href={href}>{children}</LinkedAnchor>;
 });
 a.displayName = 'MarkdownAnchor';
 
@@ -299,12 +308,20 @@ export const img: React.ElementType = memo(function MarkdownImage({
    *  turn's attachments is what turns those into the chart instead of a
    *  broken-image glyph; an unmatched source keeps its original behavior. */
   const { attachmentsByName } = useMediaContext();
+  const localize = useLocalize();
 
   const fixedSrc = useMemo(() => {
     if (!src) return src;
     const resolved = resolveInlineMedia(src, attachmentsByName)?.filepath ?? src;
     return toAbsoluteFilePath(resolved, baseURL);
   }, [src, baseURL, attachmentsByName]);
+
+  /** A plot at the notes engine cannot load for readers; its cell already shows it. */
+  if (engineRunFile(src)) {
+    return (
+      <span className="text-sm text-text-secondary">{localize('com_ui_note_plot_under_cell')}</span>
+    );
+  }
 
   return <img src={fixedSrc} alt={alt} title={title} className={className} style={style} />;
 });

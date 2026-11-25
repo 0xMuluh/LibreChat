@@ -1,7 +1,12 @@
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import type { NoteEngineResult, NoteEngineStatus } from './contracts';
-import { buildNoteArtifacts, createAgentCellRunner, createNoteAgentLifecycle } from './agent';
+import {
+  buildNoteArtifacts,
+  labelEngineFiles,
+  createAgentCellRunner,
+  createNoteAgentLifecycle,
+} from './agent';
 import { createEngineRunner, CANCELLED_MESSAGE, INTERRUPTED_MESSAGE } from './runner';
 import models from '../../../../api/server/services/NoteCells/models';
 import { createEventStore } from './events';
@@ -387,6 +392,18 @@ describe('agent cells run through OmicsBase', () => {
     expect(execution.filesTruncated).toBe(true);
   });
 
+  test('names plots for the agent instead of giving it engine URLs it would link', async () => {
+    const plot =
+      'https://omicsbase.utu.fi/omics-engine/projects/note/runs/cell_a/plots/plot_001.png';
+    const markdown = `\`\`\`r\n[1] 42\n\`\`\`\n\n![Plot Output](${plot})`;
+    engineReturns({ success: true, markdown, run_dir: 'runs/cell_a', plots: [plot] });
+    const text = await run({ conversationId: 'note', code: 'plot(1)' });
+    const execution = await models.NoteCellExecution.findOne({ conversationId: 'note' });
+    expect(text).toMatch(/\n```r\n\[1\] 42\n```\n\nPlot 1 \(shown under the cell\)$/);
+    expect(text).not.toContain('/projects/');
+    expect(execution.markdown).toBe(markdown);
+  });
+
   test('the cell exists under the tool-call key while it runs', async () => {
     const seenWhileRunning: string[] = [];
     status.mockImplementation(async () => {
@@ -505,5 +522,28 @@ describe('agent cells run through OmicsBase', () => {
       String(execution.cellId),
       String(execution._id),
     );
+  });
+});
+
+describe('labelEngineFiles', () => {
+  const runDir = 'http://localhost:8001/projects/n1/runs/cell_b';
+
+  test('labels engine plot and table URLs in images, links and bare text', () => {
+    expect(
+      labelEngineFiles(
+        `![a](${runDir}/plots/p1.png)\n![b](${runDir}/plots/p2.png "t")\n` +
+          `[again](<${runDir}/plots/p1.png>) and ${runDir}/tables/counts.csv`,
+      ),
+    ).toBe(
+      'Plot 1 (shown under the cell)\nPlot 2 (shown under the cell)\n' +
+        'Plot 1 (shown under the cell) and Table: counts.csv (shown under the cell)',
+    );
+  });
+
+  test('leaves other links, images and note files alone', () => {
+    const markdown =
+      '[OMA](https://microbiome.github.io/OMA/) ![x](https://example.com/x.png) ' +
+      '[site](https://omicsbase.utu.fi/omics-engine/projects/n1/site/index.html)';
+    expect(labelEngineFiles(markdown)).toBe(markdown);
   });
 });
