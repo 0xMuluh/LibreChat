@@ -32,13 +32,7 @@ const table = { file: 'counts.csv', rows: 2, cols: 3, markdown: '| a |', url };
 
 const renderOutput = () =>
   render(
-    <Output
-      execution={null}
-      stdout=""
-      executionError={null}
-      authPlotUrls={[]}
-      tables={[table]}
-    />,
+    <Output execution={null} stdout="" executionError={null} authPlotUrls={[]} tables={[table]} />,
   );
 
 describe('Output table download', () => {
