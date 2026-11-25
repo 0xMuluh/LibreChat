@@ -185,6 +185,7 @@ async function cloneNoteConversation({
           engineCellId: exec.engineCellId || null,
           startedAt: exec.startedAt || null,
           finishedAt: exec.finishedAt || null,
+          filesTruncated: includeData && exec.filesTruncated === true,
         });
 
         // 3. Clone artifacts for this execution, when the copy includes the note's files

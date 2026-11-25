@@ -1,4 +1,5 @@
 const fs = require('fs');
+const { Readable } = require('stream');
 
 const ENGINE_URL = (
   process.env.NOTEKERNEL_URL ||
@@ -124,10 +125,8 @@ async function getExecutionStatus({ threadId, executionId, offset = 0 }) {
   return await response.json();
 }
 
-/**
- * Fetch artifact bytes from engine static /projects mount.
- */
-async function fetchArtifactFromEngine(threadId, relativePath) {
+/** Requests an artifact from the engine's static /projects mount. */
+async function requestArtifact(threadId, relativePath) {
   const url = `${ENGINE_URL}/projects/${encodeURIComponent(threadId)}/${relativePath
     .split('/')
     .map(encodeURIComponent)
@@ -140,9 +139,30 @@ async function fetchArtifactFromEngine(threadId, relativePath) {
     err.status = response.status;
     throw err;
   }
+  return response;
+}
+
+/**
+ * Fetch artifact bytes from engine static /projects mount.
+ */
+async function fetchArtifactFromEngine(threadId, relativePath) {
+  const response = await requestArtifact(threadId, relativePath);
   const buffer = Buffer.from(await response.arrayBuffer());
   const contentType = response.headers.get('content-type') || 'application/octet-stream';
   return { buffer, contentType };
+}
+
+/** An artifact as a stream, so a large file is passed on without being held in memory. */
+async function streamArtifactFromEngine(threadId, relativePath) {
+  const response = await requestArtifact(threadId, relativePath);
+  return {
+    stream: Readable.fromWeb(response.body),
+    contentType: response.headers.get('content-type') || 'application/octet-stream',
+    // fetch decodes a compressed body, so the engine's length holds only for a plain one.
+    contentLength: response.headers.get('content-encoding')
+      ? null
+      : response.headers.get('content-length'),
+  };
 }
 
 function noteFileUrl(threadId, filename) {
@@ -216,4 +236,5 @@ module.exports = {
   startExecution,
   getExecutionStatus,
   fetchArtifactFromEngine,
+  streamArtifactFromEngine,
 };

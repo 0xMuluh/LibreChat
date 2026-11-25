@@ -30,6 +30,11 @@ jest.mock('~/server/services/NoteCells/engineClient', () => ({
     buffer: Buffer.from('png-bytes'),
     contentType: 'image/png',
   })),
+  streamArtifactFromEngine: jest.fn(async () => ({
+    stream: require('stream').Readable.from([Buffer.from('a,b\n1,2\n')]),
+    contentType: 'text/csv',
+    contentLength: '8',
+  })),
 }));
 
 createModels(mongoose);
@@ -181,6 +186,36 @@ describe('note routes: what a share exposes', () => {
       .get(artifactUrl('share-files', ids.shown, runs.shown))
       .expect(200);
     expect(figure.headers['content-type']).toBe('image/png');
+    expect(figure.headers['content-disposition']).toBe(
+      `inline; filename="plot.png"; filename*=UTF-8''plot.png`,
+    );
+  });
+
+  it('streams a file the run wrote as a download, and not through a share without files', async () => {
+    const file = await models.NoteExecutionArtifact.create({
+      executionId: runs.shown.executionId,
+      conversationId,
+      user: owner,
+      artifactType: 'file',
+      relativePath: 'results/tulokset "ä".csv',
+      mimeType: 'text/csv',
+      byteSize: 8,
+    });
+    const run = { ...runs.shown, artifactId: String(file._id) };
+
+    await request(app)
+      .get(artifactUrl('share-bare', ids.shown, run))
+      .expect(404);
+
+    const res = await request(app)
+      .get(artifactUrl('share-files', ids.shown, run))
+      .expect(200);
+    expect(res.headers['content-disposition']).toBe(
+      `attachment; filename="tulokset ___.csv"; filename*=UTF-8''tulokset%20%22%C3%A4%22.csv`,
+    );
+    expect(res.headers['content-type']).toMatch(/^text\/csv/);
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.text).toBe('a,b\n1,2\n');
   });
 
   it('hides a cell from a message after the share point', async () => {

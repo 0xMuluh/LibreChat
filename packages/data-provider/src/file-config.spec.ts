@@ -115,6 +115,56 @@ describe('inferMimeType', () => {
     expect(baseFileConfig.checkType(normalized)).toBe(true);
   });
 
+  it.each([
+    ['otu_table.biom', 'application/octet-stream'],
+    ['table.qza', 'application/octet-stream'],
+    ['taxa-bar-plots.qzv', 'application/octet-stream'],
+    ['counts.h5', 'application/x-hdf5'],
+    ['pbmc.h5ad', 'application/x-hdf5'],
+    ['multiome.h5mu', 'application/x-hdf5'],
+    ['cells.loom', 'application/x-hdf5'],
+    ['reads.fastq', 'application/octet-stream'],
+    ['reads.FQ', 'application/octet-stream'],
+    ['reads.fastq.gz', 'application/gzip'],
+    ['reads.fq.gz', 'application/gzip'],
+    ['genome.fasta', 'text/plain'],
+    ['genome.fa', 'text/plain'],
+    ['genes.fna', 'text/plain'],
+    ['proteins.faa', 'text/plain'],
+    ['matrix.mtx', 'application/octet-stream'],
+    ['session.rda', 'application/octet-stream'],
+    ['session.RData', 'application/octet-stream'],
+    ['tree.nwk', 'text/plain'],
+    ['tree.newick', 'text/plain'],
+    ['tree.tre', 'text/plain'],
+    ['archive.gz', 'application/gzip'],
+    ['sheet.ods', 'application/vnd.oasis.opendocument.spreadsheet'],
+  ])('infers a type for %s when the browser reports none', (name, expected) => {
+    expect(inferMimeType(name, '')).toBe(expected);
+  });
+
+  it('keeps the type the browser reports for a data file', () => {
+    expect(inferMimeType('reads.fastq.gz', 'application/x-gzip')).toBe('application/x-gzip');
+    expect(inferMimeType('seqs.fasta', 'application/octet-stream')).toBe(
+      'application/octet-stream',
+    );
+  });
+
+  it('gives data files types a data-file allowlist accepts', () => {
+    const allowlist = convertStringsToRegex([
+      'image/.*',
+      'text/.*',
+      'application/gzip',
+      'application/x-r-rds',
+      'application/x-hdf5',
+      'application/octet-stream',
+    ]);
+    const names = ['a.biom', 'a.qza', 'a.h5ad', 'a.fastq.gz', 'a.fasta', 'a.mtx', 'a.rda', 'a.rds'];
+    for (const name of names) {
+      expect(baseFileConfig.checkType(inferMimeType(name, ''), allowlist)).toBe(true);
+    }
+  });
+
   it('infers Office MIME types from extension when the browser reports none', () => {
     expect(inferMimeType('legacy.doc', '')).toBe('application/msword');
     expect(inferMimeType('report.docx', '')).toBe(

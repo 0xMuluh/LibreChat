@@ -1,12 +1,18 @@
 import { logger } from '@librechat/data-schemas';
-import { errorMessage, NoteError } from './errors';
-import { toId, serializeExecution, serializeArtifact } from './serialization';
-import { TERMINAL } from './constants';
+import type { Readable } from 'stream';
+import type { SerializedExecution, SerializedArtifact } from './serialization';
 import type { NoteDependencies, ExecutionInput } from './serviceTypes';
 import type { createExecutionWorker } from './worker';
 import type { createEventStore } from './events';
+import { toId, serializeExecution, serializeArtifact } from './serialization';
+import { errorMessage, NoteError } from './errors';
+import { TERMINAL } from './constants';
 
-import type { SerializedExecution, SerializedArtifact } from './serialization';
+/** An artifact's bytes: held in memory, or streamed for a file the run wrote. */
+export type ArtifactContent = { contentType: string; artifact: SerializedArtifact } & (
+  | { buffer: Buffer }
+  | { stream: Readable; contentLength?: string | null }
+);
 
 /** A run this young is still being handed to its job; older ones without a job were orphaned. */
 const RECONCILE_GRACE_MS = 5000;
@@ -35,7 +41,7 @@ export interface ExecutionStore {
     cellId: string,
     executionId: string,
     artifactId: string,
-  ): Promise<{ buffer: Buffer; contentType: string; artifact: SerializedArtifact }>;
+  ): Promise<ArtifactContent>;
 }
 export function createExecutionStore(
   deps: NoteDependencies,
@@ -44,7 +50,7 @@ export function createExecutionStore(
   resumeExecution: ReturnType<typeof createExecutionWorker>['resumeExecution'],
 ): ExecutionStore {
   const { NoteCell, NoteCellRevision, NoteCellExecution, NoteExecutionArtifact } = deps.models;
-  const { fetchArtifactFromEngine, signalCancel } = deps;
+  const { fetchArtifactFromEngine, streamArtifactFromEngine, signalCancel } = deps;
   async function executeCell({
     conversationId,
     userId,
@@ -167,7 +173,7 @@ export function createExecutionStore(
     cellId: string,
     executionId: string,
     artifactId: string,
-  ) {
+  ): Promise<ArtifactContent> {
     const execution = await NoteCellExecution.findOne({
       _id: executionId,
       cellId,
@@ -189,6 +195,19 @@ export function createExecutionStore(
       return {
         buffer: Buffer.from(execution.stdout, 'utf8'),
         contentType: 'text/plain; charset=utf-8',
+        artifact: serializeArtifact(artifact),
+      };
+    }
+
+    if (artifact.artifactType === 'file' && streamArtifactFromEngine) {
+      const { stream, contentType, contentLength } = await streamArtifactFromEngine(
+        conversationId,
+        artifact.relativePath,
+      );
+      return {
+        stream,
+        contentLength,
+        contentType: artifact.mimeType || contentType,
         artifact: serializeArtifact(artifact),
       };
     }

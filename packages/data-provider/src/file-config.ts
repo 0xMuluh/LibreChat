@@ -516,6 +516,33 @@ export const imageTypeMapping: { [key: string]: string } = {
   heif: 'image/heif',
 };
 
+/**
+ * Maps data file extensions browsers send with no MIME type. Sequence and tree files are
+ * text; read files, matrices and archives stay binary so they are never read as text.
+ */
+export const dataFileTypeMapping: { [key: string]: string } = {
+  biom: 'application/octet-stream',
+  qza: 'application/octet-stream',
+  qzv: 'application/octet-stream',
+  h5: 'application/x-hdf5',
+  h5ad: 'application/x-hdf5',
+  h5mu: 'application/x-hdf5',
+  loom: 'application/x-hdf5',
+  fastq: 'application/octet-stream',
+  fq: 'application/octet-stream',
+  fasta: 'text/plain',
+  fa: 'text/plain',
+  fna: 'text/plain',
+  faa: 'text/plain',
+  mtx: 'application/octet-stream',
+  rda: 'application/octet-stream',
+  rdata: 'application/octet-stream',
+  nwk: 'text/plain',
+  newick: 'text/plain',
+  tre: 'text/plain',
+  gz: 'application/gzip',
+};
+
 /** Normalizes non-standard MIME types that browsers may report to their canonical forms */
 export const mimeTypeAliases: Readonly<Record<string, string>> = {
   'application/x-zip-compressed': 'application/zip',
@@ -545,7 +572,12 @@ export function inferMimeType(fileName: string, currentType: string): string {
   }
 
   const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
-  return codeTypeMapping[extension] || imageTypeMapping[extension] || currentType;
+  return (
+    codeTypeMapping[extension] ||
+    imageTypeMapping[extension] ||
+    dataFileTypeMapping[extension] ||
+    currentType
+  );
 }
 
 export const retrievalMimeTypes = [

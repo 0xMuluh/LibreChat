@@ -6,6 +6,7 @@ const {
   startExecution,
   getExecutionStatus,
   fetchArtifactFromEngine,
+  streamArtifactFromEngine,
   signalCancel,
   engineUnreachableError,
 } = require('./engineClient');
@@ -19,6 +20,7 @@ module.exports = createNoteService({
   startExecution,
   getExecutionStatus,
   fetchArtifactFromEngine,
+  streamArtifactFromEngine,
   signalCancel,
   engineUnreachableError,
   bridgeConversationFiles,

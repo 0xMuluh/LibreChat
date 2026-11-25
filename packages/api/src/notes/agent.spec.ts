@@ -1,11 +1,10 @@
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import type { NoteEngineResult, NoteEngineStatus } from './contracts';
-import { createAgentCellRunner, createNoteAgentLifecycle } from './agent';
+import { buildNoteArtifacts, createAgentCellRunner, createNoteAgentLifecycle } from './agent';
 import { createEngineRunner, CANCELLED_MESSAGE, INTERRUPTED_MESSAGE } from './runner';
-import { createEventStore } from './events';
-
 import models from '../../../../api/server/services/NoteCells/models';
+import { createEventStore } from './events';
 const lifecycle = createNoteAgentLifecycle(models);
 let mongo: MongoMemoryServer;
 
@@ -48,6 +47,62 @@ test('saves one revision and a complete result with bulk artifacts, without poll
   expect((await models.NoteCellExecution.findById(saved.executionId)).stdout).toBe('42');
   await lifecycle.finish('test-conversation', saved.executionId, { success: true });
   expect(inserts).toHaveBeenCalledTimes(1);
+});
+
+test('registers each file the run wrote once, as a download', () => {
+  const execution = {
+    _id: new mongoose.Types.ObjectId(),
+    conversationId: 'convo',
+    user: 'user',
+  };
+  const engine = 'http://engine/projects/convo';
+  const artifacts = buildNoteArtifacts(execution, {
+    run_dir: 'runs/r1',
+    plots: [`${engine}/runs/r1/plots/1.png`],
+    files: [
+      { path: 'results/summary.csv', bytes: 12288, url: `${engine}/results/summary.csv` },
+      { path: 'report.pdf', bytes: 2048 },
+      { path: 'fits/model.rds', bytes: 900, url: `${engine}/fits/model.rds` },
+      { path: 'counts.h5ad', bytes: 4096, url: `${engine}/counts.h5ad` },
+      { path: 'unknown.xyz', url: `${engine}/unknown.xyz` },
+      { path: 'my results.tsv', bytes: 5, url: `${engine}/my%20results.tsv` },
+      { url: `${engine}/tree%20final.nwk`, bytes: 7 },
+      // Already a plot, a repeat, and paths that leave the note folder.
+      { path: 'runs/r1/plots/1.png', bytes: 10, url: `${engine}/runs/r1/plots/1.png` },
+      { path: 'report.pdf', bytes: 2048 },
+      { path: '../other/secret.csv', bytes: 1 },
+      { path: '/etc/passwd', bytes: 1 },
+    ],
+  });
+  const files = artifacts.filter((artifact) => artifact.artifactType === 'file');
+  expect(
+    files.map(({ relativePath, mimeType, byteSize }) => [relativePath, mimeType, byteSize]),
+  ).toEqual([
+    ['results/summary.csv', 'text/csv', 12288],
+    ['report.pdf', 'application/octet-stream', 2048],
+    ['fits/model.rds', 'application/x-r-rds', 900],
+    ['counts.h5ad', 'application/x-hdf5', 4096],
+    ['unknown.xyz', 'application/octet-stream', 0],
+    ['my results.tsv', 'text/tab-separated-values', 5],
+    ['tree final.nwk', 'text/plain', 7],
+  ]);
+  expect(files.every((file) => file.executionId === execution._id && file.user === 'user')).toBe(
+    true,
+  );
+});
+
+test('saves file artifacts and whether the engine left files out', async () => {
+  const saved = await lifecycle.start('test-conversation', 'test-user', 'write.csv(x, "x.csv")');
+  await lifecycle.finish('test-conversation', saved.executionId, {
+    success: true,
+    files: [{ path: 'x.csv', bytes: 10, url: 'http://engine/projects/test-conversation/x.csv' }],
+    files_truncated: true,
+  });
+  const stored = await models.NoteExecutionArtifact.find({ executionId: saved.executionId });
+  expect(stored.map((artifact) => [artifact.artifactType, artifact.relativePath])).toEqual([
+    ['file', 'x.csv'],
+  ]);
+  expect((await models.NoteCellExecution.findById(saved.executionId)).filesTruncated).toBe(true);
 });
 
 test.each([
@@ -311,6 +366,25 @@ describe('agent cells run through OmicsBase', () => {
       ),
     ).toEqual(['running', 'preparing_files', 'starting_r', 'done', 'completed']);
     expect(events.map((event: { sequence: number }) => event.sequence)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test('tells the agent which files the run wrote, without changing the saved output', async () => {
+    engineReturns({
+      success: true,
+      markdown: 'done',
+      files: [
+        { path: 'out/a b.csv', bytes: 3, url: 'http://engine/projects/note/out/a%20b.csv' },
+        { path: 'fig.pdf', bytes: 9, url: 'http://engine/projects/note/fig.pdf' },
+      ],
+      files_truncated: true,
+    });
+    const text = await run({ conversationId: 'note', code: 'write.csv(x, "out/a b.csv")' });
+    const execution = await models.NoteCellExecution.findOne({ conversationId: 'note' });
+    expect(text).toMatch(
+      /\ndone\n\nFiles written \(offered for download under the cell\): out\/a b\.csv, fig\.pdf, and more$/,
+    );
+    expect(execution.markdown).toBe('done');
+    expect(execution.filesTruncated).toBe(true);
   });
 
   test('the cell exists under the tool-call key while it runs', async () => {
