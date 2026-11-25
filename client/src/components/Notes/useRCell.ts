@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import { useToastContext } from '@librechat/client';
-import { useShareContext } from '~/Providers';
+import type { RCellBlockProps, TablePreview } from './types';
 import {
   noteCellsApi,
   TERMINAL_STATUSES,
@@ -10,7 +10,7 @@ import {
   type NoteArtifact,
 } from '~/data-provider/Notes/notesCellsApi';
 import { parseCellMeta, parseMarkdownOutput } from './parsing';
-import type { RCellBlockProps, TablePreview } from './types';
+import { useShareContext } from '~/Providers';
 
 /** True once the cell holds a revision saved after the tool call created it. */
 function holdsSavedRevision(cell: NoteCell): boolean {
@@ -188,7 +188,7 @@ export function useRCell(
         if (resolvedCellId) {
           setCellId(resolvedCellId);
         }
-        // In a shared view `conversationId` is the shareId, which the note routes accept
+        // In a shared view `conversationId` is the shareId (RCell passes it), which the note routes accept
         // for reading. The cell record, not the tool call, holds the code the owner sees.
         if (resolvedCellId && conversationId) {
           try {
