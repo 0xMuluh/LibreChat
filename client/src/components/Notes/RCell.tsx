@@ -1,4 +1,6 @@
 import React, { useMemo } from 'react';
+import Editor from '@monaco-editor/react';
+import { TooltipAnchor, disabledFillClasses } from '@librechat/client';
 import {
   Play,
   Pencil,
@@ -18,18 +20,17 @@ import {
   XCircle,
   Download,
 } from 'lucide-react';
-import Editor from '@monaco-editor/react';
-import { TooltipAnchor, disabledFillClasses } from '@librechat/client';
-import { useMessageContext, useShareContext } from '~/Providers';
-import { cn } from '~/utils';
-import useLazyHighlight from '~/components/Chat/Messages/Content/Parts/useLazyHighlight';
-import { useRCell } from './useRCell';
-import { useLocalize } from '~/hooks';
-import { statusLabel, statusTone, statusIcon } from './status';
-import { StatusLine, endingNotice } from './StatusLine';
-import { Output } from './Output';
 import type { RCellBlockProps } from './types';
 import type { TranslationKeys } from '~/hooks';
+import useLazyHighlight from '~/components/Chat/Messages/Content/Parts/useLazyHighlight';
+import { useMessageContext, useShareContext } from '~/Providers';
+import { statusLabel, statusTone, statusIcon } from './status';
+import { StatusLine, endingNotice } from './StatusLine';
+import { noteConversationId } from './conversation';
+import { useRCell } from './useRCell';
+import { useLocalize } from '~/hooks';
+import { Output } from './Output';
+import { cn } from '~/utils';
 
 function saveTooltipKey(isDirty: boolean, isSaving: boolean): TranslationKeys {
   if (isDirty) {
@@ -50,8 +51,10 @@ function runBlockedKey(isDirty: boolean, hasCell: boolean, hasCode: boolean): Tr
 
 export default function RCell(props: RCellBlockProps) {
   const localize = useLocalize();
-  const { conversationId, messageId } = useMessageContext();
-  const { isSharedConvo } = useShareContext();
+  const { conversationId: messageConvoId, messageId } = useMessageContext();
+  const share = useShareContext();
+  const { isSharedConvo } = share;
+  const conversationId = noteConversationId(messageConvoId, share);
   const { isAgentGenerated } = props;
   const {
     handleSelectHistory,
