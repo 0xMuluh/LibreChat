@@ -36,8 +36,8 @@ const LANDING = { isLanding: true, column: 'landing' } as const;
 
 const paneColumn = (container: HTMLElement) =>
   container.querySelector('[data-chat-pane="0"]') as HTMLElement;
-/** Keyed off the band's own marker, not its background: the welcome screen's band is
- * transparent so a backdrop behind the column shows through it. */
+/** Keyed off the band's own marker, not its background: the band paints none, so a backdrop
+ * behind the column shows through it. */
 const composerBand = (container: HTMLElement) =>
   paneColumn(container).querySelector('[data-composer-band]') as HTMLElement;
 
@@ -81,6 +81,25 @@ describe('ChatPane', () => {
     expect(composerBand(container)).toContainElement(
       screen.getByRole('textbox', { name: 'Message' }),
     );
+  });
+
+  /* The morph paints the band's transition group in the stylesheet; the band itself stays
+     clear so a note's backdrop is not cut off by a solid block under the messages. */
+  it.each([
+    ['a conversation', { isLanding: false, column: 'messages' }],
+    ['the welcome screen', LANDING],
+  ] as const)('lets the backdrop show through the composer band in %s', (_, view) => {
+    const { container } = renderPane({ view });
+
+    expect(composerBand(container).className).not.toMatch(/(^|\s)bg-/);
+  });
+
+  it('names the band for the question card morph only in a conversation', () => {
+    const { container, rerenderPane } = renderPane();
+
+    expect(composerBand(container)).toHaveClass('[view-transition-name:chat-form]');
+    rerenderPane({ view: LANDING });
+    expect(composerBand(container)).not.toHaveClass('[view-transition-name:chat-form]');
   });
 
   it('centres the welcome screen and its starters without a scroll container', () => {

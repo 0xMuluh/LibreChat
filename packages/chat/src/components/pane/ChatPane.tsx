@@ -115,23 +115,23 @@ export default function ChatPane(props: ChatPaneProps): ReactElement {
         )}
       >
         {renderColumn ? renderColumn(column, { isLanding }) : column}
-        {/* The named, opaque band belongs to a conversation: the name is what the
-            ask_user_question popover and chat-card morph into, and the background keeps the
-            travelling card from showing through below the composer. The named surface is a
-            stacking context; keep it above positioned tool glyphs so they cannot paint through
-            the approval preview. The welcome screen has neither interaction, and leaving the
-            name on a transparent band there let the first reply's Markdown lose its paragraphs
-            through the transition. So it takes neither, and whatever sits behind the column,
-            a welcome backdrop or the plain page surface, shows through. */}
+        {/* The named band belongs to a conversation: the name is what the ask_user_question
+            popover and chat-card morph into. The named surface is a stacking context; keep it
+            above positioned tool glyphs so they cannot paint through the approval preview. The
+            band paints no background, so whatever sits behind the column, a theme's backdrop
+            or the plain page surface, shows through. Only the morph needs it opaque, to hide the
+            travelling card below the composer, so the stylesheet paints the band's transition
+            group instead. The welcome screen has neither interaction, and leaving the name on
+            the band there let the first reply's Markdown lose its paragraphs through the
+            transition. */}
         <div
           ref={bandRef}
           data-composer-band=""
           className={cn(
             'relative z-10 w-full',
             isLanding
-              ? 'bg-transparent'
-              : 'bg-surface-canvas scrollbar-gutter-spacer [view-transition-name:chat-form]',
-            isLanding && 'max-w-3xl transition-all duration-200 xl:max-w-4xl',
+              ? 'max-w-3xl transition-all duration-200 xl:max-w-4xl'
+              : 'scrollbar-gutter-spacer [view-transition-name:chat-form]',
           )}
         >
           {isLanding && starters}

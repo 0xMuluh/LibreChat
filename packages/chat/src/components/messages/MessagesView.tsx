@@ -64,6 +64,14 @@ export type MessagesViewProps = {
   }) => ReactNode;
 };
 
+/**
+ * The thread dissolves into the composer band instead of ending on a hard edge. A mask stencil,
+ * not paint: only its alpha is read, so whatever sits behind the column shows through in every
+ * theme. Shorter than the list's bottom padding, so the end of the last message never fades.
+ */
+const BOTTOM_FADE =
+  '[mask-image:linear-gradient(to_bottom,rgb(var(--black)/1)_calc(100%_-_2rem),transparent)]';
+
 const renderDefaultThread = (props: MessagesThreadProps): ReactNode => <Thread {...props} />;
 const renderDefaultScrollButton = (props: MessagesScrollButtonProps): ReactNode => (
   <ScrollButton {...props} />
@@ -239,6 +247,7 @@ export default function MessagesView({
         <div
           className={cn(
             'h-full w-full scrollbar-gutter-stable overflow-y-auto',
+            BOTTOM_FADE,
             mountWindow != null && '[overflow-anchor:none]',
           )}
           onScroll={debouncedHandleScroll}
