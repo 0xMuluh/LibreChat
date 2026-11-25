@@ -319,7 +319,7 @@ export const img: React.ElementType = memo(function MarkdownImage({
   /** A plot at the notes engine cannot load for readers; its cell already shows it. */
   if (engineRunFile(src)) {
     return (
-      <span className="text-sm text-text-secondary">{localize('com_ui_note_plot_under_cell')}</span>
+      <span className="text-text-secondary text-sm">{localize('com_ui_note_plot_under_cell')}</span>
     );
   }
 

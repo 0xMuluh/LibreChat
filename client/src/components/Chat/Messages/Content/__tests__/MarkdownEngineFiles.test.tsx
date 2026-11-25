@@ -5,6 +5,8 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { a, img } from '../MarkdownComponents';
 
+const components: { [nodeType: string]: React.ElementType } = { a, img };
+
 const plot =
   'https://omicsbase.utu.fi/omics-engine/projects/n1/runs/cell_7273889e/plots/plot_001.png';
 
@@ -12,7 +14,7 @@ const renderMarkdown = (markdown: string) =>
   render(
     <QueryClientProvider client={new QueryClient()}>
       <RecoilRoot>
-        <ReactMarkdown components={{ a, img }}>{markdown}</ReactMarkdown>
+        <ReactMarkdown components={components}>{markdown}</ReactMarkdown>
       </RecoilRoot>
     </QueryClientProvider>,
   ).container;
