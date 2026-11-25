@@ -69,6 +69,15 @@ describe('BookRefs', () => {
     );
   });
 
+  it('from_book: shows the book sticker beside the badge, or none for a book without one', () => {
+    const { container, rerender } = render(<BookRefs bookRefs={fromBook} />);
+    expect(container.querySelector('img')).toHaveAttribute('src', 'assets/books/mia.png');
+
+    const mofa = ref({ book: 'mofa2', book_short: 'MOFA2' });
+    rerender(<BookRefs bookRefs={{ ...fromBook, shown: mofa, refs: [mofa] }} />);
+    expect(container.querySelector('img')).toBeNull();
+  });
+
   it('from_book: the disclosure lists the other sections by function and the book version', () => {
     render(<BookRefs bookRefs={fromBook} />);
     const toggle = screen.getByRole('button', { name: 'Other book sections and book versions' });

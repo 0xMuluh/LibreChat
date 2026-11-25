@@ -1,9 +1,10 @@
 import { useId, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { TooltipAnchor } from '@librechat/client';
+import type { NoteBookRef, NoteBookRefs } from '~/data-provider/Notes/notesCellsApi';
+import { stickerUrl } from './stickers';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
-import type { NoteBookRef, NoteBookRefs } from '~/data-provider/Notes/notesCellsApi';
 
 const linkClass =
   'rounded underline decoration-dotted underline-offset-2 hover:text-text-primary focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-heavy';
@@ -60,6 +61,7 @@ export function BookRefs({ bookRefs }: { bookRefs?: NoteBookRefs | null }) {
     .join(', ');
   const hasDetails = byFunction.size > 0 || (shown != null && versionText !== '');
 
+  const sticker = shown ? stickerUrl(shown.book) : null;
   const shownFunctions = shown
     ? Array.from(
         new Set([
@@ -74,6 +76,7 @@ export function BookRefs({ bookRefs }: { bookRefs?: NoteBookRefs | null }) {
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
         {shown ? (
           <>
+            {sticker && <img src={sticker} alt="" aria-hidden="true" className="h-5 w-auto" />}
             <span>{localize('com_ui_note_from_book')}</span>
             <span aria-hidden="true">·</span>
             <TooltipAnchor
