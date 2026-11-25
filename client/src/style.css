@@ -2236,9 +2236,13 @@ html[data-input-modality='keyboard']
 }
 
 /* The composer keeps its own snapshot group stacked above the morphing
-   question card, so the card travels behind the ChatForm, not over it. */
+   question card, so the card travels behind the ChatForm, not over it. The
+   band itself is transparent so a backdrop shows through it; its group is
+   painted with the page surface for the length of the morph only, so the
+   card cannot show through below the composer. */
 ::view-transition-group(chat-form) {
   z-index: 2;
+  background-color: rgb(var(--surface-canvas));
 }
 
 /* Soft Daisy atmosphere — OB1-like teal aurora on canvases */

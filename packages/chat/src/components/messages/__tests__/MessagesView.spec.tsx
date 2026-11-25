@@ -315,6 +315,23 @@ describe('MessagesView', () => {
     expect(scrollable).toHaveClass('scrollbar-gutter-stable', 'overflow-y-auto');
     expect(scrollable).not.toHaveClass('[overflow-anchor:none]');
   });
+
+  it('fades the thread out at the bottom of the scroll container with a mask, not paint', () => {
+    let button: MessagesScrollButtonProps | undefined;
+    renderView(
+      {
+        renderScrollButton: (props) => {
+          button = props;
+          return null;
+        },
+      },
+      createHost().host,
+    );
+
+    const scrollable = button?.scrollableRef.current;
+    expect(scrollable?.className).toMatch(/\[mask-image:linear-gradient\(to_bottom,/);
+    expect(scrollable?.className).not.toMatch(/(^|\s)bg-/);
+  });
 });
 
 describe('MessagesView default rail', () => {
