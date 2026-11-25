@@ -4,6 +4,7 @@ import { Terminal, Table as TableIcon, Image as ImageIcon, Download, XCircle } f
 import type { useRCell } from './useRCell';
 import MarkdownLite from '~/components/Chat/Messages/Content/MarkdownLite';
 import { TERMINAL_STATUSES } from '~/data-provider/Notes/notesCellsApi';
+import { useDownload } from './useDownload';
 import { useLocalize } from '~/hooks';
 import { BookRefs } from './BookRefs';
 import { Files } from './Files';
@@ -29,6 +30,7 @@ export function Output({
   endingNotice,
 }: OutputProps) {
   const localize = useLocalize();
+  const { download, pending } = useDownload();
   const isRunning = !!execution && !TERMINAL_STATUSES.has(execution.status);
   const consoleText = stdout ? String(stdout).trim() : '';
   const shownConsole = isRunning
@@ -114,6 +116,8 @@ export function Output({
                           <a
                             href={tbl.url}
                             download={tbl.file}
+                            onClick={(event) => tbl.url && download(event, tbl.url, tbl.file)}
+                            aria-busy={pending === tbl.url}
                             className="text-text-secondary hover:bg-surface-hover hover:text-text-primary inline-flex items-center gap-1 rounded p-1 text-xs transition-colors"
                             aria-label={localize('com_ui_note_download_file', { 0: tbl.file })}
                           >
