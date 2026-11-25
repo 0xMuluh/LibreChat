@@ -30,6 +30,11 @@ jest.mock('~/server/services/NoteCells/engineClient', () => ({
     buffer: Buffer.from('png-bytes'),
     contentType: 'image/png',
   })),
+  streamArtifactFromEngine: jest.fn(async () => ({
+    stream: require('stream').Readable.from([Buffer.from('a,b\n1,2\n')]),
+    contentType: 'text/csv',
+    contentLength: '8',
+  })),
 }));
 
 createModels(mongoose);
@@ -181,10 +186,40 @@ describe('note routes: what a share exposes', () => {
       .get(artifactUrl('share-files', ids.shown, runs.shown))
       .expect(200);
     expect(figure.headers['content-type']).toBe('image/png');
+    expect(figure.headers['content-disposition']).toBe(
+      `inline; filename="plot.png"; filename*=UTF-8''plot.png`,
+    );
+  });
+
+  it('streams a file the run wrote as a download, and not through a share without files', async () => {
+    const file = await models.NoteExecutionArtifact.create({
+      executionId: runs.shown.executionId,
+      conversationId,
+      user: owner,
+      artifactType: 'file',
+      relativePath: 'results/tulokset "ä".csv',
+      mimeType: 'text/csv',
+      byteSize: 8,
+    });
+    const run = { ...runs.shown, artifactId: String(file._id) };
+
+    await request(app)
+      .get(artifactUrl('share-bare', ids.shown, run))
+      .expect(404);
+
+    const res = await request(app)
+      .get(artifactUrl('share-files', ids.shown, run))
+      .expect(200);
+    expect(res.headers['content-disposition']).toBe(
+      `attachment; filename="tulokset ___.csv"; filename*=UTF-8''tulokset%20%22%C3%A4%22.csv`,
+    );
+    expect(res.headers['content-type']).toMatch(/^text\/csv/);
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.text).toBe('a,b\n1,2\n');
   });
 
   it('hides a cell from a message after the share point', async () => {
-    await request(app).get(cellUrl('share-files', ids.later)).expect(404);
+    expect((await request(app).get(cellUrl('share-files', ids.later))).status).toBe(404);
     await request(app)
       .get(`${cellUrl('share-files', ids.later)}/executions/${runs.later.executionId}`)
       .expect(404);
@@ -201,7 +236,7 @@ describe('note routes: what a share exposes', () => {
   });
 
   it('hides a cell that no shared message references', async () => {
-    await request(app).get(cellUrl('share-files', ids.loose)).expect(404);
+    expect((await request(app).get(cellUrl('share-files', ids.loose))).status).toBe(404);
     await request(app)
       .get(artifactUrl('share-files', ids.loose, runs.loose))
       .expect(404);
@@ -236,12 +271,12 @@ describe('note routes: what a share exposes', () => {
 
   it('does not open a shared note by its conversation id', async () => {
     mockViewer.current = { id: 'someone-else' };
-    await request(app).get(`/api/notes/${conversationId}/cells`).expect(404);
+    expect((await request(app).get(`/api/notes/${conversationId}/cells`)).status).toBe(404);
   });
 
   it('stops when the share page would turn the viewer away', async () => {
     mockGate.current = (_req, res) => res.status(401).json({ message: 'Authentication required' });
-    await request(app).get(cellUrl('share-files', ids.shown)).expect(401);
+    expect((await request(app).get(cellUrl('share-files', ids.shown))).status).toBe(401);
   });
 
   it('gives the owner every cell of their own note, with figures', async () => {

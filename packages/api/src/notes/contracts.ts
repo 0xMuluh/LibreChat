@@ -61,6 +61,8 @@ export interface Execution {
   rStartedAt?: Date | null;
   /** The engine's `book_refs`, stored as received. */
   bookRefs?: Record<string, unknown> | null;
+  /** The run wrote more files than the engine lists; only the first ones are artifacts. */
+  filesTruncated?: boolean;
 }
 export interface EventPayload {
   error?: string | null;
@@ -81,7 +83,7 @@ export interface Artifact {
   executionId: Types.ObjectId;
   conversationId: string;
   user: string;
-  artifactType: 'console' | 'plot' | 'table';
+  artifactType: 'console' | 'plot' | 'table' | 'file';
   relativePath: string;
   mimeType: string;
   byteSize: number;
@@ -101,6 +103,9 @@ export interface NoteEngineResult {
   run_dir?: string;
   plots?: string[];
   tables?: { url?: string; file?: string; markdown?: string; rows?: number; cols?: number }[];
+  /** Files the run wrote, relative to the note folder (at most 50). */
+  files?: { path?: string; bytes?: number; url?: string }[];
+  files_truncated?: boolean;
   book_refs?: Record<string, unknown> | null;
   /** Set by LibreChat: the engine no longer knows the run (server restart). */
   interrupted?: boolean;

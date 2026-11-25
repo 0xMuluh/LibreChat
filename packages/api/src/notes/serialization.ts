@@ -92,6 +92,7 @@ export function serializeExecution(
     phaseStartedAt: exec.phaseStartedAt ?? null,
     rStartedAt: exec.rStartedAt ?? null,
     bookRefs: exec.bookRefs ?? null,
+    filesTruncated: exec.filesTruncated === true,
     serverNow: new Date(),
     createdAt: exec.createdAt,
     updatedAt: exec.updatedAt,

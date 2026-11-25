@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react';
-import { cn } from '~/utils';
-import { useLocalize } from '~/hooks';
-import { TERMINAL_STATUSES } from '~/data-provider/Notes/notesCellsApi';
-import { BookRefs } from './BookRefs';
-import { Terminal, Table as TableIcon, Image as ImageIcon, Download, XCircle } from 'lucide-react';
 import { TooltipAnchor } from '@librechat/client';
-import MarkdownLite from '~/components/Chat/Messages/Content/MarkdownLite';
+import { Terminal, Table as TableIcon, Image as ImageIcon, Download, XCircle } from 'lucide-react';
 import type { useRCell } from './useRCell';
+import MarkdownLite from '~/components/Chat/Messages/Content/MarkdownLite';
+import { TERMINAL_STATUSES } from '~/data-provider/Notes/notesCellsApi';
+import { useLocalize } from '~/hooks';
+import { BookRefs } from './BookRefs';
+import { Files } from './Files';
+import { cn } from '~/utils';
 
 type OutputProps = Pick<
   ReturnType<typeof useRCell>,
@@ -34,6 +35,9 @@ export function Output({
     ? consoleText.split('\n').slice(-LIVE_CONSOLE_LINES).join('\n')
     : consoleText;
   const consoleRef = useRef<HTMLDivElement>(null);
+  const files = (execution?.artifacts ?? []).filter(
+    (artifact) => artifact.artifactType === 'file' && artifact.contentUrl,
+  );
 
   useEffect(() => {
     if (isRunning && consoleRef.current) {
@@ -48,7 +52,8 @@ export function Output({
         executionError ||
         endingNotice ||
         authPlotUrls.length > 0 ||
-        tables.length > 0) && (
+        tables.length > 0 ||
+        files.length > 0) && (
         <div className="border-border-light bg-surface-secondary/30 dark:border-border-heavy dark:bg-surface-secondary/10 border-t p-3">
           <div className="text-text-secondary text-2xs mb-2 flex items-center gap-1.5 font-medium">
             <Terminal className="size-3.5" />
@@ -171,6 +176,7 @@ export function Output({
             </div>
           )}
 
+          <Files files={files} truncated={execution?.filesTruncated} />
           <BookRefs bookRefs={execution?.bookRefs} />
         </div>
       )}

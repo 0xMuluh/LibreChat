@@ -1,8 +1,6 @@
 import { Types } from 'mongoose';
 import { logger } from '@librechat/data-schemas';
-import { CANCELLED_MESSAGE, timedOutMessage } from './runner';
-import { createEventStore } from './events';
-import type { EngineRunner } from './runner';
+import { inferMimeType } from 'librechat-data-provider';
 import type { Model } from 'mongoose';
 import type {
   Cell,
@@ -13,7 +11,28 @@ import type {
   Status,
   NoteEngineResult,
 } from './contracts';
+import type { EngineRunner } from './runner';
+import { CANCELLED_MESSAGE, timedOutMessage } from './runner';
+import { createEventStore } from './events';
 export type { NoteEngineResult } from './contracts';
+
+function decodePath(path: string | null): string | null {
+  try {
+    return path == null ? null : decodeURIComponent(path);
+  } catch {
+    return null;
+  }
+}
+
+/** One line for the agent naming the files the run wrote, which the page offers for download. */
+function savedFilesLine(result: NoteEngineResult): string {
+  const names = (result.files || []).map((file) => file.path).filter(Boolean);
+  if (names.length === 0) {
+    return '';
+  }
+  const more = result.files_truncated ? ', and more' : '';
+  return `\n\nFiles written (offered for download under the cell): ${names.join(', ')}${more}`;
+}
 
 export function buildNoteArtifacts(
   execution: Pick<Execution, 'conversationId' | 'user'> & { _id: Types.ObjectId },
@@ -67,6 +86,23 @@ export function buildNoteArtifacts(
         cols: table.cols ?? null,
       });
     }
+  }
+  const registered = new Set(artifacts.map((artifact) => artifact.relativePath));
+  for (const file of result.files || []) {
+    // `path` is the raw name; `url` is percent-encoded, and the content route encodes once.
+    const path = file.path || decodePath(relative(file.url));
+    // Paths stay inside the note folder: the content route joins them to its URL.
+    if (!path || path.startsWith('/') || path.split('/').includes('..') || registered.has(path)) {
+      continue;
+    }
+    registered.add(path);
+    artifacts.push({
+      ...base,
+      artifactType: 'file',
+      relativePath: path,
+      mimeType: inferMimeType(path, '') || 'application/octet-stream',
+      byteSize: Number.isFinite(file.bytes) ? Number(file.bytes) : 0,
+    });
   }
   return artifacts;
 }
@@ -234,6 +270,7 @@ export function createNoteAgentLifecycle(models: {
             engineCellId: result.cell_id || null,
             engineRunDir: result.engine_run_dir || result.run_dir || null,
             bookRefs: result.book_refs ?? null,
+            filesTruncated: result.files_truncated === true,
           },
         },
       );
@@ -337,7 +374,7 @@ export function createAgentCellRunner(deps: {
     }
     return (
       `<!-- noteCell cellId=${ids.cellId} executionId=${ids.executionId} status=${status} -->\n` +
-      `[cell_id: "${ids.cellId}"]\n${result.markdown ?? ''}${warning}`
+      `[cell_id: "${ids.cellId}"]\n${result.markdown ?? ''}${savedFilesLine(result)}${warning}`
     );
   }
 

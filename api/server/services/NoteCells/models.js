@@ -53,6 +53,7 @@ const noteCellExecutionSchema = new mongoose.Schema(
     phaseStartedAt: { type: Date, default: null },
     rStartedAt: { type: Date, default: null },
     bookRefs: { type: mongoose.Schema.Types.Mixed, default: null },
+    filesTruncated: { type: Boolean, default: false },
   },
   { timestamps: true },
 );
@@ -62,7 +63,7 @@ const noteExecutionArtifactSchema = new mongoose.Schema(
     executionId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     conversationId: { type: String, required: true },
     user: { type: String, required: true },
-    artifactType: { type: String, enum: ['plot', 'table', 'console'], required: true },
+    artifactType: { type: String, enum: ['plot', 'table', 'console', 'file'], required: true },
     relativePath: { type: String, required: true },
     mimeType: { type: String, default: 'application/octet-stream' },
     byteSize: { type: Number, default: 0 },

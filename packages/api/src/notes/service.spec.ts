@@ -1,7 +1,7 @@
-import mongoose, { Types } from 'mongoose';
+import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import type { NoteDependencies } from './serviceTypes';
 import type { NoteEngineResult, NoteEngineStatus } from './contracts';
+import type { NoteDependencies } from './serviceTypes';
 import models from '../../../../api/server/services/NoteCells/models';
 import { bindNoteThread, isAgentCellTool } from './mcp';
 import { createNoteService } from './service';
@@ -100,7 +100,7 @@ test('preserves cell identity, revisions, durable results and console artifact a
     execution.id,
     result.artifacts[0].id,
   );
-  expect(output.buffer.toString()).toBe('42');
+  expect('buffer' in output ? output.buffer.toString() : null).toBe('42');
   expect(artifact).not.toHaveBeenCalled();
   await expect(service.getExecution('chat', 'bob', cell.id, execution.id)).rejects.toMatchObject({
     status: 404,

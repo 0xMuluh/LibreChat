@@ -1,4 +1,5 @@
 import type { Model, Types } from 'mongoose';
+import type { Readable } from 'stream';
 import type {
   Cell,
   Revision,
@@ -47,6 +48,11 @@ export interface NoteDependencies {
     conversationId: string,
     relativePath: string,
   ) => Promise<{ buffer: Buffer; contentType: string }>;
+  /** Streams a file the run wrote, which can be too large to hold in memory. */
+  streamArtifactFromEngine?: (
+    conversationId: string,
+    relativePath: string,
+  ) => Promise<{ stream: Readable; contentType: string; contentLength?: string | null }>;
   signalCancel: (conversationId: string, executionId: string) => Promise<void>;
 }
 export interface CellInput {

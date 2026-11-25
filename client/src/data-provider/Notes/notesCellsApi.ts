@@ -11,7 +11,7 @@ export type NoteCellExecutionStatus =
 export type NoteArtifact = {
   id: string;
   executionId: string;
-  artifactType: 'plot' | 'table' | 'console';
+  artifactType: 'plot' | 'table' | 'console' | 'file';
   relativePath: string;
   mimeType: string;
   byteSize: number;
@@ -78,6 +78,8 @@ export type NoteCellExecution = {
   rStartedAt?: string | null;
   serverNow?: string | null;
   bookRefs?: NoteBookRefs | null;
+  /** The run wrote more files than are listed. */
+  filesTruncated?: boolean;
   createdAt?: string;
   startedAt?: string | null;
   finishedAt?: string | null;

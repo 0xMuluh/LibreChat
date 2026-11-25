@@ -2866,6 +2866,8 @@
   "com_ui_note_edit_code": "Edit code",
   "com_ui_note_edit_hint": "Save a revision, then Run. Cancel is available while queued/running.",
   "com_ui_note_execution_error": "Execution Error",
+  "com_ui_note_file_download_error": "Could not download {{0}}. Try again.",
+  "com_ui_note_files_truncated": "Showing {{0}} files. The run wrote more.",
   "com_ui_note_from_book": "From the book",
   "com_ui_note_from_book_tooltip": "The analysis functions in this cell ({{0}}) are used in this section of the book. This does not check that the analysis is right for your data.",
   "com_ui_note_history": "Execution history",

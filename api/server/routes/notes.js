@@ -1,4 +1,6 @@
 const express = require('express');
+const { pipeline } = require('stream');
+const { logger } = require('@librechat/data-schemas');
 const optionalJwtAuth = require('~/server/middleware/optionalJwtAuth');
 const canAccessSharedNote = require('~/server/middleware/canAccessSharedNote');
 const noteCells = require('~/server/services/NoteCells/service');
@@ -30,12 +32,27 @@ function withArtifactUrls(conversationId, cellId, executionId, payload) {
   return payload;
 }
 
+/**
+ * Names the download. A file the run wrote is saved, never shown in the page; the plain
+ * `filename` keeps ASCII only and `filename*` carries the real name (RFC 5987).
+ */
+function contentDisposition(artifact) {
+  const name = (artifact.relativePath || 'artifact').split('/').pop() || 'artifact';
+  const type = artifact.artifactType === 'file' ? 'attachment' : 'inline';
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, '_');
+  const encoded = encodeURIComponent(name).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
 /** A run's figures and tables reach a share's viewers only when the share includes files. */
 function executionForViewer(req, execution) {
   if (!execution || !req.noteShare || req.noteShare.includeFiles) {
     return execution;
   }
-  return { ...execution, artifacts: [] };
+  return { ...execution, artifacts: [], filesTruncated: false };
 }
 
 /** A shared view reads cells by shareId; the share keeps the note's own conversation id hidden. */
@@ -284,19 +301,28 @@ authed.get(
     if (req.noteShare && !req.noteShare.includeFiles) {
       return res.status(404).json({ error: 'Artifact not found' });
     }
-    const { buffer, contentType, artifact } = await noteCells.getArtifactContent(
+    const content = await noteCells.getArtifactContent(
       req.noteConversationId,
       req.noteUserId,
       req.params.cellId,
       req.params.executionId,
       req.params.artifactId,
     );
-    res.setHeader('Content-Type', contentType);
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="${(artifact.relativePath || 'artifact').split('/').pop()}"`,
-    );
-    res.send(buffer);
+    res.setHeader('Content-Type', content.contentType);
+    res.setHeader('Content-Disposition', contentDisposition(content.artifact));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (!content.stream) {
+      return res.send(content.buffer);
+    }
+    if (content.contentLength) {
+      res.setHeader('Content-Length', content.contentLength);
+    }
+    // A failure mid-file can only cut the download short; the headers are already sent.
+    pipeline(content.stream, res, (err) => {
+      if (err) {
+        logger.warn(`[NoteCells] file download stopped: ${err.message}`);
+      }
+    });
   }),
 );
 
