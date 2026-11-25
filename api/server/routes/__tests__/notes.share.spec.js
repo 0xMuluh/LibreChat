@@ -219,7 +219,7 @@ describe('note routes: what a share exposes', () => {
   });
 
   it('hides a cell from a message after the share point', async () => {
-    await request(app).get(cellUrl('share-files', ids.later)).expect(404);
+    expect((await request(app).get(cellUrl('share-files', ids.later))).status).toBe(404);
     await request(app)
       .get(`${cellUrl('share-files', ids.later)}/executions/${runs.later.executionId}`)
       .expect(404);
@@ -236,7 +236,7 @@ describe('note routes: what a share exposes', () => {
   });
 
   it('hides a cell that no shared message references', async () => {
-    await request(app).get(cellUrl('share-files', ids.loose)).expect(404);
+    expect((await request(app).get(cellUrl('share-files', ids.loose))).status).toBe(404);
     await request(app)
       .get(artifactUrl('share-files', ids.loose, runs.loose))
       .expect(404);
@@ -271,12 +271,12 @@ describe('note routes: what a share exposes', () => {
 
   it('does not open a shared note by its conversation id', async () => {
     mockViewer.current = { id: 'someone-else' };
-    await request(app).get(`/api/notes/${conversationId}/cells`).expect(404);
+    expect((await request(app).get(`/api/notes/${conversationId}/cells`)).status).toBe(404);
   });
 
   it('stops when the share page would turn the viewer away', async () => {
     mockGate.current = (_req, res) => res.status(401).json({ message: 'Authentication required' });
-    await request(app).get(cellUrl('share-files', ids.shown)).expect(401);
+    expect((await request(app).get(cellUrl('share-files', ids.shown))).status).toBe(401);
   });
 
   it('gives the owner every cell of their own note, with figures', async () => {

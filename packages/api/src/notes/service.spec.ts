@@ -1,4 +1,4 @@
-import mongoose, { Types } from 'mongoose';
+import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import type { NoteEngineResult, NoteEngineStatus } from './contracts';
 import type { NoteDependencies } from './serviceTypes';
