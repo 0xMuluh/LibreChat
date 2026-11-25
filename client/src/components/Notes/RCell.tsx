@@ -1,25 +1,7 @@
 import React, { useMemo } from 'react';
 import Editor from '@monaco-editor/react';
 import { TooltipAnchor, disabledFillClasses } from '@librechat/client';
-import {
-  Play,
-  Pencil,
-  Eye,
-  Copy,
-  Check,
-  Terminal,
-  Table as TableIcon,
-  Image as ImageIcon,
-  Loader2,
-  Save,
-  Square,
-  History,
-  Clock,
-  CheckCircle2,
-  AlertTriangle,
-  XCircle,
-  Download,
-} from 'lucide-react';
+import { Play, Pencil, Eye, Copy, Check, Loader2, Save, Square, History } from 'lucide-react';
 import type { RCellBlockProps } from './types';
 import type { TranslationKeys } from '~/hooks';
 import useLazyHighlight from '~/components/Chat/Messages/Content/Parts/useLazyHighlight';
