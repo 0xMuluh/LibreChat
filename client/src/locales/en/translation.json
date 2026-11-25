@@ -2885,6 +2885,7 @@
   "com_ui_note_phase_waiting_for_slot": "Waiting for a free R server (all are busy)… {{0}}",
   "com_ui_note_plot_alt": "Plot {{0}}",
   "com_ui_note_plot_title": "Plot #{{0}}",
+  "com_ui_note_plot_under_cell": "(plot shown under the cell above)",
   "com_ui_note_preview_code": "Preview code",
   "com_ui_note_revision_attempt": "Revision attempt #{{0}}",
   "com_ui_note_revision_badge": "v{{0}}",

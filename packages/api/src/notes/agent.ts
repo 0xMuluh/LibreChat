@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 import { logger } from '@librechat/data-schemas';
-import { inferMimeType } from 'librechat-data-provider';
+import { inferMimeType, engineRunFile, ENGINE_RUN_FILE_URL } from 'librechat-data-provider';
 import type { Model } from 'mongoose';
 import type {
   Cell,
@@ -32,6 +32,31 @@ function savedFilesLine(result: NoteEngineResult): string {
   }
   const more = result.files_truncated ? ', and more' : '';
   return `\n\nFiles written (offered for download under the cell): ${names.join(', ')}${more}`;
+}
+
+const MARKDOWN_LINK = /!?\[[^\]]*\]\(\s*<?([^\s()<>]+)>?(?:\s+"[^"]*")?\s*\)/g;
+const ENGINE_RUN_FILE_URLS = new RegExp(ENGINE_RUN_FILE_URL.source, 'g');
+
+/**
+ * The engine's markdown shows each plot as an image at the engine's URL, which readers cannot
+ * open; a model that copies it into its reply leaves a broken link. The agent gets a label
+ * instead, since the cell shows its plots and tables itself.
+ */
+export function labelEngineFiles(markdown: string): string {
+  const plots = new Map<string, number>();
+  const label = (url: string) => {
+    const found = engineRunFile(url);
+    if (found?.kind === 'table') {
+      return `Table: ${found.file} (shown under the cell)`;
+    }
+    if (!plots.has(url)) {
+      plots.set(url, plots.size + 1);
+    }
+    return `Plot ${plots.get(url)} (shown under the cell)`;
+  };
+  return markdown
+    .replace(MARKDOWN_LINK, (link, url: string) => (engineRunFile(url) ? label(url) : link))
+    .replace(ENGINE_RUN_FILE_URLS, label);
 }
 
 export function buildNoteArtifacts(
@@ -374,7 +399,8 @@ export function createAgentCellRunner(deps: {
     }
     return (
       `<!-- noteCell cellId=${ids.cellId} executionId=${ids.executionId} status=${status} -->\n` +
-      `[cell_id: "${ids.cellId}"]\n${result.markdown ?? ''}${savedFilesLine(result)}${warning}`
+      `[cell_id: "${ids.cellId}"]\n${labelEngineFiles(result.markdown ?? '')}` +
+      `${savedFilesLine(result)}${warning}`
     );
   }
 
