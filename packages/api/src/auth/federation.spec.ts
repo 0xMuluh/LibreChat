@@ -20,6 +20,7 @@ const idp: FederationIdp = {
   entryPoint: 'https://idp.utu.example/redirect',
   certs: ['U0lHTklORw=='],
   scopes: ['utu.fi'],
+  persistent: true,
 };
 
 const loaded = (validUntil = new Date('2099-01-01')): FederationMetadataResult => ({
@@ -67,6 +68,35 @@ describe('createFederation', () => {
     }
     expect(federation.idp('https://unknown.example/idp')).toBeUndefined();
   });
+
+  test.each([
+    [false, true],
+    [true, false],
+  ])(
+    'requests persistent NameIDs from a provider that does not list them unless listedNameIDFormats is %p',
+    async (listedNameIDFormats, persistent) => {
+      const fetch = jest.fn().mockResolvedValue(reply());
+      const unlisted: FederationMetadataResult = {
+        ok: true,
+        value: {
+          validUntil: new Date('2099-01-01'),
+          idps: new Map([[idp.entityID, { ...idp, persistent: false }]]),
+        },
+      };
+      const parse = jest.fn().mockResolvedValue(unlisted);
+      const federation = createFederation({
+        url: 'u',
+        cert: 'C',
+        fetch,
+        parse,
+        listedNameIDFormats,
+      });
+
+      await federation.refresh();
+
+      expect(federation.idp(UTU_IDP)?.persistent).toBe(persistent);
+    },
+  );
 
   test('serves nothing from metadata past its validUntil', async () => {
     const fetch = jest.fn().mockResolvedValue(reply());
@@ -267,6 +297,20 @@ describe('getFederationSamlOptions', () => {
       wantAuthnResponseSigned: false,
       disableRequestedAuthnContext: true,
     });
+  });
+
+  test.each([
+    ['another identity provider without persistent NameIDs', 'https://home.example', false, true],
+    ['another identity provider with persistent NameIDs', 'https://home.example', true, false],
+    ['the home identity provider', UTU_IDP, false, false],
+    ['any identity provider without a home one', undefined, false, false],
+  ])('sets the NameID format request for %s', (_label, homeIssuer, persistent, unset) => {
+    const done = jest.fn();
+    const samlIdp = { ...idp, persistent };
+    getFederationSamlOptions({ samlIdp } as SamlFederationRequest, done, homeIssuer);
+
+    const [, options] = done.mock.calls[0];
+    expect('identifierFormat' in options && options.identifierFormat === null).toBe(unset);
   });
 
   test('fails without a chosen identity provider', () => {

@@ -1036,8 +1036,10 @@ u7wlOSk+oFzDIO/UILIA
     const home = { ...idp, entityID: 'https://sso.utu.example/idp', scopes: ['utu.fi'] };
     const federate = (profile, samlIdp = idp) =>
       new Promise((resolve, reject) => {
-        verifyCallbacks.get('samlFederation')({ samlIdp }, profile, (err, user) =>
-          err ? reject(err) : resolve(user),
+        verifyCallbacks.get('samlFederation')(
+          { samlIdp },
+          { issuer: samlIdp.entityID, ...profile },
+          (err, user) => (err ? reject(err) : resolve(user)),
         );
       });
 
@@ -1075,10 +1077,15 @@ u7wlOSk+oFzDIO/UILIA
         expect.objectContaining({
           issuer: 'saml-issuer',
           passReqToCallback: true,
-          getSamlOptions: api.getFederationSamlOptions,
+          getSamlOptions: expect.any(Function),
         }),
         expect.any(Function),
       );
+      const [options] = MultiSamlStrategy.mock.calls[0];
+      const req = { samlIdp: idp };
+      const done = jest.fn();
+      options.getSamlOptions(req, done);
+      expect(api.getFederationSamlOptions).toHaveBeenCalledWith(req, done, home.entityID);
       expect(verifyCallbacks.has('saml')).toBe(false);
       expect(verifyCallbacks.has('samlAdmin')).toBe(true);
     });
@@ -1100,6 +1107,16 @@ u7wlOSk+oFzDIO/UILIA
           { url: 'https://fed.example/metadata.xml' },
           { url: 'https://fed.example/edugain.xml' },
         ]);
+        expect(api.createFederation).toHaveBeenCalledWith(
+          expect.objectContaining({ url: 'https://fed.example/metadata.xml' }),
+        );
+        expect(api.createFederation.mock.calls[0][0]).not.toHaveProperty('listedNameIDFormats');
+        expect(api.createFederation).toHaveBeenCalledWith(
+          expect.objectContaining({
+            url: 'https://fed.example/edugain.xml',
+            listedNameIDFormats: true,
+          }),
+        );
         expect(api.createSamlFederationGuard).toHaveBeenCalledWith(
           expect.objectContaining({
             discoveryUrl: 'https://fed.example/WAYF',
@@ -1125,15 +1142,56 @@ u7wlOSk+oFzDIO/UILIA
       });
     });
 
-    it('checks the issuer against the chosen identity provider', async () => {
-      const { resolveSamlSubject } = require('@librechat/api');
+    it('refuses a response whose issuer is not the chosen identity provider', async () => {
+      const { createUserIfAbsent } = require('~/models');
 
-      await federate({ ...baseProfile });
+      const user = await federate({ ...baseProfile, issuer: 'https://idp.evil.example/idp' });
 
-      expect(resolveSamlSubject).toHaveBeenCalledWith(
-        expect.objectContaining({ nameID: baseProfile.nameID }),
-        idp.entityID,
-      );
+      expect(user).toBe(false);
+      expect(createUserIfAbsent).not.toHaveBeenCalled();
+    });
+
+    describe('without a persistent NameID', () => {
+      const transient = {
+        ...baseProfile,
+        nameIDFormat: 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient',
+        email: 'someone@helsinki.fi',
+      };
+
+      it("keys another identity provider's login on its ePPN", async () => {
+        const { createUserIfAbsent } = require('~/models');
+        const samlId = `${idp.entityID}!eppn:someone@helsinki.fi`;
+
+        const user = await federate({
+          ...transient,
+          'urn:oid:1.3.6.1.4.1.5923.1.1.1.6': 'Someone@helsinki.fi',
+        });
+
+        expect(findUser).toHaveBeenCalledWith({ samlId });
+        expect(createUserIfAbsent).toHaveBeenCalledWith(
+          expect.objectContaining({ samlId }),
+          expect.anything(),
+        );
+        expect(user.samlId).toBe(samlId);
+      });
+
+      it('refuses a login with none of the identifiers', async () => {
+        const { createUserIfAbsent } = require('~/models');
+
+        const user = await federate({ ...transient });
+
+        expect(user).toBe(false);
+        expect(createUserIfAbsent).not.toHaveBeenCalled();
+      });
+
+      it('still refuses the home identity provider', async () => {
+        const user = await federate(
+          { ...transient, email: 'mail@utu.fi', eduPersonPrincipalName: 'mail@utu.fi' },
+          home,
+        );
+
+        expect(user).toBe(false);
+      });
     });
 
     it.each([

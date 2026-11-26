@@ -19,6 +19,7 @@ describe('parseFederationMetadata', () => {
       entryPoint: 'https://idp.utu.example/redirect',
       certs: ['U0lHTklORw==', 'Qk9USA=='],
       scopes: ['utu.fi', 'turku.example'],
+      persistent: true,
     });
   });
 

@@ -135,37 +135,97 @@ export function resolveSamlRole({
   return match?.role ?? fallback;
 }
 
-export type FederatedSamlSubject =
-  | { samlId: string; error?: never }
-  | { samlId?: never; error: 'email_out_of_scope' };
+const PAIRWISE_ID_CLAIMS = ['urn:oasis:names:tc:SAML:attribute:pairwise-id', 'pairwise-id'];
+const SUBJECT_ID_CLAIMS = ['urn:oasis:names:tc:SAML:attribute:subject-id', 'subject-id'];
+/** The value syntax of pairwise-id and subject-id (OASIS SAML V2.0 Subject Identifier Attributes 3.3.1). */
+const SUBJECT_ID_SYNTAX = /^[A-Za-z0-9][A-Za-z0-9=-]{0,126}@[A-Za-z0-9][A-Za-z0-9.-]{0,126}$/;
+const EPPN_SYNTAX = /^[^@\s]+@[^@\s]+$/;
 
 /**
- * The SAML identity a login through federation metadata is stored under. The home identity
- * provider (`homeIssuer`) keeps the plain NameID, so its existing accounts continue unchanged.
- * Any other provider's NameID becomes `<entityID>!<nameID>`, so one provider cannot assert
- * another's NameID, and its login is refused unless the email's domain is one of the provider's
- * metadata scopes or a subdomain of one, so it can neither reach nor claim an address in another
- * organisation's domain.
+ * A scoped identifier attribute (`value@scope`) in lower case, if it has exactly one value, the
+ * value matches `syntax`, and its scope is one the identity provider's metadata allows.
+ */
+function getScopedIdentifier(
+  profile: Record<string, unknown>,
+  names: string[],
+  syntax: RegExp,
+  scopes: string[],
+): string | undefined {
+  const raw = names.map((name) => profile[name]).find((value) => value != null);
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : undefined;
+  if (!value || !syntax.test(value)) {
+    return undefined;
+  }
+  return inScope(value.slice(value.indexOf('@') + 1), scopes) ? value : undefined;
+}
+
+export type FederatedSamlSubjectError = SamlSubjectError | 'email_out_of_scope' | 'no_identifier';
+
+export type FederatedSamlSubject =
+  | { samlId: string; error?: never }
+  | { samlId?: never; error: FederatedSamlSubjectError };
+
+/**
+ * The SAML identity a login through federation metadata is stored under.
+ *
+ * The home identity provider (`homeIssuer`) keeps the plain, non-transient NameID, so its
+ * accounts continue unchanged. Any other provider's login must come from that provider and carry
+ * an email in one of its metadata scopes or their subdomains, so it can neither reach nor claim an
+ * address in another organisation's domain. Its account key is the first of:
+ *
+ * - `<entityID>!<NameID>` for a NameID that is not transient (the key from before);
+ * - `<entityID>!pairwise:<pairwise-id>`;
+ * - `<entityID>!subject:<subject-id>`;
+ * - `<entityID>!eppn:<eduPersonPrincipalName>`.
+ *
+ * Every scoped value must be in the provider's scopes, and pairwise-id and subject-id must follow
+ * their specification's syntax; the scoped values are compared in lower case, as both
+ * specifications require. A NameID that begins with one of the prefixes is not used, so keys of
+ * different kinds never collide. eduPersonPrincipalName comes last because some federations allow
+ * reassigning it to another person after a retention period, while the others are never
+ * reassigned.
  */
 export function resolveFederatedSamlSubject({
-  nameID,
+  profile,
   email,
   idp,
   homeIssuer,
 }: {
-  nameID: string;
+  profile: Record<string, unknown>;
   email: string;
   idp: { entityID: string; scopes: string[] };
   homeIssuer: string;
 }): FederatedSamlSubject {
+  const text = (value: unknown) => (typeof value === 'string' ? value : undefined);
+  const nameID = text(profile.nameID);
+  const nameIDFormat = text(profile.nameIDFormat);
+  const issuer = text(profile.issuer);
   if (idp.entityID === homeIssuer) {
-    return { samlId: nameID };
+    const subject = resolveSamlSubject({ nameID, nameIDFormat, issuer }, idp.entityID);
+    return subject.error ? { error: subject.error } : { samlId: subject.nameID };
+  }
+  if (issuer?.trim() !== idp.entityID) {
+    return { error: 'issuer_mismatch' };
   }
   const domain = domainOf(email);
   if (!domain || !inScope(domain, idp.scopes)) {
     return { error: 'email_out_of_scope' };
   }
-  return { samlId: `${idp.entityID}!${nameID}` };
+
+  const identifiers: [string, string | undefined][] = [
+    ['pairwise', getScopedIdentifier(profile, PAIRWISE_ID_CLAIMS, SUBJECT_ID_SYNTAX, idp.scopes)],
+    ['subject', getScopedIdentifier(profile, SUBJECT_ID_CLAIMS, SUBJECT_ID_SYNTAX, idp.scopes)],
+    ['eppn', getScopedIdentifier(profile, EPPN_CLAIMS, EPPN_SYNTAX, idp.scopes)],
+  ];
+  if (
+    nameID?.trim() &&
+    nameIDFormat !== TRANSIENT_SAML_NAME_ID_FORMAT &&
+    !identifiers.some(([kind]) => nameID.startsWith(`${kind}:`))
+  ) {
+    return { samlId: `${idp.entityID}!${nameID}` };
+  }
+  const found = identifiers.find(([, value]) => value);
+  return found ? { samlId: `${idp.entityID}!${found[0]}:${found[1]}` } : { error: 'no_identifier' };
 }
 
 /**

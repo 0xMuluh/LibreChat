@@ -7,6 +7,7 @@ const SHIBMD = 'urn:mace:shibboleth:metadata:1.0';
 const ASSERTION = 'urn:oasis:names:tc:SAML:2.0:assertion';
 const PROTOCOL = 'urn:oasis:names:tc:SAML:2.0:protocol';
 const REDIRECT = 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect';
+const PERSISTENT = 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent';
 
 /** An identity provider from verified federation metadata. */
 export interface FederationIdp {
@@ -17,6 +18,8 @@ export interface FederationIdp {
   certs: string[];
   /** The domains its `shibmd:Scope` elements list, lower-case; regexp scopes are left out. */
   scopes: string[];
+  /** Whether to request the persistent NameID format from it: whether its metadata lists it. */
+  persistent: boolean;
 }
 
 export interface FederationMetadata {
@@ -82,12 +85,16 @@ function scopesOf(parent: Element): string[] {
     .filter(Boolean);
 }
 
+/**
+ * An identity provider's sign-in settings. Account keys start with `<entityID>!`, so an entityID
+ * containing `!` is left out to keep them unambiguous; no Haka or eduGAIN entity has one.
+ */
 function readIdp(entity: Element): FederationIdp | undefined {
   const entityID = entity.getAttribute('entityID')?.trim();
   const descriptor = children(entity, MD, 'IDPSSODescriptor').find((idp) =>
     (idp.getAttribute('protocolSupportEnumeration') ?? '').split(/\s+/).includes(PROTOCOL),
   );
-  if (!entityID || !descriptor) {
+  if (!entityID || entityID.includes('!') || !descriptor) {
     return undefined;
   }
 
@@ -105,7 +112,10 @@ function readIdp(entity: Element): FederationIdp | undefined {
   }
 
   const scopes = [...new Set([...scopesOf(descriptor), ...scopesOf(entity)])];
-  return { entityID, entryPoint, certs, scopes };
+  const persistent = children(descriptor, MD, 'NameIDFormat').some(
+    (format) => text(format) === PERSISTENT,
+  );
+  return { entityID, entryPoint, certs, scopes, persistent };
 }
 
 type Stage<T> = { ok: true; value: T } | Failure;

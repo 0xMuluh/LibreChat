@@ -276,28 +276,21 @@ function convertToUsername(input, defaultValue = '') {
 function createSamlCallback(existingUsersOnly = false) {
   return async (profile, done, idp) => {
     try {
-      const subject = resolveSamlSubject(profile, idp?.entityID ?? process.env.SAML_IDP_ISSUER);
+      const userEmail = getEmail(profile) || '';
+      const subject = idp
+        ? resolveFederatedSamlSubject({
+            profile,
+            email: userEmail,
+            idp,
+            homeIssuer: process.env.SAML_IDP_ISSUER?.trim(),
+          })
+        : resolveSamlSubject(profile, process.env.SAML_IDP_ISSUER);
       if (subject.error) {
         logger.warn(`[samlStrategy] Rejected SAML subject: ${subject.error}`);
         return done(null, false, { message: ErrorTypes.AUTH_FAILED });
       }
-      let { nameID } = subject;
+      const nameID = idp ? subject.samlId : subject.nameID;
       logger.info('[samlStrategy] SAML authentication received');
-
-      const userEmail = getEmail(profile) || '';
-      if (idp) {
-        const federated = resolveFederatedSamlSubject({
-          nameID,
-          email: userEmail,
-          idp,
-          homeIssuer: process.env.SAML_IDP_ISSUER?.trim(),
-        });
-        if (federated.error) {
-          logger.warn(`[samlStrategy] Rejected federated SAML login: ${federated.error}`);
-          return done(null, false, { message: ErrorTypes.AUTH_FAILED });
-        }
-        nameID = federated.samlId;
-      }
 
       const baseConfig = await resolvePreAuthAppConfig(getAppConfig);
       if (!isEmailDomainAllowed(userEmail, baseConfig?.registration?.allowedDomains)) {
@@ -465,7 +458,7 @@ function setupSamlFederation(samlConfig, url) {
   if (edugainUrl) {
     try {
       const cert = getCertificateContent(process.env.SAML_FEDERATION_EDUGAIN_METADATA_CERT);
-      federations.push(createFederation({ url: edugainUrl, cert }));
+      federations.push(createFederation({ url: edugainUrl, cert, listedNameIDFormats: true }));
     } catch (err) {
       logger.error('[samlStrategy] eduGAIN metadata left out', err);
     }
@@ -490,7 +483,8 @@ function setupSamlFederation(samlConfig, url) {
   const options = {
     ...samlConfig,
     passReqToCallback: true,
-    getSamlOptions: getFederationSamlOptions,
+    getSamlOptions: (req, done) =>
+      getFederationSamlOptions(req, done, process.env.SAML_IDP_ISSUER.trim()),
   };
   passport.use(
     'saml',
