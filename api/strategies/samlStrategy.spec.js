@@ -320,6 +320,7 @@ u7wlOSk+oFzDIO/UILIA
     delete process.env.SAML_NAME_CLAIM;
     delete process.env.SAML_NAME_ID_FORMAT;
     delete process.env.SAML_IDP_ISSUER;
+    delete process.env.SAML_DEFAULT_ROLE;
 
     resizeAvatar.mockResolvedValue(Buffer.from('safe avatar'));
 
@@ -896,6 +897,64 @@ u7wlOSk+oFzDIO/UILIA
     expect(details).toEqual({ message: 'Email domain not allowed' });
     expect(createUserIfAbsent).not.toHaveBeenCalled();
     expect(updateUser).not.toHaveBeenCalled();
+  });
+
+  describe('SAML_DEFAULT_ROLE', () => {
+    const roleConfig = { role: 'UTU', skipRuntimeAugmentation: true, failClosed: true };
+
+    it('creates a first-time SAML account in the configured role, under its config', async () => {
+      const { createUserIfAbsent } = require('~/models');
+      const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+      process.env.SAML_DEFAULT_ROLE = 'UTU';
+      getAppConfig.mockImplementation(async (options) =>
+        options?.role === 'UTU' ? { fileStrategies: { avatar: FileSources.cloudfront } } : {},
+      );
+
+      const { user } = await validate({ ...baseProfile });
+
+      expect(createUserIfAbsent).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'saml', role: 'UTU' }),
+        expect.anything(),
+      );
+      expect(user.role).toBe('UTU');
+      expect(getAppConfig).toHaveBeenCalledWith(roleConfig);
+      expect(getAppConfig).not.toHaveBeenCalledWith(expect.objectContaining({ role: 'USER' }));
+      expect(getStrategyFunctions).toHaveBeenLastCalledWith(FileSources.cloudfront);
+    });
+
+    it('creates a first-time SAML account without a role when unset', async () => {
+      const { createUserIfAbsent } = require('~/models');
+
+      const { user } = await validate({ ...baseProfile });
+
+      const [newUser] = createUserIfAbsent.mock.calls[0];
+      expect(newUser).not.toHaveProperty('role');
+      expect(user.role).toBeUndefined();
+      expect(getAppConfig).toHaveBeenCalledWith({ ...roleConfig, role: 'USER' });
+    });
+
+    it('leaves the role of an existing account unchanged', async () => {
+      const { createUserIfAbsent, claimSamlIdentity } = require('~/models');
+      process.env.SAML_DEFAULT_ROLE = 'UTU';
+      findUser.mockResolvedValue({
+        _id: 'existing-user-id',
+        provider: 'saml',
+        samlId: baseProfile.nameID,
+        email: baseProfile.email,
+        role: 'USER',
+      });
+
+      const { user } = await validate({ ...baseProfile });
+
+      expect(createUserIfAbsent).not.toHaveBeenCalled();
+      expect(claimSamlIdentity).toHaveBeenCalledWith(
+        'existing-user-id',
+        baseProfile.nameID,
+        expect.not.objectContaining({ role: expect.anything() }),
+      );
+      expect(user.role).toBe('USER');
+      expect(getAppConfig).not.toHaveBeenCalledWith(roleConfig);
+    });
   });
 
   it('should resolve the account config for an existing user without a tenant', async () => {
