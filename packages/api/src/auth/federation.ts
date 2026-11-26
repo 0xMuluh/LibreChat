@@ -30,10 +30,16 @@ export function parseMetadataInWorker(workerPath: string, maxHeapMb = 1024): Par
     });
 }
 
+/** The part of `fetch` the metadata download uses. */
+export type FetchMetadata = (
+  url: string,
+  init: { signal: AbortSignal },
+) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+
 export interface FederationOptions {
   url: string;
   cert: string;
-  fetch?: typeof fetch;
+  fetch?: FetchMetadata;
   /** Verifies the downloaded XML; defaults to a worker thread. */
   parse?: ParseMetadata;
   /** How often verified metadata is refreshed (default 6 h). */
