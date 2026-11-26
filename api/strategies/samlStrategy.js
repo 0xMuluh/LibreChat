@@ -316,6 +316,7 @@ function createSamlCallback(existingUsersOnly = false) {
         email: userEmail,
         username,
         name: fullName,
+        role: process.env.SAML_DEFAULT_ROLE?.trim() || undefined,
         appConfig,
         getBalanceConfig,
         getAppConfig,
