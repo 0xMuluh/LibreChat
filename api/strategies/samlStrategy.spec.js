@@ -67,7 +67,11 @@ jest.mock('@librechat/api', () => ({
   }),
   resolveAppConfigForUser: jest.fn(async (_getAppConfig, _user) => ({})),
   resolvePreAuthAppConfig: jest.requireActual('@librechat/api').resolvePreAuthAppConfig,
+  resolveSamlRole: jest.requireActual('@librechat/api').resolveSamlRole,
   resolveSamlSubject: jest.fn((profile) => ({ nameID: profile.nameID })),
+  createFederation: jest.fn(() => ({ start: jest.fn() })),
+  createSamlFederationGuard: jest.fn(() => 'federation guard'),
+  getFederationSamlOptions: jest.fn(),
   TRANSIENT_SAML_NAME_ID_FORMAT: 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient',
 }));
 jest.mock('~/server/services/Config/EndpointService', () => ({
@@ -88,7 +92,7 @@ jest.mock('~/config/paths', () => ({
 const fs = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
-const { Strategy: SamlStrategy } = require('@node-saml/passport-saml');
+const { Strategy: SamlStrategy, MultiSamlStrategy } = require('@node-saml/passport-saml');
 const { FileSources } = require('librechat-data-provider');
 const { findUser } = require('~/models');
 const { resolveAppConfigForUser } = require('@librechat/api');
@@ -106,6 +110,10 @@ SamlStrategy.mockImplementation((options, verify) => {
   const strategyName = options.callbackUrl?.includes('/api/admin/') ? 'samlAdmin' : 'saml';
   verifyCallbacks.set(strategyName, verify);
   return { name: strategyName, options, verify };
+});
+MultiSamlStrategy.mockImplementation((options, verify) => {
+  verifyCallbacks.set('samlFederation', verify);
+  return { name: 'saml', options, verify };
 });
 
 describe('getCertificateContent', () => {
@@ -321,6 +329,10 @@ u7wlOSk+oFzDIO/UILIA
     delete process.env.SAML_NAME_ID_FORMAT;
     delete process.env.SAML_IDP_ISSUER;
     delete process.env.SAML_DEFAULT_ROLE;
+    delete process.env.SAML_ORG_ROLES;
+    delete process.env.SAML_FEDERATION_METADATA_URL;
+    delete process.env.SAML_FEDERATION_METADATA_CERT;
+    delete process.env.SAML_DISCOVERY_URL;
 
     resizeAvatar.mockResolvedValue(Buffer.from('safe avatar'));
 
@@ -954,6 +966,132 @@ u7wlOSk+oFzDIO/UILIA
       );
       expect(user.role).toBe('USER');
       expect(getAppConfig).not.toHaveBeenCalledWith(roleConfig);
+    });
+  });
+
+  describe('SAML_ORG_ROLES', () => {
+    beforeEach(() => {
+      process.env.SAML_ORG_ROLES = 'utu.fi:UTU';
+    });
+
+    it.each([
+      ['user@utu.fi', 'UTU'],
+      ['user@helsinki.fi', 'GUEST'],
+    ])('creates a first-time account from %s in role %s', async (eppn, role) => {
+      const { createUserIfAbsent } = require('~/models');
+      process.env.SAML_DEFAULT_ROLE = 'GUEST';
+
+      const { user } = await validate({ ...baseProfile, eduPersonPrincipalName: eppn });
+
+      expect(createUserIfAbsent).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'saml', role }),
+        expect.anything(),
+      );
+      expect(user.role).toBe(role);
+    });
+
+    it('creates a first-time account without a role when nothing matches and no default', async () => {
+      const { createUserIfAbsent } = require('~/models');
+
+      await validate({ ...baseProfile, eduPersonPrincipalName: 'user@notutu.fi' });
+
+      const [newUser] = createUserIfAbsent.mock.calls[0];
+      expect(newUser).not.toHaveProperty('role');
+    });
+
+    it('leaves the role of an existing account unchanged', async () => {
+      const { createUserIfAbsent, claimSamlIdentity } = require('~/models');
+      findUser.mockResolvedValue({
+        _id: 'existing-user-id',
+        provider: 'saml',
+        samlId: baseProfile.nameID,
+        email: baseProfile.email,
+        role: 'USER',
+      });
+
+      const { user } = await validate({ ...baseProfile, eduPersonPrincipalName: 'user@utu.fi' });
+
+      expect(createUserIfAbsent).not.toHaveBeenCalled();
+      expect(claimSamlIdentity).toHaveBeenCalledWith(
+        'existing-user-id',
+        baseProfile.nameID,
+        expect.not.objectContaining({ role: expect.anything() }),
+      );
+      expect(user.role).toBe('USER');
+    });
+  });
+
+  describe('with federation metadata', () => {
+    const idp = {
+      entityID: 'https://idp.helsinki.example/idp',
+      entryPoint: 'https://idp.helsinki.example/sso',
+      certs: ['MIIB'],
+      scopes: ['helsinki.fi'],
+    };
+    const federate = (profile, samlIdp = idp) =>
+      new Promise((resolve, reject) => {
+        verifyCallbacks.get('samlFederation')({ samlIdp }, profile, (err, user) =>
+          err ? reject(err) : resolve(user),
+        );
+      });
+
+    beforeEach(async () => {
+      process.env.SAML_FEDERATION_METADATA_URL = 'https://fed.example/metadata.xml';
+      process.env.SAML_FEDERATION_METADATA_CERT = process.env.SAML_CERT;
+      process.env.SAML_DISCOVERY_URL = 'https://fed.example/WAYF';
+      process.env.SAML_ORG_ROLES = 'utu.fi:UTU';
+      process.env.SAML_DEFAULT_ROLE = 'GUEST';
+      verifyCallbacks.clear();
+      jest.clearAllMocks();
+      await setupSaml();
+    });
+
+    it('registers a per-request strategy behind discovery', () => {
+      const api = require('@librechat/api');
+
+      expect(api.createFederation).toHaveBeenCalledWith({
+        url: 'https://fed.example/metadata.xml',
+        cert: expect.stringContaining('BEGIN CERTIFICATE'),
+      });
+      expect(api.createFederation.mock.results[0].value.start).toHaveBeenCalled();
+      expect(api.createSamlFederationGuard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discoveryUrl: 'https://fed.example/WAYF',
+          entityID: 'saml-issuer',
+        }),
+      );
+      expect(MultiSamlStrategy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          issuer: 'saml-issuer',
+          passReqToCallback: true,
+          getSamlOptions: api.getFederationSamlOptions,
+        }),
+        expect.any(Function),
+      );
+      expect(verifyCallbacks.has('saml')).toBe(false);
+      expect(verifyCallbacks.has('samlAdmin')).toBe(true);
+    });
+
+    it('checks the issuer against the chosen identity provider', async () => {
+      const { resolveSamlSubject } = require('@librechat/api');
+
+      await federate({ ...baseProfile });
+
+      expect(resolveSamlSubject).toHaveBeenCalledWith(
+        expect.objectContaining({ nameID: baseProfile.nameID }),
+        idp.entityID,
+      );
+    });
+
+    it.each([
+      ['its identity provider lists', { ...idp, scopes: ['utu.fi'] }, 'UTU'],
+      ['its identity provider does not list', idp, 'GUEST'],
+    ])('gives a utu.fi ePPN that %s its role', async (_label, samlIdp, role) => {
+      const user = await federate(
+        { ...baseProfile, eduPersonPrincipalName: 'user@utu.fi' },
+        samlIdp,
+      );
+      expect(user.role).toBe(role);
     });
   });
 

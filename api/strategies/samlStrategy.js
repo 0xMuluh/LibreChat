@@ -3,17 +3,21 @@ const path = require('path');
 const passport = require('passport');
 const { ErrorTypes } = require('librechat-data-provider');
 const { hashToken, logger } = require('@librechat/data-schemas');
-const { Strategy: SamlStrategy } = require('@node-saml/passport-saml');
+const { Strategy: SamlStrategy, MultiSamlStrategy } = require('@node-saml/passport-saml');
 const {
   findSamlUser,
   getBalanceConfig,
+  createFederation,
   provisionSamlUser,
   isEmailDomainAllowed,
   getAvatarFileStrategy,
   getAvatarSaveParams,
   resolveAppConfigForUser,
   resolvePreAuthAppConfig,
+  resolveSamlRole,
   resolveSamlSubject,
+  getFederationSamlOptions,
+  createSamlFederationGuard,
   TRANSIENT_SAML_NAME_ID_FORMAT,
 } = require('@librechat/api');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
@@ -25,6 +29,7 @@ const {
   claimSamlIdentity,
   createUserIfAbsent,
 } = require('~/models');
+const { setSamlFederationGuard } = require('./samlFederation');
 const { getAppConfig } = require('~/server/services/Config');
 const paths = require('~/config/paths');
 
@@ -263,12 +268,13 @@ function convertToUsername(input, defaultValue = '') {
 /**
  * Creates a SAML authentication callback.
  * @param {boolean} [existingUsersOnly=false] - If true, only existing users will be authenticated.
- * @returns {Function} The SAML callback function for passport.
+ * @returns {Function} The SAML callback function for passport; with federation metadata it also
+ * takes the identity provider the response was validated against.
  */
 function createSamlCallback(existingUsersOnly = false) {
-  return async (profile, done) => {
+  return async (profile, done, idp) => {
     try {
-      const subject = resolveSamlSubject(profile, process.env.SAML_IDP_ISSUER);
+      const subject = resolveSamlSubject(profile, idp?.entityID ?? process.env.SAML_IDP_ISSUER);
       if (subject.error) {
         logger.warn(`[samlStrategy] Rejected SAML subject: ${subject.error}`);
         return done(null, false, { message: ErrorTypes.AUTH_FAILED });
@@ -316,7 +322,13 @@ function createSamlCallback(existingUsersOnly = false) {
         email: userEmail,
         username,
         name: fullName,
-        role: process.env.SAML_DEFAULT_ROLE?.trim() || undefined,
+        role: resolveSamlRole({
+          profile,
+          email: userEmail,
+          scopes: idp?.scopes,
+          orgRoles: process.env.SAML_ORG_ROLES,
+          defaultRole: process.env.SAML_DEFAULT_ROLE,
+        }),
         appConfig,
         getBalanceConfig,
         getAppConfig,
@@ -402,11 +414,55 @@ async function setupSaml() {
       callbackUrl: process.env.SAML_CALLBACK_URL,
     };
 
-    passport.use('saml', new SamlStrategy(samlConfig, createSamlCallback(false)));
+    const metadataUrl = process.env.SAML_FEDERATION_METADATA_URL?.trim();
+    if (metadataUrl) {
+      setupSamlFederation(samlConfig, metadataUrl);
+    } else {
+      passport.use('saml', new SamlStrategy(samlConfig, createSamlCallback(false)));
+    }
     setupSamlAdmin(baseConfig);
   } catch (err) {
     logger.error('[samlStrategy]', err);
   }
+}
+
+/**
+ * Lets users of every identity provider in the federation metadata sign in: discovery picks the
+ * identity provider and each request uses its entry point and certificates.
+ * @param {object} samlConfig - Our service provider settings.
+ * @param {string} url - The federation metadata URL.
+ */
+function setupSamlFederation(samlConfig, url) {
+  const discoveryUrl = process.env.SAML_DISCOVERY_URL?.trim();
+  if (!discoveryUrl) {
+    throw new Error('SAML_FEDERATION_METADATA_URL requires SAML_DISCOVERY_URL');
+  }
+  const federation = createFederation({
+    url,
+    cert: getCertificateContent(process.env.SAML_FEDERATION_METADATA_CERT),
+  });
+  federation.start();
+  setSamlFederationGuard(
+    createSamlFederationGuard({
+      federation,
+      discoveryUrl,
+      entityID: samlConfig.issuer,
+      returnUrl: `${process.env.DOMAIN_SERVER}/oauth/saml`,
+      failureRedirect: `${process.env.DOMAIN_CLIENT}/oauth/error`,
+    }),
+  );
+
+  const verify = createSamlCallback(false);
+  const options = {
+    ...samlConfig,
+    passReqToCallback: true,
+    getSamlOptions: getFederationSamlOptions,
+  };
+  passport.use(
+    'saml',
+    new MultiSamlStrategy(options, (req, profile, done) => verify(profile, done, req.samlIdp)),
+  );
+  logger.info('[samlStrategy] SAML federation configured.');
 }
 
 /**

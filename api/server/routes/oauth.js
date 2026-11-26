@@ -19,6 +19,7 @@ const {
   markOAuthNavigation,
 } = require('~/server/middleware');
 const { createOAuthHandler } = require('~/server/controllers/auth/oauth');
+const { samlFederation } = require('~/strategies/samlFederation');
 const { findBalanceByUser, upsertBalanceFields } = require('~/models');
 const { getAppConfig } = require('~/server/services/Config');
 
@@ -206,6 +207,7 @@ router.post(
 router.get(
   '/saml',
   requirePreAuthTenantContext,
+  samlFederation,
   passport.authenticate('saml', {
     session: false,
   }),
@@ -214,6 +216,7 @@ router.get(
 router.post(
   '/saml/callback',
   requireCallbackTenant,
+  samlFederation,
   passport.authenticate('saml', {
     failureRedirect: `${domains.client}/oauth/error`,
     failureMessage: true,

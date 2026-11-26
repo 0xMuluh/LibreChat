@@ -192,6 +192,8 @@
     "proxy-from-env": "^2.1.0",
     "re2js": "^2.9.1",
     "@librechat/code": "file:../../vendor/code",
-    "ws": "^8.21.0"
+    "@xmldom/xmldom": "^0.8.15",
+    "ws": "^8.21.0",
+    "xml-crypto": "^6.1.2"
   }
 }
