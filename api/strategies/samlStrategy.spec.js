@@ -67,7 +67,12 @@ jest.mock('@librechat/api', () => ({
   }),
   resolveAppConfigForUser: jest.fn(async (_getAppConfig, _user) => ({})),
   resolvePreAuthAppConfig: jest.requireActual('@librechat/api').resolvePreAuthAppConfig,
+  resolveSamlRole: jest.requireActual('@librechat/api').resolveSamlRole,
   resolveSamlSubject: jest.fn((profile) => ({ nameID: profile.nameID })),
+  resolveFederatedSamlSubject: jest.requireActual('@librechat/api').resolveFederatedSamlSubject,
+  createFederation: jest.fn(() => ({ start: jest.fn() })),
+  createSamlFederationGuard: jest.fn(() => 'federation guard'),
+  getFederationSamlOptions: jest.fn(),
   TRANSIENT_SAML_NAME_ID_FORMAT: 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient',
 }));
 jest.mock('~/server/services/Config/EndpointService', () => ({
@@ -88,7 +93,7 @@ jest.mock('~/config/paths', () => ({
 const fs = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
-const { Strategy: SamlStrategy } = require('@node-saml/passport-saml');
+const { Strategy: SamlStrategy, MultiSamlStrategy } = require('@node-saml/passport-saml');
 const { FileSources } = require('librechat-data-provider');
 const { findUser } = require('~/models');
 const { resolveAppConfigForUser } = require('@librechat/api');
@@ -106,6 +111,10 @@ SamlStrategy.mockImplementation((options, verify) => {
   const strategyName = options.callbackUrl?.includes('/api/admin/') ? 'samlAdmin' : 'saml';
   verifyCallbacks.set(strategyName, verify);
   return { name: strategyName, options, verify };
+});
+MultiSamlStrategy.mockImplementation((options, verify) => {
+  verifyCallbacks.set('samlFederation', verify);
+  return { name: 'saml', options, verify };
 });
 
 describe('getCertificateContent', () => {
@@ -321,6 +330,10 @@ u7wlOSk+oFzDIO/UILIA
     delete process.env.SAML_NAME_ID_FORMAT;
     delete process.env.SAML_IDP_ISSUER;
     delete process.env.SAML_DEFAULT_ROLE;
+    delete process.env.SAML_ORG_ROLES;
+    delete process.env.SAML_FEDERATION_METADATA_URL;
+    delete process.env.SAML_FEDERATION_METADATA_CERT;
+    delete process.env.SAML_DISCOVERY_URL;
 
     resizeAvatar.mockResolvedValue(Buffer.from('safe avatar'));
 
@@ -954,6 +967,195 @@ u7wlOSk+oFzDIO/UILIA
       );
       expect(user.role).toBe('USER');
       expect(getAppConfig).not.toHaveBeenCalledWith(roleConfig);
+    });
+  });
+
+  describe('SAML_ORG_ROLES', () => {
+    beforeEach(() => {
+      process.env.SAML_ORG_ROLES = 'utu.fi:UTU';
+    });
+
+    it.each([
+      ['user@utu.fi', 'UTU'],
+      ['user@helsinki.fi', 'GUEST'],
+    ])('creates a first-time account from %s in role %s', async (eppn, role) => {
+      const { createUserIfAbsent } = require('~/models');
+      process.env.SAML_DEFAULT_ROLE = 'GUEST';
+
+      const { user } = await validate({ ...baseProfile, eduPersonPrincipalName: eppn });
+
+      expect(createUserIfAbsent).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'saml', role }),
+        expect.anything(),
+      );
+      expect(user.role).toBe(role);
+    });
+
+    it('creates a first-time account without a role when nothing matches and no default', async () => {
+      const { createUserIfAbsent } = require('~/models');
+
+      await validate({ ...baseProfile, eduPersonPrincipalName: 'user@notutu.fi' });
+
+      const [newUser] = createUserIfAbsent.mock.calls[0];
+      expect(newUser).not.toHaveProperty('role');
+    });
+
+    it('leaves the role of an existing account unchanged', async () => {
+      const { createUserIfAbsent, claimSamlIdentity } = require('~/models');
+      findUser.mockResolvedValue({
+        _id: 'existing-user-id',
+        provider: 'saml',
+        samlId: baseProfile.nameID,
+        email: baseProfile.email,
+        role: 'USER',
+      });
+
+      const { user } = await validate({ ...baseProfile, eduPersonPrincipalName: 'user@utu.fi' });
+
+      expect(createUserIfAbsent).not.toHaveBeenCalled();
+      expect(claimSamlIdentity).toHaveBeenCalledWith(
+        'existing-user-id',
+        baseProfile.nameID,
+        expect.not.objectContaining({ role: expect.anything() }),
+      );
+      expect(user.role).toBe('USER');
+    });
+  });
+
+  describe('with federation metadata', () => {
+    const idp = {
+      entityID: 'https://idp.helsinki.example/idp',
+      entryPoint: 'https://idp.helsinki.example/sso',
+      certs: ['MIIB'],
+      scopes: ['helsinki.fi', 'example.com'],
+    };
+    const home = { ...idp, entityID: 'https://sso.utu.example/idp', scopes: ['utu.fi'] };
+    const federate = (profile, samlIdp = idp) =>
+      new Promise((resolve, reject) => {
+        verifyCallbacks.get('samlFederation')({ samlIdp }, profile, (err, user) =>
+          err ? reject(err) : resolve(user),
+        );
+      });
+
+    beforeEach(async () => {
+      process.env.SAML_FEDERATION_METADATA_URL = 'https://fed.example/metadata.xml';
+      process.env.SAML_FEDERATION_METADATA_CERT = process.env.SAML_CERT;
+      process.env.SAML_DISCOVERY_URL = 'https://fed.example/WAYF';
+      process.env.SAML_IDP_ISSUER = home.entityID;
+      process.env.SAML_ORG_ROLES = 'utu.fi:UTU';
+      process.env.SAML_DEFAULT_ROLE = 'GUEST';
+      verifyCallbacks.clear();
+      jest.clearAllMocks();
+      await setupSaml();
+    });
+
+    it('registers a per-request strategy behind discovery', () => {
+      const api = require('@librechat/api');
+
+      expect(api.createFederation).toHaveBeenCalledWith({
+        url: 'https://fed.example/metadata.xml',
+        cert: expect.stringContaining('BEGIN CERTIFICATE'),
+      });
+      expect(api.createFederation.mock.results[0].value.start).toHaveBeenCalled();
+      expect(api.createSamlFederationGuard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discoveryUrl: 'https://fed.example/WAYF',
+          entityID: 'saml-issuer',
+        }),
+      );
+      expect(MultiSamlStrategy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          issuer: 'saml-issuer',
+          passReqToCallback: true,
+          getSamlOptions: api.getFederationSamlOptions,
+        }),
+        expect.any(Function),
+      );
+      expect(verifyCallbacks.has('saml')).toBe(false);
+      expect(verifyCallbacks.has('samlAdmin')).toBe(true);
+    });
+
+    it('checks the issuer against the chosen identity provider', async () => {
+      const { resolveSamlSubject } = require('@librechat/api');
+
+      await federate({ ...baseProfile });
+
+      expect(resolveSamlSubject).toHaveBeenCalledWith(
+        expect.objectContaining({ nameID: baseProfile.nameID }),
+        idp.entityID,
+      );
+    });
+
+    it.each([
+      ['its identity provider lists', { ...idp, scopes: ['utu.fi', 'example.com'] }, 'UTU'],
+      ['its identity provider does not list', idp, 'GUEST'],
+    ])('gives a utu.fi ePPN that %s its role', async (_label, samlIdp, role) => {
+      const user = await federate(
+        { ...baseProfile, eduPersonPrincipalName: 'user@utu.fi' },
+        samlIdp,
+      );
+      expect(user.role).toBe(role);
+    });
+
+    describe('next to an account of the home identity provider', () => {
+      const homeAccount = {
+        _id: 'utu-user-id',
+        provider: 'saml',
+        samlId: baseProfile.nameID,
+        email: 'mail@utu.fi',
+        role: 'UTU',
+      };
+
+      beforeEach(() => {
+        findUser.mockImplementation(async (query) =>
+          query.samlId === homeAccount.samlId || query.email === homeAccount.email
+            ? homeAccount
+            : null,
+        );
+      });
+
+      it('continues the account when the home identity provider signs in', async () => {
+        const user = await federate({ ...baseProfile, email: 'mail@utu.fi' }, home);
+
+        expect(findUser).toHaveBeenCalledWith({ samlId: baseProfile.nameID });
+        expect(user._id).toBe(homeAccount._id);
+      });
+
+      it("keeps another identity provider's login with the same NameID apart", async () => {
+        const { createUserIfAbsent } = require('~/models');
+        const samlId = `${idp.entityID}!${baseProfile.nameID}`;
+
+        const user = await federate({ ...baseProfile, email: 'someone@helsinki.fi' });
+
+        expect(findUser).not.toHaveBeenCalledWith({ samlId: baseProfile.nameID });
+        expect(findUser).toHaveBeenCalledWith({ samlId });
+        expect(createUserIfAbsent).toHaveBeenCalledWith(
+          expect.objectContaining({ samlId, email: 'someone@helsinki.fi' }),
+          expect.anything(),
+        );
+        expect(user._id).not.toBe(homeAccount._id);
+      });
+
+      it('refuses another identity provider asserting an address outside its scopes', async () => {
+        const { createUserIfAbsent } = require('~/models');
+
+        const user = await federate({ ...baseProfile, email: 'mail@utu.fi' });
+
+        expect(user).toBe(false);
+        expect(findUser).not.toHaveBeenCalled();
+        expect(createUserIfAbsent).not.toHaveBeenCalled();
+      });
+    });
+
+    it('stays off without a home identity provider', async () => {
+      delete process.env.SAML_IDP_ISSUER;
+      verifyCallbacks.clear();
+      jest.clearAllMocks();
+
+      await setupSaml();
+
+      expect(MultiSamlStrategy).not.toHaveBeenCalled();
+      expect(verifyCallbacks.has('samlFederation')).toBe(false);
     });
   });
 

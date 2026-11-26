@@ -13,6 +13,7 @@ export default defineConfig({
     'src/sdk.ts',
     'src/agents/files/edit-worker.ts',
     'src/auth/hash-worker.ts',
+    'src/auth/metadata-worker.ts',
     'src/files/documents/spreadsheet-worker.ts',
   ],
   format: ['cjs'],
