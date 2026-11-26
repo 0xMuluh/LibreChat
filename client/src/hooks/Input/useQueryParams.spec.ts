@@ -608,6 +608,29 @@ describe('useQueryParams', () => {
     expect(hook.mockSubmitMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("applies the landing's model pick when the user's spec list offers it", () => {
+    const preset = { endpoint: EModelEndpoint.openAI, model: 'gpt-4o' };
+    const hook = mountQuery(
+      { landingSpec: 'helper', prompt: 'hi' },
+      { modelSpecs: { list: [{ name: 'helper', label: 'Helper', preset }] } },
+    );
+    expect(hook.mockNewConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ preset: expect.objectContaining({ spec: 'helper' }) }),
+    );
+    expect(hook.mockSetValue).toHaveBeenCalledWith('text', 'hi', { shouldValidate: true });
+  });
+
+  it("drops a landing pick the user's spec list lacks, keeping the default spec", () => {
+    const preset = { endpoint: EModelEndpoint.openAI, model: 'gpt-4o' };
+    const hook = mountQuery(
+      { landingSpec: 'not-in-group', prompt: 'hi' },
+      { modelSpecs: { list: [{ name: 'helper', label: 'Helper', preset, default: true }] } },
+    );
+    expect(hook.mockNewConversation).not.toHaveBeenCalled();
+    expect(hook.mockSetValue).toHaveBeenCalledWith('text', 'hi', { shouldValidate: true });
+    expect(hook.result.current.settingsError).toBe(false);
+  });
+
   it('preserves menu-hidden spec names for the server to resolve', () => {
     const hook = mountQuery({ spec: 'hidden', endpoint: 'openAI', q: 'hi', submit: 'true' });
     expect(hook.mockNewConversation).toHaveBeenCalledWith(

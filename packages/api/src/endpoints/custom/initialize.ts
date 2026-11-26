@@ -1,4 +1,5 @@
 import { Providers } from '@librechat/agents';
+import { ANY_MODEL_RATE_KEY } from '@librechat/data-schemas';
 import {
   ErrorTypes,
   envVarRegex,
@@ -91,6 +92,17 @@ function toBillingTokenConfig(
       mapped.read = rates.cacheRead;
     }
     result[model] = mapped as EndpointTokenConfig[string];
+  }
+  return result;
+}
+
+const FREE_RATES = { prompt: 0, completion: 0, write: 0, write1h: 0, write12h: 0, read: 0 };
+
+/** The user's own key pays, so no model, listed or not, spends the balance. */
+function toOwnKeyTokenConfig(tokenConfig?: EndpointTokenConfig): EndpointTokenConfig {
+  const result: EndpointTokenConfig = { [ANY_MODEL_RATE_KEY]: FREE_RATES };
+  for (const [model, rates] of Object.entries(tokenConfig ?? {})) {
+    result[model] = { ...rates, ...FREE_RATES };
   }
   return result;
 }
@@ -327,6 +339,10 @@ export async function initializeCustom(
       // above when these headers will be forwarded.
     });
     endpointTokenConfig = (await cache.get(tokenKey)) as EndpointTokenConfig | undefined;
+  }
+
+  if (userProvidesKey) {
+    endpointTokenConfig = toOwnKeyTokenConfig(endpointTokenConfig);
   }
 
   const customOptions = buildCustomOptions(

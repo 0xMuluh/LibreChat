@@ -292,6 +292,22 @@ describe('fetchModels', () => {
     );
   });
 
+  it("strips Google's models/ prefix so listed ids match what its chat API takes", async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: { data: [{ id: 'models/gemini-2.5-flash' }, { id: 'models/gemini-2.5-pro' }] },
+    });
+
+    const models = await fetchModels({
+      user: 'user123',
+      apiKey: 'testApiKey',
+      baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      name: 'Google (own key)',
+      skipCache: true,
+    });
+
+    expect(models).toEqual(['gemini-2.5-flash', 'gemini-2.5-pro']);
+  });
+
   it('adds the user ID to the models query when option and ID are passed', async () => {
     const models = await fetchModels({
       user: 'user123',

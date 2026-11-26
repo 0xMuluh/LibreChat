@@ -68,6 +68,18 @@ router.get('/footer', (req, res) => {
   });
 });
 
+/** `DISCOVER_SPECS`, comma-separated spec names, narrows the landing's list to those, in order. */
+function pickDiscoverSpecs(specs) {
+  const names = (process.env.DISCOVER_SPECS ?? '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (names.length === 0) {
+    return specs;
+  }
+  return names.map((name) => specs.find((spec) => spec.name === name)).filter(Boolean);
+}
+
 /**
  * Model names for the picker, with what the signed-in picker uses to draw the
  * provider logo (endpoint, model, icon, provider). No keys or URLs.
@@ -75,7 +87,7 @@ router.get('/footer', (req, res) => {
 router.get('/models', async (req, res) => {
   try {
     const appConfig = await getAppConfig();
-    const specs = excludeHiddenModelSpecs(appConfig?.modelSpecs)?.list ?? [];
+    const specs = pickDiscoverSpecs(excludeHiddenModelSpecs(appConfig?.modelSpecs)?.list ?? []);
     const custom = loadCustomEndpointsConfig(appConfig?.endpoints?.custom) ?? {};
     /* The landing may preselect a different model from the app's default, e.g. a free one. */
     const landingDefault = process.env.DISCOVER_DEFAULT_SPEC;

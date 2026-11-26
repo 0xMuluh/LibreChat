@@ -62,7 +62,8 @@ export default function Landing() {
   const loginUrl = (prompt?: string) => {
     const next = new URLSearchParams();
     if (chosen) {
-      next.set('spec', chosen.name);
+      /** Applied after sign-in only if the user's own spec list offers it. */
+      next.set('landingSpec', chosen.name);
     }
     if (prompt) {
       next.set('prompt', prompt);

@@ -44,6 +44,8 @@ import { consumeComposerQuery } from '~/utils/drafts';
 import store from '~/store';
 
 const PROJECT_ID_SEARCH_PARAM = 'projectId';
+/** The landing page's model pick, which a user's own spec list may not offer. */
+const LANDING_SPEC_SEARCH_PARAM = 'landingSpec';
 
 /** What the history observer reports while a submission waits for the history to settle. */
 const HISTORY_SETTLING_PROPS: Array<'status' | 'fetchStatus' | 'dataUpdatedAt'> = [
@@ -668,8 +670,9 @@ export default function useQueryParams({
       delete queryParams.submit;
       delete queryParams[PROJECT_ID_SEARCH_PARAM];
       const validSettings = processValidSettings(queryParams);
+      const landingSpec = queryParams[LANDING_SPEC_SEARCH_PARAM];
 
-      return { decodedPrompt, validSettings, shouldAutoSubmit };
+      return { decodedPrompt, validSettings, shouldAutoSubmit, landingSpec };
     };
 
     const requestId = requestIdRef.current;
@@ -705,7 +708,7 @@ export default function useQueryParams({
       if (!textAreaRef.current) {
         return;
       }
-      const { decodedPrompt, validSettings, shouldAutoSubmit } = processQueryParams();
+      const { decodedPrompt, validSettings, shouldAutoSubmit, landingSpec } = processQueryParams();
       if (decodedPrompt && promptTextRef.current == null) {
         promptTextRef.current = decodedPrompt;
         onBeforePrompt?.();
@@ -717,6 +720,13 @@ export default function useQueryParams({
       const startupConfig = queryClient.getQueryData<TStartupConfig>(startupConfigKey(true));
       if (!startupConfig) {
         return;
+      }
+      /** A landing pick missing from the user's spec list is dropped: the default spec stays. */
+      if (
+        landingSpec &&
+        startupConfig.modelSpecs?.list?.some((spec) => spec.name === landingSpec)
+      ) {
+        validSettings.spec ??= landingSpec;
       }
       const hasSettings = Object.keys(validSettings).length > 0;
 

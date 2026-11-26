@@ -576,6 +576,36 @@ describe('initializeCustom – token-config fetch header forwarding', () => {
       read: 0.3,
     });
   });
+
+  it('rates every model at 0 when the user supplies the key', async () => {
+    mockGetCustomEndpointConfig.mockReturnValue({
+      apiKey: AuthType.USER_PROVIDED,
+      baseURL: 'https://openrouter.ai/api/v1',
+      models: { fetch: true },
+      tokenConfig: { 'gpt-4': { prompt: 1.5, completion: 4.5, context: 32000 } },
+    });
+
+    const params: BaseInitializeParams = {
+      req: {
+        user: { id: 'user-1' },
+        body: {},
+        config: {},
+      } as unknown as BaseInitializeParams['req'],
+      endpoint: 'OpenRouter (own key)',
+      model_parameters: { model: 'any/unlisted-model' },
+      db: {
+        getUserKeyValues: jest.fn().mockResolvedValue({ apiKey: 'sk-user-key' }),
+      } as unknown as BaseInitializeParams['db'],
+    };
+
+    const result = (await initializeCustom(params)) as {
+      endpointTokenConfig?: Record<string, Record<string, number>>;
+    };
+
+    const free = { prompt: 0, completion: 0, write: 0, write1h: 0, write12h: 0, read: 0 };
+    expect(result.endpointTokenConfig?.['*']).toEqual(free);
+    expect(result.endpointTokenConfig?.['gpt-4']).toEqual({ ...free, context: 32000 });
+  });
 });
 
 describe('getTokenConfigKey – tenant fallback', () => {

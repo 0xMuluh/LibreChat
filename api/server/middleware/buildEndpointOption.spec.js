@@ -781,6 +781,67 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
   });
 });
 
+describe('buildEndpointOption - own-key endpoints under enforced specs', () => {
+  const { handleError } = require('@librechat/api');
+  const ownKey = 'Anthropic (own key)';
+  const serverKey = 'Anthropic (server key)';
+  const createConfig = () => ({
+    modelSpecs: {
+      enforce: true,
+      list: [{ name: 'listed', label: 'Listed', preset: { endpoint: serverKey, model: 'm' } }],
+      addedEndpoints: [ownKey, serverKey],
+    },
+    endpoints: {
+      [EModelEndpoint.custom]: [
+        { name: ownKey, apiKey: 'user_provided', baseURL: 'https://api.anthropic.com' },
+        { name: serverKey, apiKey: 'sk-server-key', baseURL: 'https://api.anthropic.com' },
+      ],
+    },
+  });
+  const send = async (endpoint, config = createConfig()) => {
+    mockGetEndpointsConfig.mockResolvedValue({});
+    const req = createReq(
+      { endpoint, endpointType: EModelEndpoint.custom, model: 'any-model' },
+      config,
+    );
+    req.baseUrl = '/api/agents/chat';
+    const res = createRes();
+    const next = jest.fn();
+    await buildEndpointOption(req, res, next);
+    return { req, res, next };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('lets a request without a spec through to an added own-key endpoint', async () => {
+    const { req, next } = await send(ownKey);
+
+    expect(handleError).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
+    expect(req.body.endpointOption).toEqual(
+      expect.objectContaining({ endpoint: ownKey, model: 'any-model' }),
+    );
+  });
+
+  it('still rejects an added endpoint that uses a server key', async () => {
+    const { res, next } = await send(serverKey);
+
+    expect(handleError).toHaveBeenCalledWith(res, { text: 'No model spec selected' });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('still rejects an own-key endpoint that is not in addedEndpoints', async () => {
+    const config = createConfig();
+    config.modelSpecs.addedEndpoints = [serverKey];
+    const { res, next } = await send(ownKey, config);
+
+    expect(handleError).toHaveBeenCalledWith(res, { text: 'No model spec selected' });
+    expect(next).not.toHaveBeenCalled();
+  });
+});
+
 describe('buildEndpointOption - enforced server continuations', () => {
   const {
     createAgentTriggerExecutionHost,

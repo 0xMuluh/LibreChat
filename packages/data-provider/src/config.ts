@@ -5056,6 +5056,8 @@ export const configSchema = z.object({
   mcpSettings: z
     .object({
       allowedDomains: z.array(z.string()).optional(),
+      /** MCP servers always attached to a chat without an agent whose model spec lists none. */
+      defaultServers: z.array(z.string()).optional(),
       allowedAddresses: allowedAddressesSchema,
       /** How long a failed OAuth reconnection is remembered before its attempt count resets.
        * Defaults to 24 hours. */

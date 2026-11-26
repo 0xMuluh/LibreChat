@@ -71,6 +71,8 @@ export interface EphemeralMCPServerSources extends ChatSelectableLookup {
   selected: string[] | null | undefined;
   /** The spec's configured servers. */
   specServers: string[] | null | undefined;
+  /** `mcpSettings.defaultServers`: always attached when the spec lists no servers. */
+  defaultServers?: string[] | null;
 }
 
 /**
@@ -83,6 +85,7 @@ export interface EphemeralMCPServerSources extends ChatSelectableLookup {
 export async function resolveEphemeralMCPServers({
   selected,
   specServers,
+  defaultServers,
   ...lookup
 }: EphemeralMCPServerSources): Promise<string[]> {
   const requested = Array.isArray(selected) ? selected : undefined;
@@ -95,7 +98,8 @@ export async function resolveEphemeralMCPServers({
     requested?.filter((server) => selectable.has(server)),
     spec.filter((server) => selectable.has(server)),
   );
-  return [...new Set([...chosen, ...pinned])];
+  const defaults = spec.length > 0 ? [] : (defaultServers ?? []);
+  return [...new Set([...chosen, ...pinned, ...defaults])];
 }
 
 interface ToolOptionSources {

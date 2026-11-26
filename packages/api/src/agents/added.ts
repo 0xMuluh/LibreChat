@@ -208,6 +208,7 @@ export async function loadAddedAgent(
     await resolveEphemeralMCPServers({
       selected: ephemeralAgent?.mcp,
       specServers: modelSpec?.mcpServers,
+      defaultServers: appConfig?.mcpSettings?.defaultServers,
       userId,
       role: req.user?.role,
       getAccessibleMCPServers: deps.getAccessibleMCPServers,

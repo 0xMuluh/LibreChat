@@ -563,6 +563,19 @@ type CacheType = 'write' | 'read' | 'write1h' | 'write12h';
 /** Anthropic bills 1-hour cache writes at 2x the input rate on every model and tier */
 export const ONE_HOUR_CACHE_WRITE_FACTOR = 2;
 
+/** An endpoint token config entry under this key prices every model the config does not list */
+export const ANY_MODEL_RATE_KEY = '*';
+
+function getModelRates(
+  endpointTokenConfig: Record<string, Record<string, number>> | undefined,
+  model: string | undefined,
+): Record<string, number> | undefined {
+  if (!endpointTokenConfig || !model) {
+    return undefined;
+  }
+  return endpointTokenConfig[model] ?? endpointTokenConfig[ANY_MODEL_RATE_KEY];
+}
+
 export function createTxMethods(
   _mongoose: typeof import('mongoose'),
   txDeps: TxDeps,
@@ -704,14 +717,12 @@ export function createTxMethods(
     inputTokenCount?: number;
     endpointTokenConfig?: Record<string, Record<string, number>>;
   }): number {
-    if (endpointTokenConfig && model) {
-      const modelConfig = endpointTokenConfig[model];
-      /** A partial override only prices the models it lists; others fall
-       *  through to the standard tables so billing matches the advertised
-       *  token config instead of charging defaultRate */
-      if (modelConfig) {
-        return modelConfig[tokenType as string] ?? defaultRate;
-      }
+    /** A partial override only prices the models it lists; others fall
+     *  through to the standard tables so billing matches the advertised
+     *  token config instead of charging defaultRate */
+    const modelConfig = getModelRates(endpointTokenConfig, model);
+    if (modelConfig) {
+      return modelConfig[tokenType as string] ?? defaultRate;
     }
 
     if (valueKey && tokenType) {
@@ -780,7 +791,7 @@ export function createTxMethods(
     inputTokenCount?: number | null;
   }): number | null {
     if (cacheType === 'write12h') {
-      const override = model ? endpointTokenConfig?.[model] : undefined;
+      const override = getModelRates(endpointTokenConfig, model);
       if (override != null) return override.write12h ?? null;
       const key = valueKey ?? (model ? getValueKey(model, endpoint) : undefined);
       if (
@@ -793,7 +804,7 @@ export function createTxMethods(
     }
 
     if (cacheType === 'write1h') {
-      const override = model ? endpointTokenConfig?.[model]?.write1h : undefined;
+      const override = getModelRates(endpointTokenConfig, model)?.write1h;
       if (override != null) {
         return override;
       }
@@ -811,13 +822,11 @@ export function createTxMethods(
       return promptRate * ONE_HOUR_CACHE_WRITE_FACTOR;
     }
 
-    if (endpointTokenConfig && model) {
-      const modelConfig = endpointTokenConfig[model];
-      /** Models absent from a partial override fall through to standard
-       *  cache rates rather than reporting no cache pricing */
-      if (modelConfig) {
-        return modelConfig[cacheType as string] ?? null;
-      }
+    /** Models absent from a partial override fall through to standard
+     *  cache rates rather than reporting no cache pricing */
+    const modelConfig = getModelRates(endpointTokenConfig, model);
+    if (modelConfig) {
+      return modelConfig[cacheType as string] ?? null;
     }
 
     if (valueKey && cacheType) {
