@@ -17,6 +17,7 @@ const {
   resolveSamlRole,
   resolveSamlSubject,
   getFederationSamlOptions,
+  resolveFederatedSamlSubject,
   createSamlFederationGuard,
   TRANSIENT_SAML_NAME_ID_FORMAT,
 } = require('@librechat/api');
@@ -279,10 +280,23 @@ function createSamlCallback(existingUsersOnly = false) {
         logger.warn(`[samlStrategy] Rejected SAML subject: ${subject.error}`);
         return done(null, false, { message: ErrorTypes.AUTH_FAILED });
       }
-      const { nameID } = subject;
+      let { nameID } = subject;
       logger.info('[samlStrategy] SAML authentication received');
 
       const userEmail = getEmail(profile) || '';
+      if (idp) {
+        const federated = resolveFederatedSamlSubject({
+          nameID,
+          email: userEmail,
+          idp,
+          homeIssuer: process.env.SAML_IDP_ISSUER?.trim(),
+        });
+        if (federated.error) {
+          logger.warn(`[samlStrategy] Rejected federated SAML login: ${federated.error}`);
+          return done(null, false, { message: ErrorTypes.AUTH_FAILED });
+        }
+        nameID = federated.samlId;
+      }
 
       const baseConfig = await resolvePreAuthAppConfig(getAppConfig);
       if (!isEmailDomainAllowed(userEmail, baseConfig?.registration?.allowedDomains)) {
@@ -434,8 +448,10 @@ async function setupSaml() {
  */
 function setupSamlFederation(samlConfig, url) {
   const discoveryUrl = process.env.SAML_DISCOVERY_URL?.trim();
-  if (!discoveryUrl) {
-    throw new Error('SAML_FEDERATION_METADATA_URL requires SAML_DISCOVERY_URL');
+  if (!discoveryUrl || !process.env.SAML_IDP_ISSUER?.trim()) {
+    throw new Error(
+      'SAML_FEDERATION_METADATA_URL requires SAML_DISCOVERY_URL and SAML_IDP_ISSUER (the home identity provider)',
+    );
   }
   const federation = createFederation({
     url,

@@ -1,6 +1,7 @@
 import {
   resolveSamlRole,
   resolveSamlSubject,
+  resolveFederatedSamlSubject,
   TRANSIENT_SAML_NAME_ID_FORMAT,
   type SamlSubjectProfile,
 } from './saml';
@@ -92,6 +93,38 @@ describe('resolveSamlRole', () => {
       expect(resolveSamlRole({ profile, scopes, orgRoles, defaultRole })).toBe(role);
     });
   });
+});
+
+describe('resolveFederatedSamlSubject', () => {
+  const homeIssuer = 'https://sso.utu.fi/auth/realms/fed';
+  const other = { entityID: 'https://login.helsinki.fi/shibboleth', scopes: ['helsinki.fi'] };
+
+  test('keeps the plain NameID for the home identity provider', () => {
+    const idp = { entityID: homeIssuer, scopes: ['utu.fi'] };
+    expect(
+      resolveFederatedSamlSubject({ nameID: 'n-1', email: 'user@gmail.com', idp, homeIssuer }),
+    ).toEqual({ samlId: 'n-1' });
+  });
+
+  test("scopes another identity provider's NameID by its entityID", () => {
+    expect(
+      resolveFederatedSamlSubject({
+        nameID: 'n-1',
+        email: 'user@Helsinki.fi',
+        idp: other,
+        homeIssuer,
+      }),
+    ).toEqual({ samlId: 'https://login.helsinki.fi/shibboleth!n-1' });
+  });
+
+  test.each(['user@utu.fi', 'user@cs.helsinki.fi', 'not an email', ''])(
+    'refuses another identity provider asserting %p',
+    (email) => {
+      expect(resolveFederatedSamlSubject({ nameID: 'n-1', email, idp: other, homeIssuer })).toEqual(
+        { error: 'email_out_of_scope' },
+      );
+    },
+  );
 });
 
 describe('resolveSamlSubject', () => {

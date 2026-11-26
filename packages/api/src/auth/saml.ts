@@ -127,6 +127,38 @@ export function resolveSamlRole({
   return match?.role ?? fallback;
 }
 
+export type FederatedSamlSubject =
+  | { samlId: string; error?: never }
+  | { samlId?: never; error: 'email_out_of_scope' };
+
+/**
+ * The SAML identity a login through federation metadata is stored under. The home identity
+ * provider (`homeIssuer`) keeps the plain NameID, so its existing accounts continue unchanged.
+ * Any other provider's NameID becomes `<entityID>!<nameID>`, so one provider cannot assert
+ * another's NameID, and its login is refused unless the email's domain is one of the provider's
+ * metadata scopes, so it can neither reach nor claim an address in another organisation's domain.
+ */
+export function resolveFederatedSamlSubject({
+  nameID,
+  email,
+  idp,
+  homeIssuer,
+}: {
+  nameID: string;
+  email: string;
+  idp: { entityID: string; scopes: string[] };
+  homeIssuer: string;
+}): FederatedSamlSubject {
+  if (idp.entityID === homeIssuer) {
+    return { samlId: nameID };
+  }
+  const domain = domainOf(email);
+  if (!domain || !idp.scopes.includes(domain)) {
+    return { error: 'email_out_of_scope' };
+  }
+  return { samlId: `${idp.entityID}!${nameID}` };
+}
+
 /**
  * Finds the account a SAML login continues as: by NameID, then by email. An account owned by
  * another provider or bound to a different NameID fails the login.
