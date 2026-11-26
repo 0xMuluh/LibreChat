@@ -7,6 +7,7 @@ import {
   premiumTokenValues,
   premiumCacheTokenValues,
   ONE_HOUR_CACHE_WRITE_FACTOR,
+  ANY_MODEL_RATE_KEY,
   defaultRate,
 } from './tx';
 import { matchModelName, findMatchingPattern } from './test-helpers';
@@ -3594,5 +3595,33 @@ describe('Claude Mythos 5.2 pricing', () => {
     expect(tokenValues['claude-mythos-5']).toEqual({ prompt: 10, completion: 50 });
     expect(tokenValues['claude-mythos-5-1']).toEqual({ prompt: 10, completion: 50 });
     expect(cacheTokenValues['claude-mythos-5-1']).toEqual({ write: 12.5, read: 0.25 });
+  });
+});
+
+describe('catch-all endpoint token config entry', () => {
+  const freeRates = { prompt: 0, completion: 0, write: 0, write1h: 0, write12h: 0, read: 0 };
+  const listedRates = { prompt: 3, completion: 15, write: 4, read: 1 };
+  const endpointTokenConfig = { [ANY_MODEL_RATE_KEY]: freeRates, 'listed-model': listedRates };
+
+  it('prices models the config does not list with the catch-all rates', () => {
+    for (const tokenType of ['prompt', 'completion'] as const) {
+      expect(getMultiplier({ model: 'gpt-4o', tokenType, endpointTokenConfig })).toBe(
+        freeRates[tokenType],
+      );
+    }
+    for (const cacheType of ['write', 'write1h', 'write12h', 'read'] as const) {
+      expect(getCacheMultiplier({ model: 'gpt-4o', cacheType, endpointTokenConfig })).toBe(
+        freeRates[cacheType],
+      );
+    }
+  });
+
+  it('keeps listed models on their own rates', () => {
+    expect(
+      getMultiplier({ model: 'listed-model', tokenType: 'completion', endpointTokenConfig }),
+    ).toBe(listedRates.completion);
+    expect(
+      getCacheMultiplier({ model: 'listed-model', cacheType: 'read', endpointTokenConfig }),
+    ).toBe(listedRates.read);
   });
 });

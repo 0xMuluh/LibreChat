@@ -1,5 +1,5 @@
 import type { TModelSpec } from 'librechat-data-provider';
-import { synthesizeToggleToolOptions } from './toggles';
+import { resolveEphemeralMCPServers, synthesizeToggleToolOptions } from './toggles';
 import { TOOL_SELECTION_WILDCARD } from './selection';
 
 const spec = (overrides: Partial<TModelSpec>): TModelSpec =>
@@ -23,5 +23,30 @@ describe('synthesizeToggleToolOptions', () => {
 
   it('returns nothing when no selection applies', () => {
     expect(synthesizeToggleToolOptions({ modelSpec: spec({}) })).toBeUndefined();
+  });
+});
+
+describe('resolveEphemeralMCPServers default servers', () => {
+  const getAccessibleMCPServers = async () => ({ notethreads: {}, other: {} });
+  const resolve = (specServers?: string[], selected?: string[]) =>
+    resolveEphemeralMCPServers({
+      selected,
+      specServers,
+      defaultServers: ['notethreads'],
+      userId: 'user-1',
+      getAccessibleMCPServers,
+    });
+
+  it('attaches the default servers when there is no spec', async () => {
+    await expect(resolve(undefined)).resolves.toEqual(['notethreads']);
+  });
+
+  it('keeps the default servers through an empty or other picker selection', async () => {
+    await expect(resolve(undefined, [])).resolves.toEqual(['notethreads']);
+    await expect(resolve([], ['other'])).resolves.toEqual(['other', 'notethreads']);
+  });
+
+  it('leaves a spec that lists servers to its own list', async () => {
+    await expect(resolve(['other'])).resolves.toEqual(['other']);
   });
 });

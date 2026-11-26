@@ -182,6 +182,7 @@ import {
   cacheTokenValues,
   premiumTokenValues,
   defaultRate,
+  ANY_MODEL_RATE_KEY,
 } from './tx';
 import { createTransactionMethods, type TransactionMethods } from './transaction';
 import { createSpendTokensMethods, type SpendTokensMethods } from './spendTokens';
@@ -285,7 +286,14 @@ export {
   createMCPAuthorityDatabaseSourceRevision,
   digestMCPAuthorityValue,
 };
-export { tokenValues, cacheTokenValues, premiumTokenValues, defaultRate, createTxMethods };
+export {
+  tokenValues,
+  cacheTokenValues,
+  premiumTokenValues,
+  defaultRate,
+  ANY_MODEL_RATE_KEY,
+  createTxMethods,
+};
 export { permissionBitSupersets, PERM_BITS_WRITE_ATTEMPTS };
 export { CLIENT_MESSAGE_SELECT, SUBAGENT_TRANSCRIPT_SOURCE_BYTE_LIMIT };
 export {

@@ -96,6 +96,7 @@ export async function loadEphemeralAgent(
     await resolveEphemeralMCPServers({
       selected: ephemeralAgent?.mcp,
       specServers: modelSpec?.mcpServers,
+      defaultServers: req.config?.mcpSettings?.defaultServers,
       userId,
       role: req.user?.role,
       getAccessibleMCPServers: deps.getAccessibleMCPServers,

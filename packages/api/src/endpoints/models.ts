@@ -31,6 +31,7 @@ type SSRFSafeAgents = ReturnType<typeof createSSRFSafeAgents>;
 /** Provider requests in flight by cache key, so concurrent cache misses for one key share one. */
 const ollamaRequests = new Map<string, Promise<string[]>>();
 const modelsRequests = new Map<string, Promise<AxiosResponse>>();
+const GOOGLE_API_HOST = 'generativelanguage.googleapis.com';
 
 /**
  * Runs `start` unless a request is already in flight under `key`, which is then joined. A request
@@ -368,6 +369,10 @@ export async function fetchModels({
       }
     }
     models = input.data.map((item: { id: string }) => item.id);
+    /** Google's OpenAI-compatible list names models `models/<id>`; its chat API takes `<id>`. */
+    if (url.hostname === GOOGLE_API_HOST) {
+      models = models.map((model) => model.replace(/^models\//, ''));
+    }
   } catch (error) {
     const logMessage = `Failed to fetch models from ${azure ? 'Azure ' : ''}${name} API`;
     logAxiosError({ message: logMessage, error: error as Error });

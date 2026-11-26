@@ -74,6 +74,7 @@ export {
   cacheTokenValues,
   premiumTokenValues,
   defaultRate,
+  ANY_MODEL_RATE_KEY,
   createTxMethods,
   permissionBitSupersets,
   PERM_BITS_WRITE_ATTEMPTS,

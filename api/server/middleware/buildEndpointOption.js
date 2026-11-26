@@ -6,6 +6,7 @@ const {
   resolveModelSpecPromptPrefixVariables,
   inspectContent,
   extractChatContent,
+  isOwnKeyAddedEndpoint,
   contentFilterBlockResponse,
   getReasoningCapabilities,
   applyRequestReasoningOverride,
@@ -89,11 +90,16 @@ async function buildEndpointOption(req, res, next) {
   const appConfig = req.config;
   let appliedModelSpecPrivateFields = new Set();
   let enforcedModelSpecFields = new Set();
-  if (appConfig.modelSpecs?.list?.length && appConfig.modelSpecs?.enforce) {
+  const rawSpec = req.body.spec;
+  const spec = parsedBody.spec ?? (typeof rawSpec === 'string' ? rawSpec : undefined);
+  /** Enforced specs still let a user's own key pay for any model of an added endpoint. */
+  const enforceSpecs =
+    appConfig.modelSpecs?.list?.length &&
+    appConfig.modelSpecs?.enforce &&
+    (spec || !isOwnKeyAddedEndpoint(appConfig, endpoint));
+  if (enforceSpecs) {
     /** @type {{ list: TModelSpec[] }}*/
     const { list } = appConfig.modelSpecs;
-    const rawSpec = req.body.spec;
-    const spec = parsedBody.spec ?? (typeof rawSpec === 'string' ? rawSpec : undefined);
     const rawChatProjectId = req.body.chatProjectId;
     const parsedBodyForModelSpec =
       parsedBody.chatProjectId === undefined &&
