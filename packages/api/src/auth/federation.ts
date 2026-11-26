@@ -19,7 +19,7 @@ const DEFAULT_MAX_HEAP_MB = 2048;
  * memory must end only the child. The XML goes to the child through a private temporary file,
  * and the result comes back over IPC. Calls run one at a time, so two federations' refreshes
  * never verify at once. A child that exits without a result, or runs past `timeoutMs`, fails the
- * call.
+ * call with the gist of its error output.
  */
 export function parseMetadataInProcess(
   scriptPath: string,
@@ -35,9 +35,13 @@ export function parseMetadataInProcess(
         const child = fork(scriptPath, [], {
           execArgv: [`--max-old-space-size=${maxHeapMb}`],
           serialization: 'advanced',
-          stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+          stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
         });
         const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+        let stderr = '';
+        child.stderr?.on('data', (chunk: Buffer) => {
+          stderr = (stderr + chunk.toString()).slice(-4000);
+        });
         let result: FederationMetadataResult | undefined;
         child.once('message', (message) => {
           result = message as FederationMetadataResult;
@@ -48,7 +52,13 @@ export function parseMetadataInProcess(
           if (result) {
             resolve(result);
           } else {
-            reject(new Error(`Metadata process ended (${signal ?? `exit code ${code}`})`));
+            const lines = stderr
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean);
+            const reason = lines.find((line) => line.startsWith('FATAL ERROR')) ?? lines[0];
+            const ended = `Metadata process ended (${signal ?? `exit code ${code}`})`;
+            reject(new Error(reason ? `${ended}: ${reason}` : ended));
           }
         });
         const job: MetadataJob = { file, cert };

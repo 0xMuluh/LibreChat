@@ -1064,6 +1064,8 @@ u7wlOSk+oFzDIO/UILIA
       expect(api.createFederation).toHaveBeenCalledWith({
         url: 'https://fed.example/metadata.xml',
         cert: expect.stringContaining('BEGIN CERTIFICATE'),
+        parse: 'metadata parser',
+        cacheDir: '/fake/root/path/data/saml-federation',
       });
       expect(api.combineFederations).toHaveBeenCalledWith([
         { url: 'https://fed.example/metadata.xml' },

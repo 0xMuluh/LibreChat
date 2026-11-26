@@ -452,7 +452,7 @@ function setupSamlFederation(samlConfig, url) {
   const parse = createMetadataParser(process.env.SAML_FEDERATION_METADATA_MAX_HEAP_MB);
   const cacheDir =
     process.env.SAML_FEDERATION_METADATA_CACHE_DIR?.trim() ||
-    path.join(paths.root, 'data', 'saml-federation');
+    path.resolve(paths.root, 'data', 'saml-federation');
   const federations = [
     createFederation({
       url,
