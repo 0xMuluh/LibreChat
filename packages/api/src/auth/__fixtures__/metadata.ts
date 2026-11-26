@@ -53,7 +53,12 @@ export function metadataXml(validUntil: string | null = '2099-01-01T00:00:00Z'):
  * Signs `xml` the way federations do: an enveloped exc-c14n RSA-SHA256 signature on the root,
  * or on the element `xpath` selects.
  */
-export function signMetadata(xml: string, privateKey: string, xpath = '/*'): string {
+export function signMetadata(
+  xml: string,
+  privateKey: string,
+  xpath = '/*',
+  prefix?: string,
+): string {
   const signed = new SignedXml({
     privateKey,
     canonicalizationAlgorithm: 'http://www.w3.org/2001/10/xml-exc-c14n#',
@@ -67,6 +72,6 @@ export function signMetadata(xml: string, privateKey: string, xpath = '/*'): str
     ],
     digestAlgorithm: 'http://www.w3.org/2001/04/xmlenc#sha256',
   });
-  signed.computeSignature(xml, { location: { reference: '/*', action: 'prepend' } });
+  signed.computeSignature(xml, { prefix, location: { reference: '/*', action: 'prepend' } });
   return signed.getSignedXml();
 }

@@ -4,6 +4,7 @@ import type { FederationIdp, FederationMetadataResult } from './metadata';
 import type { Federation, SamlFederationRequest } from './federation';
 import {
   createFederation,
+  combineFederations,
   parseMetadataInWorker,
   getFederationSamlOptions,
   createSamlFederationGuard,
@@ -103,6 +104,51 @@ describe('createFederation', () => {
   });
 });
 
+describe('combineFederations', () => {
+  const stub = (idps: FederationIdp[], ok = true): Federation => ({
+    idp: (entityID) => idps.find((candidate) => candidate.entityID === entityID),
+    refresh: jest.fn().mockResolvedValue(ok),
+    start: jest.fn().mockResolvedValue(undefined),
+    stop: jest.fn(),
+  });
+  const abroad = { ...idp, entityID: 'https://idp.ed.example/idp', scopes: ['ed.example'] };
+
+  test("prefers the first federation's copy of an identity provider both list", () => {
+    const exported = { ...idp, certs: ['RVhQT1JURUQ='] };
+    const both = combineFederations([stub([idp]), stub([exported, abroad])]);
+
+    expect(both.idp(UTU_IDP)).toBe(idp);
+    expect(both.idp(abroad.entityID)).toBe(abroad);
+    expect(both.idp('https://unknown.example/idp')).toBeUndefined();
+  });
+
+  test('refreshes every federation and reports whether all succeeded', async () => {
+    const haka = stub([idp]);
+    const edugain = stub([abroad], false);
+
+    expect(await combineFederations([haka, edugain]).refresh()).toBe(false);
+    expect(haka.refresh).toHaveBeenCalled();
+    expect(edugain.refresh).toHaveBeenCalled();
+  });
+
+  test('starts each federation only after the one before has loaded', async () => {
+    const order: string[] = [];
+    const haka = stub([idp]);
+    const edugain = stub([abroad]);
+    haka.start = jest.fn(async () => {
+      await Promise.resolve();
+      order.push('haka loaded');
+    });
+    edugain.start = jest.fn(async () => {
+      order.push('edugain started');
+    });
+
+    await combineFederations([haka, edugain]).start();
+
+    expect(order).toEqual(['haka loaded', 'edugain started']);
+  });
+});
+
 describe('parseMetadataInWorker', () => {
   test('verifies metadata on a worker thread', async () => {
     const workerPath = path.join(
@@ -136,7 +182,10 @@ describe('createSamlFederationGuard', () => {
     failureRedirect: 'https://omicsbase.example/oauth/error',
   };
 
-  function run(request: Partial<SamlFederationRequest>, guardOptions = options) {
+  function run(
+    request: Partial<SamlFederationRequest>,
+    guardOptions: Parameters<typeof createSamlFederationGuard>[0] = options,
+  ) {
     const req = { method: 'GET', query: {}, ...request } as SamlFederationRequest;
     const res = { redirect: jest.fn() } as unknown as Response;
     const next = jest.fn();
@@ -157,6 +206,17 @@ describe('createSamlFederationGuard', () => {
         '&return=https%3A%2F%2Fomicsbase.example%2Foauth%2Fsaml&returnIDParam=entityID',
     );
     expect(next).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['the eduGAIN discovery service when asked', 'https://ds.edugain.example/ds/', 'edugain'],
+    ['the default discovery service without one configured', undefined, 'edugain'],
+    ['the default discovery service for another value', 'https://ds.edugain.example/ds/', 'x'],
+  ])('sends a sign-in to %s', (_label, edugainDiscoveryUrl, discovery) => {
+    const { redirect } = run({ query: { discovery } }, { ...options, edugainDiscoveryUrl });
+    const expected =
+      discovery === 'edugain' && edugainDiscoveryUrl ? edugainDiscoveryUrl : options.discoveryUrl;
+    expect(redirect.mock.calls[0][0].startsWith(`${expected}?entityID=`)).toBe(true);
   });
 
   test('extends a discovery URL that already has a query', () => {

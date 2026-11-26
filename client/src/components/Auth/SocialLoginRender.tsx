@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { TStartupConfig } from 'librechat-data-provider';
 import {
   GoogleIcon,
@@ -26,6 +27,13 @@ function SocialLoginRender({
   if (!startupConfig) {
     return null;
   }
+
+  const SamlLogo = () =>
+    startupConfig.samlImageUrl ? (
+      <img src={startupConfig.samlImageUrl} alt="SAML Logo" className="h-5 w-5" />
+    ) : (
+      <SamlIcon />
+    );
 
   const providerComponents = {
     discord: startupConfig.discordLoginEnabled && (
@@ -101,21 +109,28 @@ function SocialLoginRender({
       />
     ),
     saml: startupConfig.samlLoginEnabled && (
-      <SocialButton
-        key="saml"
-        enabled={startupConfig.samlLoginEnabled}
-        serverDomain={startupConfig.serverDomain}
-        oauthPath="saml"
-        Icon={() =>
-          startupConfig.samlImageUrl ? (
-            <img src={startupConfig.samlImageUrl} alt="SAML Logo" className="h-5 w-5" />
-          ) : (
-            <SamlIcon />
-          )
-        }
-        label={startupConfig.samlLabel ? startupConfig.samlLabel : localize('com_auth_saml_login')}
-        id="saml"
-      />
+      <Fragment key="saml">
+        <SocialButton
+          enabled={startupConfig.samlLoginEnabled}
+          serverDomain={startupConfig.serverDomain}
+          oauthPath="saml"
+          Icon={SamlLogo}
+          label={
+            startupConfig.samlLabel ? startupConfig.samlLabel : localize('com_auth_saml_login')
+          }
+          id="saml"
+        />
+        {startupConfig.samlEdugainEnabled === true && (
+          <SocialButton
+            enabled
+            serverDomain={startupConfig.serverDomain}
+            oauthPath="saml?discovery=edugain"
+            Icon={SamlLogo}
+            label={localize('com_auth_saml_edugain_login')}
+            id="saml-edugain"
+          />
+        )}
+      </Fragment>
     ),
   };
 

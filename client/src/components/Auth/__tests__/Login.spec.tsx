@@ -161,6 +161,27 @@ test('renders login form', () => {
   );
 });
 
+test('offers no eduGAIN sign-in unless it is enabled', () => {
+  const { queryByRole } = setup();
+  expect(queryByRole('link', { name: /eduGAIN/i })).not.toBeInTheDocument();
+});
+
+test('offers eduGAIN sign-in beside SAML when it is enabled', () => {
+  const edugain = { ...mockStartupConfig.data, samlEdugainEnabled: true };
+  const { getByRole } = setup({
+    useGetStartupConfigReturnValue: { ...mockStartupConfig, data: edugain },
+  });
+
+  expect(getByRole('link', { name: /Test SAML/i })).toHaveAttribute(
+    'href',
+    'mock-server/oauth/saml',
+  );
+  expect(getByRole('link', { name: /eduGAIN/i })).toHaveAttribute(
+    'href',
+    'mock-server/oauth/saml?discovery=edugain',
+  );
+});
+
 test('calls loginUser.mutate on login', async () => {
   const mutate = jest.fn();
   const { getByLabelText } = setup({

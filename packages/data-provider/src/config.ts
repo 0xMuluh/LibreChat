@@ -4108,6 +4108,8 @@ export type TStartupConfig = {
   openidLoginEnabled: boolean;
   appleLoginEnabled: boolean;
   samlLoginEnabled: boolean;
+  /** A second SAML button that goes to the eduGAIN discovery service. */
+  samlEdugainEnabled?: boolean;
   passkeyLoginEnabled: boolean;
   /** Per-account passkey enrollment cap, from `passkeys.perUserMax`; post-login only. */
   maxPasskeysPerUser?: number;

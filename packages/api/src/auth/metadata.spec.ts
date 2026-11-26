@@ -22,6 +22,16 @@ describe('parseFederationMetadata', () => {
     });
   });
 
+  test('verifies a signature whose prefix only the root element declares', () => {
+    const xml = signMetadata(metadataXml(), federation.privateKey, '/*', 'ds').replace(
+      '<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"',
+      '<ds:Signature',
+    );
+
+    expect(xml).toContain('<ds:Signature>');
+    expect(parseFederationMetadata(xml, federation.cert)).toMatchObject({ ok: true });
+  });
+
   test.each([
     ['a changed scope', signed.replace('UTU.fi</shibmd:Scope>', 'evil.fi</shibmd:Scope>')],
     [

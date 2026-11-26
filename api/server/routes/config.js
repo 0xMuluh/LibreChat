@@ -109,6 +109,12 @@ function buildPreLoginPayload() {
     openidImageUrl: process.env.OPENID_IMAGE_URL,
     openidAutoRedirect: isEnabled(process.env.OPENID_AUTO_REDIRECT),
     samlLoginEnabled: !isOpenIdEnabled && isSamlEnabled,
+    samlEdugainEnabled:
+      !isOpenIdEnabled &&
+      isSamlEnabled &&
+      !!process.env.SAML_FEDERATION_METADATA_URL?.trim() &&
+      !!process.env.SAML_FEDERATION_EDUGAIN_METADATA_URL?.trim() &&
+      !!process.env.SAML_FEDERATION_EDUGAIN_DISCOVERY_URL?.trim(),
     samlLabel: process.env.SAML_BUTTON_LABEL,
     samlImageUrl: process.env.SAML_IMAGE_URL,
     serverDomain: process.env.DOMAIN_SERVER || 'http://localhost:3080',
