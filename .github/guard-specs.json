@@ -66,6 +66,10 @@
       "packages/api/src/web/web.ts"
     ],
     "packages/api/src/agents/tools.spec.ts": ["e2e/setup/fake-model.js"],
+    "packages/api/src/auth/federation.spec.ts": [
+      "packages/api/src/auth/__fixtures__/exiting-metadata-worker.cjs",
+      "packages/api/src/auth/__fixtures__/slow-metadata-worker.cjs"
+    ],
     "packages/api/src/channels/deployment.spec.ts": [".env.example"],
     "packages/api/src/code/agent.spec.ts": ["api/", "packages/api/src/"],
     "packages/api/src/code/setup/bridge.spec.ts": ["vendor/code/"],

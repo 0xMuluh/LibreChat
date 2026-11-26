@@ -1,6 +1,9 @@
 import path from 'node:path';
-import { Worker } from 'node:worker_threads';
+import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { fork } from 'node:child_process';
 import { logger } from '@librechat/data-schemas';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import type { NextFunction, Request, Response } from 'express';
 import type { FederationIdp, FederationMetadata, FederationMetadataResult } from './metadata';
 import type { MetadataJob } from './metadata-worker';
@@ -8,26 +11,82 @@ import { getSamlResponseIssuer } from './metadata';
 
 export type ParseMetadata = (xml: string, cert: string) => Promise<FederationMetadataResult>;
 
+const DEFAULT_MAX_HEAP_MB = 2048;
+
 /**
- * Verifies metadata on a one-off worker thread with a capped heap: checking the signature of an
- * aggregate takes seconds of CPU, and a large one must not exhaust the server's memory.
+ * Verifies metadata in a child process capped at `maxHeapMb`: checking the signature of an
+ * aggregate takes about a minute of CPU and over a gigabyte for eduGAIN, and running out of
+ * memory must end only the child. The XML goes to the child through a private temporary file,
+ * and the result comes back over IPC. Calls run one at a time, so two federations' refreshes
+ * never verify at once. A child that exits without a result, or runs past `timeoutMs`, fails the
+ * call with the gist of its error output.
  */
-export function parseMetadataInWorker(workerPath: string, maxHeapMb = 1024): ParseMetadata {
-  return (xml, cert) =>
-    new Promise((resolve, reject) => {
-      const worker = new Worker(workerPath, {
-        execArgv: [],
-        resourceLimits: { maxOldGenerationSizeMb: maxHeapMb },
+export function parseMetadataInProcess(
+  scriptPath: string,
+  maxHeapMb: number = DEFAULT_MAX_HEAP_MB,
+  timeoutMs: number = 15 * 60 * 1000,
+): ParseMetadata {
+  const run = async (xml: string, cert: string): Promise<FederationMetadataResult> => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'saml-metadata-'));
+    const file = path.join(dir, 'metadata.xml');
+    try {
+      await writeFile(file, xml, { mode: 0o600 });
+      return await new Promise((resolve, reject) => {
+        const child = fork(scriptPath, [], {
+          execArgv: [`--max-old-space-size=${maxHeapMb}`],
+          serialization: 'advanced',
+          stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+        });
+        const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+        let stderr = '';
+        child.stderr?.on('data', (chunk: Buffer) => {
+          stderr = (stderr + chunk.toString()).slice(-4000);
+        });
+        let result: FederationMetadataResult | undefined;
+        child.once('message', (message) => {
+          result = message as FederationMetadataResult;
+        });
+        child.once('error', reject);
+        child.once('exit', (code, signal) => {
+          clearTimeout(timer);
+          if (result) {
+            resolve(result);
+          } else {
+            const lines = stderr
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean);
+            const reason = lines.find((line) => line.startsWith('FATAL ERROR')) ?? lines[0];
+            const ended = `Metadata process ended (${signal ?? `exit code ${code}`})`;
+            reject(new Error(reason ? `${ended}: ${reason}` : ended));
+          }
+        });
+        const job: MetadataJob = { file, cert };
+        child.send(job);
       });
-      worker.once('message', (result: FederationMetadataResult) => {
-        resolve(result);
-        void worker.terminate();
-      });
-      worker.once('error', reject);
-      worker.once('exit', (code) => reject(new Error(`Metadata worker exited with code ${code}`)));
-      const job: MetadataJob = { xml, cert };
-      worker.postMessage(job);
-    });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  };
+
+  let queue: Promise<unknown> = Promise.resolve();
+  return (xml, cert) => {
+    const next = queue.then(() => run(xml, cert));
+    queue = next.catch(() => undefined);
+    return next;
+  };
+}
+
+/**
+ * The metadata parser of the built package, capped at `maxHeapMb` megabytes (a positive integer;
+ * otherwise the default, 2048).
+ */
+export function createMetadataParser(maxHeapMb?: string | number): ParseMetadata {
+  const cap = Number(maxHeapMb);
+  return parseMetadataInProcess(
+    path.join(path.dirname(require.resolve('@librechat/api')), 'auth/metadata-worker.cjs'),
+    Number.isInteger(cap) && cap > 0 ? cap : DEFAULT_MAX_HEAP_MB,
+  );
 }
 
 /** The part of `fetch` the metadata download uses. */
@@ -40,13 +99,18 @@ export interface FederationOptions {
   url: string;
   cert: string;
   fetch?: FetchMetadata;
-  /** Verifies the downloaded XML; defaults to a worker thread. */
+  /** Verifies the downloaded XML; defaults to `createMetadataParser()`. */
   parse?: ParseMetadata;
   /**
    * Request the persistent NameID format only from identity providers whose metadata lists it,
    * instead of from all of them (the default).
    */
   listedNameIDFormats?: boolean;
+  /**
+   * A directory to keep the index of verified metadata in, as shibd keeps metadata backing
+   * files, so a restart serves sign-ins at once instead of verifying again. Off when unset.
+   */
+  cacheDir?: string;
   /** How often verified metadata is refreshed (default 6 h). */
   refreshMs?: number;
   /** How soon a failed download is retried (default 10 min). */
@@ -64,21 +128,88 @@ export interface Federation {
   stop(): void;
 }
 
-/** Federation metadata held in memory and refreshed in the background. */
+/** The index of verified metadata as it is kept on disk. */
+interface CachedMetadata {
+  url: string;
+  fetchedAt: number;
+  validUntil: string;
+  idps: FederationIdp[];
+}
+
+/**
+ * Federation metadata held in memory and refreshed in the background. With `cacheDir`, each
+ * verified index is also written there and read back at start: a cache for the same URL whose
+ * validUntil is ahead serves sign-ins at once, and the first refresh waits for its normal time
+ * (at least `retryMs`). The cache only ever holds `parse`'s verified result; its integrity then
+ * rests on the container's file system, as with shibd's backing files.
+ */
 export function createFederation({
   url,
   cert,
   fetch: request = fetch,
-  parse = parseMetadataInWorker(
-    path.join(path.dirname(require.resolve('@librechat/api')), 'auth/metadata-worker.cjs'),
-  ),
+  parse = createMetadataParser(),
   listedNameIDFormats = false,
+  cacheDir,
   refreshMs = 6 * 60 * 60 * 1000,
   retryMs = 10 * 60 * 1000,
   timeoutMs = 60 * 1000,
 }: FederationOptions): Federation {
+  const file = cacheDir
+    ? path.join(cacheDir, `${createHash('sha256').update(url).digest('hex').slice(0, 16)}.json`)
+    : undefined;
   let metadata: FederationMetadata | undefined;
   let timer: NodeJS.Timeout | undefined;
+
+  function accept(value: FederationMetadata) {
+    metadata = listedNameIDFormats
+      ? value
+      : {
+          ...value,
+          idps: new Map(
+            [...value.idps].map(([id, idp]): [string, FederationIdp] => [
+              id,
+              idp.persistent ? idp : { ...idp, persistent: true },
+            ]),
+          ),
+        };
+  }
+
+  async function save(value: FederationMetadata, fetchedAt: number) {
+    if (!file) {
+      return;
+    }
+    const cached: CachedMetadata = {
+      url,
+      fetchedAt,
+      validUntil: value.validUntil.toISOString(),
+      idps: [...value.idps.values()],
+    };
+    const temporary = `${file}.${process.pid}.tmp`;
+    try {
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(temporary, JSON.stringify(cached), { mode: 0o600 });
+      await rename(temporary, file);
+    } catch (error) {
+      logger.warn('[samlFederation] Could not save the metadata cache', error);
+    }
+  }
+
+  async function load(): Promise<{ value: FederationMetadata; fetchedAt: number } | undefined> {
+    if (!file) {
+      return undefined;
+    }
+    try {
+      const cached: CachedMetadata = JSON.parse(await readFile(file, 'utf8'));
+      const validUntil = new Date(cached.validUntil);
+      if (cached.url !== url || !Array.isArray(cached.idps) || !(validUntil > new Date())) {
+        return undefined;
+      }
+      const idps = new Map(cached.idps.map((idp): [string, FederationIdp] => [idp.entityID, idp]));
+      return { value: { validUntil, idps }, fetchedAt: Number(cached.fetchedAt) || 0 };
+    } catch {
+      return undefined;
+    }
+  }
 
   async function refresh(): Promise<boolean> {
     try {
@@ -87,23 +218,15 @@ export function createFederation({
         logger.warn(`[samlFederation] Metadata download failed with HTTP ${response.status}`);
         return false;
       }
+      const fetchedAt = Date.now();
       const result = await parse(await response.text(), cert);
       if (!result.ok) {
         logger.error(`[samlFederation] Metadata rejected (${result.error.code})`);
         return false;
       }
-      metadata = listedNameIDFormats
-        ? result.value
-        : {
-            ...result.value,
-            idps: new Map(
-              [...result.value.idps].map(([id, idp]): [string, FederationIdp] => [
-                id,
-                idp.persistent ? idp : { ...idp, persistent: true },
-              ]),
-            ),
-          };
-      logger.info(`[samlFederation] Loaded ${metadata.idps.size} identity providers`);
+      accept(result.value);
+      logger.info(`[samlFederation] Loaded ${result.value.idps.size} identity providers`);
+      await save(result.value, fetchedAt);
       return true;
     } catch (error) {
       logger.warn('[samlFederation] Metadata refresh failed', error);
@@ -111,10 +234,13 @@ export function createFederation({
     }
   }
 
-  async function tick() {
-    const ok = await refresh();
-    timer = setTimeout(tick, ok ? refreshMs : retryMs);
+  function schedule(ms: number) {
+    timer = setTimeout(tick, ms);
     timer.unref();
+  }
+
+  async function tick() {
+    schedule((await refresh()) ? refreshMs : retryMs);
   }
 
   return {
@@ -125,7 +251,17 @@ export function createFederation({
       return metadata.idps.get(entityID);
     },
     refresh,
-    start: tick,
+    async start() {
+      const cached = await load();
+      if (!cached) {
+        return tick();
+      }
+      accept(cached.value);
+      logger.info(
+        `[samlFederation] Loaded ${cached.value.idps.size} identity providers from cache`,
+      );
+      schedule(Math.max(cached.fetchedAt + refreshMs - Date.now(), retryMs));
+    },
     stop() {
       clearTimeout(timer);
     },

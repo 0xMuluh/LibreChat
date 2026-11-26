@@ -1,11 +1,15 @@
 import path from 'node:path';
+import { tmpdir } from 'node:os';
+import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFile, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import type { Response } from 'express';
 import type { FederationIdp, FederationMetadataResult } from './metadata';
 import type { Federation, SamlFederationRequest } from './federation';
 import {
   createFederation,
   combineFederations,
-  parseMetadataInWorker,
+  parseMetadataInProcess,
   getFederationSamlOptions,
   createSamlFederationGuard,
 } from './federation';
@@ -134,6 +138,86 @@ describe('createFederation', () => {
   });
 });
 
+describe('createFederation with a metadata cache', () => {
+  const url = 'https://fed.example/md.xml';
+  let cacheDir: string;
+
+  beforeEach(async () => {
+    cacheDir = await mkdtemp(path.join(tmpdir(), 'saml-cache-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(cacheDir, { recursive: true, force: true });
+  });
+
+  const cacheFile = (forUrl: string) =>
+    path.join(cacheDir, `${createHash('sha256').update(forUrl).digest('hex').slice(0, 16)}.json`);
+
+  async function cache(result = loaded()) {
+    const parse = jest.fn().mockResolvedValue(result);
+    const fetch = jest.fn().mockResolvedValue(reply());
+    expect(await createFederation({ url, cert: 'C', fetch, parse, cacheDir }).refresh()).toBe(true);
+  }
+
+  async function restart(forUrl = url) {
+    const fetch = jest.fn().mockRejectedValue(new Error('offline'));
+    const parse = jest.fn();
+    const federation = createFederation({ url: forUrl, cert: 'C', fetch, parse, cacheDir });
+    await federation.start();
+    federation.stop();
+    return { federation, fetch, parse };
+  }
+
+  test('serves verified metadata from the cache after a restart, without the network', async () => {
+    await cache();
+
+    const { federation, fetch, parse } = await restart();
+
+    expect(federation.idp(UTU_IDP)).toEqual(idp);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(parse).not.toHaveBeenCalled();
+    expect((await readdir(cacheDir)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
+  });
+
+  test('ignores a cache past its validUntil', async () => {
+    await cache(loaded(new Date(Date.now() - 1000)));
+
+    const { federation, fetch } = await restart();
+
+    expect(fetch).toHaveBeenCalled();
+    expect(federation.idp(UTU_IDP)).toBeUndefined();
+  });
+
+  test('ignores a cache for another URL', async () => {
+    const other = 'https://other.example/md.xml';
+    await cache();
+    await copyFile(cacheFile(url), cacheFile(other));
+
+    const { federation, fetch } = await restart(other);
+
+    expect(fetch).toHaveBeenCalled();
+    expect(federation.idp(UTU_IDP)).toBeUndefined();
+  });
+
+  test('leaves the cache and the loaded metadata alone when a refresh fails', async () => {
+    const fetch = jest.fn().mockResolvedValue(reply());
+    const parse = jest
+      .fn()
+      .mockResolvedValueOnce(loaded())
+      .mockResolvedValueOnce({ ok: false, error: { code: 'bad_signature', message: 'no' } })
+      .mockRejectedValueOnce(new Error('Metadata process ended (SIGABRT)'));
+    const federation = createFederation({ url, cert: 'C', fetch, parse, cacheDir });
+    expect(await federation.refresh()).toBe(true);
+    const saved = await readFile(cacheFile(url), 'utf8');
+
+    expect(await federation.refresh()).toBe(false);
+    expect(await federation.refresh()).toBe(false);
+
+    expect(await readFile(cacheFile(url), 'utf8')).toBe(saved);
+    expect(federation.idp(UTU_IDP)).toBe(idp);
+  });
+});
+
 describe('combineFederations', () => {
   const stub = (idps: FederationIdp[], ok = true): Federation => ({
     idp: (entityID) => idps.find((candidate) => candidate.entityID === entityID),
@@ -179,22 +263,60 @@ describe('combineFederations', () => {
   });
 });
 
-describe('parseMetadataInWorker', () => {
-  test('verifies metadata on a worker thread', async () => {
-    const workerPath = path.join(
-      path.dirname(require.resolve('@librechat/api')),
-      'auth/metadata-worker.cjs',
-    );
+describe('parseMetadataInProcess', () => {
+  const fixture = (name: string) => path.join(__dirname, '__fixtures__', name);
+  const built = () =>
+    path.join(path.dirname(require.resolve('@librechat/api')), 'auth/metadata-worker.cjs');
+
+  test('verifies one file at a time and deletes each afterwards', async () => {
+    const parse = parseMetadataInProcess(fixture('slow-metadata-worker.cjs'));
+
+    const results = await Promise.all([parse('<a/>', 'C'), parse('<b/>', 'C')]);
+
+    const [first, second] = results.map((result) => {
+      expect(result.ok).toBe(false);
+      return JSON.parse(result.ok ? '{}' : result.error.message);
+    });
+    expect(first.seen && second.seen).toBe(true);
+    expect(second.start).toBeGreaterThanOrEqual(first.end);
+    expect(existsSync(first.file) || existsSync(second.file)).toBe(false);
+  }, 30000);
+
+  test('fails when the process ends without a result', async () => {
+    const parse = parseMetadataInProcess(fixture('exiting-metadata-worker.cjs'));
+    await expect(parse('<a/>', 'C')).rejects.toThrow('exit code 3');
+  }, 30000);
+
+  test('verifies metadata in the built metadata process', async () => {
     const signer = makeSigner();
     const xml = signMetadata(metadataXml(), signer.privateKey);
 
-    const result = await parseMetadataInWorker(workerPath)(xml, signer.cert);
+    const result = await parseMetadataInProcess(built())(xml, signer.cert);
 
     expect(result.ok && result.value.idps.get(UTU_IDP)?.scopes).toEqual([
       'utu.fi',
       'turku.example',
     ]);
-  });
+  }, 30000);
+
+  test('keeps the last good metadata when the process runs out of memory', async () => {
+    const signer = makeSigner();
+    const good = signMetadata(metadataXml(), signer.privateKey);
+    const entity = `<EntityDescriptor entityID="https://idp.example/x"><IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"/></EntityDescriptor>`;
+    const large = `<EntitiesDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata">${entity.repeat(40000)}</EntitiesDescriptor>`;
+    const xml = jest.fn().mockResolvedValueOnce(good).mockResolvedValueOnce(large);
+    const fetch = jest.fn(async () => ({ ok: true, status: 200, text: xml }));
+    const normal = parseMetadataInProcess(built());
+    const tiny = parseMetadataInProcess(built(), 16);
+    const parse = jest.fn(normal).mockImplementationOnce(normal).mockImplementationOnce(tiny);
+    const federation = createFederation({ url: 'u', cert: signer.cert, fetch, parse });
+
+    expect(await federation.refresh()).toBe(true);
+    expect(await federation.refresh()).toBe(false);
+
+    await expect(tiny(large, signer.cert)).rejects.toThrow(/Metadata process ended/);
+    expect(federation.idp(UTU_IDP)?.scopes).toEqual(['utu.fi', 'turku.example']);
+  }, 60000);
 });
 
 describe('createSamlFederationGuard', () => {
