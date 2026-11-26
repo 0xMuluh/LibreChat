@@ -69,11 +69,19 @@ function domainOf(value: string | undefined): string | undefined {
   return value.split('@').pop()?.trim().toLowerCase() || undefined;
 }
 
+/** Whether `domain` is one of `scopes` or a subdomain of one; a bare top-level scope has none. */
+function inScope(domain: string, scopes: string[]): boolean {
+  return scopes.some(
+    (scope) => domain === scope || (scope.includes('.') && domain.endsWith(`.${scope}`)),
+  );
+}
+
 /**
  * The home organisation's domain of a SAML login: the scope of eduPersonPrincipalName, else
  * schacHomeOrganization, else the domain of `email`. With `scopes` (the issuing identity
- * provider's `shibmd:Scope` list from federation metadata), a domain they do not list is
- * skipped, so one identity provider cannot claim another's organisation.
+ * provider's `shibmd:Scope` list from federation metadata), a domain that is neither one of
+ * them nor a subdomain of one is skipped, so one identity provider cannot claim another's
+ * organisation.
  */
 export function getSamlHomeOrganization(
   profile: Record<string, unknown>,
@@ -85,7 +93,7 @@ export function getSamlHomeOrganization(
     getClaim(profile, SCHAC_HOME_ORGANIZATION_CLAIMS)?.toLowerCase(),
     domainOf(email),
   ];
-  return candidates.find((domain) => domain && (!scopes || scopes.includes(domain)));
+  return candidates.find((domain) => domain && (!scopes || inScope(domain, scopes)));
 }
 
 /**
@@ -136,7 +144,8 @@ export type FederatedSamlSubject =
  * provider (`homeIssuer`) keeps the plain NameID, so its existing accounts continue unchanged.
  * Any other provider's NameID becomes `<entityID>!<nameID>`, so one provider cannot assert
  * another's NameID, and its login is refused unless the email's domain is one of the provider's
- * metadata scopes, so it can neither reach nor claim an address in another organisation's domain.
+ * metadata scopes or a subdomain of one, so it can neither reach nor claim an address in another
+ * organisation's domain.
  */
 export function resolveFederatedSamlSubject({
   nameID,
@@ -153,7 +162,7 @@ export function resolveFederatedSamlSubject({
     return { samlId: nameID };
   }
   const domain = domainOf(email);
-  if (!domain || !idp.scopes.includes(domain)) {
+  if (!domain || !inScope(domain, idp.scopes)) {
     return { error: 'email_out_of_scope' };
   }
   return { samlId: `${idp.entityID}!${nameID}` };

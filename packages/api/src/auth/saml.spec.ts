@@ -86,9 +86,11 @@ describe('resolveSamlRole', () => {
     });
 
     test.each([
-      [['utu.fi'], defaultRole],
-      [['utu.fi', 'med.utu.fi'], 'UTU'],
-    ])('trusts a subdomain ePPN only when listed in %p', (scopes, role) => {
+      [['utu.fi'], 'UTU'],
+      [['med.utu.fi'], 'UTU'],
+      [['fi'], defaultRole],
+      [['helsinki.fi'], defaultRole],
+    ])('trusts a subdomain ePPN by its parent scope in %p', (scopes, role) => {
       const profile = { eduPersonPrincipalName: 'user@med.utu.fi' };
       expect(resolveSamlRole({ profile, scopes, orgRoles, defaultRole })).toBe(role);
     });
@@ -117,14 +119,35 @@ describe('resolveFederatedSamlSubject', () => {
     ).toEqual({ samlId: 'https://login.helsinki.fi/shibboleth!n-1' });
   });
 
-  test.each(['user@utu.fi', 'user@cs.helsinki.fi', 'not an email', ''])(
-    'refuses another identity provider asserting %p',
-    (email) => {
-      expect(resolveFederatedSamlSubject({ nameID: 'n-1', email, idp: other, homeIssuer })).toEqual(
-        { error: 'email_out_of_scope' },
-      );
-    },
-  );
+  test('refuses a subdomain email under a bare top-level scope', () => {
+    const tld = { entityID: 'https://idp.example/shibboleth', scopes: ['fi'] };
+    expect(
+      resolveFederatedSamlSubject({ nameID: 'n-1', email: 'user@utu.fi', idp: tld, homeIssuer }),
+    ).toEqual({ error: 'email_out_of_scope' });
+  });
+
+  test('accepts an email in a subdomain of one of its scopes', () => {
+    expect(
+      resolveFederatedSamlSubject({
+        nameID: 'n-1',
+        email: 'user@cs.helsinki.fi',
+        idp: other,
+        homeIssuer,
+      }),
+    ).toEqual({ samlId: 'https://login.helsinki.fi/shibboleth!n-1' });
+  });
+
+  test.each([
+    'user@utu.fi',
+    'user@nothelsinki.fi',
+    'user@helsinki.fi.evil.com',
+    'not an email',
+    '',
+  ])('refuses another identity provider asserting %p', (email) => {
+    expect(resolveFederatedSamlSubject({ nameID: 'n-1', email, idp: other, homeIssuer })).toEqual({
+      error: 'email_out_of_scope',
+    });
+  });
 });
 
 describe('resolveSamlSubject', () => {
