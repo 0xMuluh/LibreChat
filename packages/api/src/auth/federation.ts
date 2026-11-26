@@ -1,6 +1,8 @@
 import path from 'node:path';
-import { Worker } from 'node:worker_threads';
+import { tmpdir } from 'node:os';
+import { fork } from 'node:child_process';
 import { logger } from '@librechat/data-schemas';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import type { NextFunction, Request, Response } from 'express';
 import type { FederationIdp, FederationMetadata, FederationMetadataResult } from './metadata';
 import type { MetadataJob } from './metadata-worker';
@@ -8,26 +10,72 @@ import { getSamlResponseIssuer } from './metadata';
 
 export type ParseMetadata = (xml: string, cert: string) => Promise<FederationMetadataResult>;
 
+const DEFAULT_MAX_HEAP_MB = 2048;
+
 /**
- * Verifies metadata on a one-off worker thread with a capped heap: checking the signature of an
- * aggregate takes seconds of CPU, and a large one must not exhaust the server's memory.
+ * Verifies metadata in a child process capped at `maxHeapMb`: checking the signature of an
+ * aggregate takes about a minute of CPU and over a gigabyte for eduGAIN, and running out of
+ * memory must end only the child. The XML goes to the child through a private temporary file,
+ * and the result comes back over IPC. Calls run one at a time, so two federations' refreshes
+ * never verify at once. A child that exits without a result, or runs past `timeoutMs`, fails the
+ * call.
  */
-export function parseMetadataInWorker(workerPath: string, maxHeapMb = 1024): ParseMetadata {
-  return (xml, cert) =>
-    new Promise((resolve, reject) => {
-      const worker = new Worker(workerPath, {
-        execArgv: [],
-        resourceLimits: { maxOldGenerationSizeMb: maxHeapMb },
+export function parseMetadataInProcess(
+  scriptPath: string,
+  maxHeapMb = DEFAULT_MAX_HEAP_MB,
+  timeoutMs = 15 * 60 * 1000,
+): ParseMetadata {
+  const run = async (xml: string, cert: string): Promise<FederationMetadataResult> => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'saml-metadata-'));
+    const file = path.join(dir, 'metadata.xml');
+    try {
+      await writeFile(file, xml, { mode: 0o600 });
+      return await new Promise((resolve, reject) => {
+        const child = fork(scriptPath, [], {
+          execArgv: [`--max-old-space-size=${maxHeapMb}`],
+          serialization: 'advanced',
+          stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+        });
+        const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+        let result: FederationMetadataResult | undefined;
+        child.once('message', (message) => {
+          result = message as FederationMetadataResult;
+        });
+        child.once('error', reject);
+        child.once('exit', (code, signal) => {
+          clearTimeout(timer);
+          if (result) {
+            resolve(result);
+          } else {
+            reject(new Error(`Metadata process ended (${signal ?? `exit code ${code}`})`));
+          }
+        });
+        const job: MetadataJob = { file, cert };
+        child.send(job);
       });
-      worker.once('message', (result: FederationMetadataResult) => {
-        resolve(result);
-        void worker.terminate();
-      });
-      worker.once('error', reject);
-      worker.once('exit', (code) => reject(new Error(`Metadata worker exited with code ${code}`)));
-      const job: MetadataJob = { xml, cert };
-      worker.postMessage(job);
-    });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  };
+
+  let queue: Promise<unknown> = Promise.resolve();
+  return (xml, cert) => {
+    const next = queue.then(() => run(xml, cert));
+    queue = next.catch(() => undefined);
+    return next;
+  };
+}
+
+/**
+ * The metadata parser of the built package, capped at `maxHeapMb` megabytes (a positive integer;
+ * otherwise the default, 2048).
+ */
+export function createMetadataParser(maxHeapMb?: string | number): ParseMetadata {
+  const cap = Number(maxHeapMb);
+  return parseMetadataInProcess(
+    path.join(path.dirname(require.resolve('@librechat/api')), 'auth/metadata-worker.cjs'),
+    Number.isInteger(cap) && cap > 0 ? cap : DEFAULT_MAX_HEAP_MB,
+  );
 }
 
 /** The part of `fetch` the metadata download uses. */
@@ -40,7 +88,7 @@ export interface FederationOptions {
   url: string;
   cert: string;
   fetch?: FetchMetadata;
-  /** Verifies the downloaded XML; defaults to a worker thread. */
+  /** Verifies the downloaded XML; defaults to `createMetadataParser()`. */
   parse?: ParseMetadata;
   /**
    * Request the persistent NameID format only from identity providers whose metadata lists it,
@@ -69,9 +117,7 @@ export function createFederation({
   url,
   cert,
   fetch: request = fetch,
-  parse = parseMetadataInWorker(
-    path.join(path.dirname(require.resolve('@librechat/api')), 'auth/metadata-worker.cjs'),
-  ),
+  parse = createMetadataParser(),
   listedNameIDFormats = false,
   refreshMs = 6 * 60 * 60 * 1000,
   retryMs = 10 * 60 * 1000,

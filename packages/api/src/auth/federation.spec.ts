@@ -1,11 +1,12 @@
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import type { Response } from 'express';
 import type { FederationIdp, FederationMetadataResult } from './metadata';
 import type { Federation, SamlFederationRequest } from './federation';
 import {
   createFederation,
   combineFederations,
-  parseMetadataInWorker,
+  parseMetadataInProcess,
   getFederationSamlOptions,
   createSamlFederationGuard,
 } from './federation';
@@ -179,22 +180,60 @@ describe('combineFederations', () => {
   });
 });
 
-describe('parseMetadataInWorker', () => {
-  test('verifies metadata on a worker thread', async () => {
-    const workerPath = path.join(
-      path.dirname(require.resolve('@librechat/api')),
-      'auth/metadata-worker.cjs',
-    );
+describe('parseMetadataInProcess', () => {
+  const fixture = (name: string) => path.join(__dirname, '__fixtures__', name);
+  const built = () =>
+    path.join(path.dirname(require.resolve('@librechat/api')), 'auth/metadata-worker.cjs');
+
+  test('verifies one file at a time and deletes each afterwards', async () => {
+    const parse = parseMetadataInProcess(fixture('slow-metadata-worker.cjs'));
+
+    const results = await Promise.all([parse('<a/>', 'C'), parse('<b/>', 'C')]);
+
+    const [first, second] = results.map((result) => {
+      expect(result.ok).toBe(false);
+      return JSON.parse(result.ok ? '{}' : result.error.message);
+    });
+    expect(first.seen && second.seen).toBe(true);
+    expect(second.start).toBeGreaterThanOrEqual(first.end);
+    expect(existsSync(first.file) || existsSync(second.file)).toBe(false);
+  }, 30000);
+
+  test('fails when the process ends without a result', async () => {
+    const parse = parseMetadataInProcess(fixture('exiting-metadata-worker.cjs'));
+    await expect(parse('<a/>', 'C')).rejects.toThrow('exit code 3');
+  }, 30000);
+
+  test('verifies metadata in the built metadata process', async () => {
     const signer = makeSigner();
     const xml = signMetadata(metadataXml(), signer.privateKey);
 
-    const result = await parseMetadataInWorker(workerPath)(xml, signer.cert);
+    const result = await parseMetadataInProcess(built())(xml, signer.cert);
 
     expect(result.ok && result.value.idps.get(UTU_IDP)?.scopes).toEqual([
       'utu.fi',
       'turku.example',
     ]);
-  });
+  }, 30000);
+
+  test('keeps the last good metadata when the process runs out of memory', async () => {
+    const signer = makeSigner();
+    const good = signMetadata(metadataXml(), signer.privateKey);
+    const entity = `<EntityDescriptor entityID="https://idp.example/x"><IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"/></EntityDescriptor>`;
+    const large = `<EntitiesDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata">${entity.repeat(40000)}</EntitiesDescriptor>`;
+    const xml = jest.fn().mockResolvedValueOnce(good).mockResolvedValueOnce(large);
+    const fetch = jest.fn(async () => ({ ok: true, status: 200, text: xml }));
+    const normal = parseMetadataInProcess(built());
+    const tiny = parseMetadataInProcess(built(), 16);
+    const parse = jest.fn(normal).mockImplementationOnce(normal).mockImplementationOnce(tiny);
+    const federation = createFederation({ url: 'u', cert: signer.cert, fetch, parse });
+
+    expect(await federation.refresh()).toBe(true);
+    expect(await federation.refresh()).toBe(false);
+
+    await expect(tiny(large, signer.cert)).rejects.toThrow(/Metadata process ended/);
+    expect(federation.idp(UTU_IDP)?.scopes).toEqual(['utu.fi', 'turku.example']);
+  }, 60000);
 });
 
 describe('createSamlFederationGuard', () => {
