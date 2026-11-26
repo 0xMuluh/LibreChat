@@ -6,7 +6,7 @@ import type { FederationIdp, FederationMetadata, FederationMetadataResult } from
 import type { MetadataJob } from './metadata-worker';
 import { getSamlResponseIssuer } from './metadata';
 
-type ParseMetadata = (xml: string, cert: string) => Promise<FederationMetadataResult>;
+export type ParseMetadata = (xml: string, cert: string) => Promise<FederationMetadataResult>;
 
 /**
  * Verifies metadata on a one-off worker thread with a capped heap: checking the signature of an
@@ -131,8 +131,8 @@ export function createSamlFederationGuard({
   entityID: string;
   returnUrl: string;
   failureRedirect: string;
-}) {
-  return (req: SamlFederationRequest, res: Response, next: NextFunction) => {
+}): (req: SamlFederationRequest, res: Response, next: NextFunction) => void {
+  return (req, res, next) => {
     const response = req.body?.SAMLResponse;
     const chosen =
       typeof response === 'string'
@@ -162,7 +162,7 @@ export function createSamlFederationGuard({
 export function getFederationSamlOptions(
   req: SamlFederationRequest,
   done: (error: Error | null, options?: Record<string, unknown>) => void,
-) {
+): void {
   const idp = req.samlIdp;
   if (!idp) {
     return done(new Error('No SAML identity provider chosen'));

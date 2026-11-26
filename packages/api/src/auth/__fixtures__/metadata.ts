@@ -4,7 +4,7 @@ import { generateKeyPairSync } from 'node:crypto';
 export const UTU_IDP = 'https://idp.utu.example/idp';
 
 /** A federation signing key pair made for the test run; `cert` is its public key. */
-export function makeSigner() {
+export function makeSigner(): { cert: string; privateKey: string } {
   const { publicKey, privateKey } = generateKeyPairSync('rsa', {
     modulusLength: 2048,
     publicKeyEncoding: { type: 'spki', format: 'pem' },
@@ -53,7 +53,7 @@ export function metadataXml(validUntil: string | null = '2099-01-01T00:00:00Z'):
  * Signs `xml` the way federations do: an enveloped exc-c14n RSA-SHA256 signature on the root,
  * or on the element `xpath` selects.
  */
-export function signMetadata(xml: string, privateKey: string, xpath = '/*') {
+export function signMetadata(xml: string, privateKey: string, xpath = '/*'): string {
   const signed = new SignedXml({
     privateKey,
     canonicalizationAlgorithm: 'http://www.w3.org/2001/10/xml-exc-c14n#',
