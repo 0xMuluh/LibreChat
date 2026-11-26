@@ -8,6 +8,7 @@ const {
   findSamlUser,
   getBalanceConfig,
   createFederation,
+  combineFederations,
   provisionSamlUser,
   isEmailDomainAllowed,
   getAvatarFileStrategy,
@@ -442,7 +443,8 @@ async function setupSaml() {
 
 /**
  * Lets users of every identity provider in the federation metadata sign in: discovery picks the
- * identity provider and each request uses its entry point and certificates.
+ * identity provider and each request uses its entry point and certificates. With eduGAIN
+ * metadata as well, its identity providers sign in too; Haka's copy wins for those in both.
  * @param {object} samlConfig - Our service provider settings.
  * @param {string} url - The federation metadata URL.
  */
@@ -453,15 +455,31 @@ function setupSamlFederation(samlConfig, url) {
       'SAML_FEDERATION_METADATA_URL requires SAML_DISCOVERY_URL and SAML_IDP_ISSUER (the home identity provider)',
     );
   }
-  const federation = createFederation({
-    url,
-    cert: getCertificateContent(process.env.SAML_FEDERATION_METADATA_CERT),
-  });
+  const federations = [
+    createFederation({
+      url,
+      cert: getCertificateContent(process.env.SAML_FEDERATION_METADATA_CERT),
+    }),
+  ];
+  const edugainUrl = process.env.SAML_FEDERATION_EDUGAIN_METADATA_URL?.trim();
+  if (edugainUrl) {
+    try {
+      const cert = getCertificateContent(process.env.SAML_FEDERATION_EDUGAIN_METADATA_CERT);
+      federations.push(createFederation({ url: edugainUrl, cert }));
+    } catch (err) {
+      logger.error('[samlStrategy] eduGAIN metadata left out', err);
+    }
+  }
+  const federation = combineFederations(federations);
   federation.start();
   setSamlFederationGuard(
     createSamlFederationGuard({
       federation,
       discoveryUrl,
+      edugainDiscoveryUrl:
+        federations.length > 1
+          ? process.env.SAML_FEDERATION_EDUGAIN_DISCOVERY_URL?.trim() || undefined
+          : undefined,
       entityID: samlConfig.issuer,
       returnUrl: `${process.env.DOMAIN_SERVER}/oauth/saml`,
       failureRedirect: `${process.env.DOMAIN_CLIENT}/oauth/error`,

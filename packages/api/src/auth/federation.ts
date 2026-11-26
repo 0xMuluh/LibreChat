@@ -54,7 +54,8 @@ export interface Federation {
   idp(entityID: string): FederationIdp | undefined;
   /** Downloads and verifies the metadata, keeping the last good copy when that fails. */
   refresh(): Promise<boolean>;
-  start(): void;
+  /** Loads the metadata, then keeps refreshing it; resolves once the first load is done. */
+  start(): Promise<void>;
   stop(): void;
 }
 
@@ -108,11 +109,43 @@ export function createFederation({
       return metadata.idps.get(entityID);
     },
     refresh,
-    start() {
-      void tick();
-    },
+    start: tick,
     stop() {
       clearTimeout(timer);
+    },
+  };
+}
+
+/**
+ * Several federations' metadata as one, looked up in order: an identity provider both list (a
+ * Haka provider also exported to eduGAIN) resolves to the first one's copy, under the same
+ * entityID. First loads run one after another, so their workers do not overlap.
+ */
+export function combineFederations(federations: Federation[]): Federation {
+  return {
+    idp(entityID) {
+      for (const federation of federations) {
+        const idp = federation.idp(entityID);
+        if (idp) {
+          return idp;
+        }
+      }
+      return undefined;
+    },
+    async refresh() {
+      let ok = true;
+      for (const federation of federations) {
+        ok = (await federation.refresh()) && ok;
+      }
+      return ok;
+    },
+    async start() {
+      for (const federation of federations) {
+        await federation.start();
+      }
+    },
+    stop() {
+      federations.forEach((federation) => federation.stop());
     },
   };
 }
@@ -121,18 +154,22 @@ export type SamlFederationRequest = Request & { samlIdp?: FederationIdp };
 
 /**
  * Chooses the identity provider of a federated SAML request. A sign-in takes `?idp=` or the
- * discovery service's `?entityID=` and without either goes to discovery; a callback takes the
+ * discovery service's `?entityID=` and without either goes to discovery (the eduGAIN one with
+ * `?discovery=edugain`, when configured); a callback takes the
  * Issuer of its response. Identity providers missing from the verified metadata are refused.
  */
 export function createSamlFederationGuard({
   federation,
   discoveryUrl,
+  edugainDiscoveryUrl,
   entityID,
   returnUrl,
   failureRedirect,
 }: {
   federation: Federation;
   discoveryUrl: string;
+  /** The discovery service a sign-in with `?discovery=edugain` goes to instead. */
+  edugainDiscoveryUrl?: string;
   /** Our SP entityID. */
   entityID: string;
   returnUrl: string;
@@ -146,8 +183,12 @@ export function createSamlFederationGuard({
         : [req.query.idp, req.query.entityID].find((value) => typeof value === 'string');
 
     if (chosen == null && req.method === 'GET') {
+      const service =
+        req.query.discovery === 'edugain' && edugainDiscoveryUrl
+          ? edugainDiscoveryUrl
+          : discoveryUrl;
       const query = new URLSearchParams({ entityID, return: returnUrl, returnIDParam: 'entityID' });
-      return res.redirect(`${discoveryUrl}${discoveryUrl.includes('?') ? '&' : '?'}${query}`);
+      return res.redirect(`${service}${service.includes('?') ? '&' : '?'}${query}`);
     }
 
     const idp = typeof chosen === 'string' ? federation.idp(chosen) : undefined;

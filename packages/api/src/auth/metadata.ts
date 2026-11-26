@@ -1,5 +1,5 @@
 import { SignedXml } from 'xml-crypto';
-import { DOMParser } from '@xmldom/xmldom';
+import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 
 const MD = 'urn:oasis:names:tc:SAML:2.0:metadata';
 const DS = 'http://www.w3.org/2000/09/xmldsig#';
@@ -30,7 +30,9 @@ export type FederationMetadataResult =
   | { ok: true; value: FederationMetadata }
   | { ok: false; error: { code: FederationMetadataError; message: string } };
 
-function fail(code: FederationMetadataError, message: string): FederationMetadataResult {
+type Failure = Extract<FederationMetadataResult, { ok: false }>;
+
+function fail(code: FederationMetadataError, message: string): Failure {
   return { ok: false, error: { code, message } };
 }
 
@@ -106,16 +108,13 @@ function readIdp(entity: Element): FederationIdp | undefined {
   return { entityID, entryPoint, certs, scopes };
 }
 
+type Stage<T> = { ok: true; value: T } | Failure;
+
 /**
- * Verifies a federation metadata aggregate against the federation's signing certificate and
- * indexes its SAML 2.0 identity providers by entityID. Only the signed content is read, so
- * elements outside the signature cannot inject identity providers.
+ * The root element's name and its one signature, serialised, so the parsed document can be
+ * freed before the signature check parses the XML again.
  */
-export function parseFederationMetadata(
-  xml: string,
-  cert: string,
-  now: Date = new Date(),
-): FederationMetadataResult {
+function locateSignature(xml: string): Stage<{ root: string; signature: string }> {
   let root: Element | null;
   try {
     root = parseXml(xml).documentElement;
@@ -125,16 +124,20 @@ export function parseFederationMetadata(
   if (!root || root.namespaceURI !== MD) {
     return fail('invalid_xml', 'Not SAML metadata');
   }
-
   const signatures = children(root, DS, 'Signature');
   if (signatures.length !== 1) {
     return fail('unsigned', 'Metadata must carry exactly one signature on its root element');
   }
+  const signature = new XMLSerializer().serializeToString(signatures[0]);
+  return { ok: true, value: { root: root.localName, signature } };
+}
 
+/** The canonical content the signature covers, once it verifies against `cert`. */
+function verifySignature(xml: string, signature: string, cert: string): Stage<string> {
   const signed = new SignedXml({ publicCert: toPem(cert), getCertFromKeyInfo: () => null });
   let references: string[] = [];
   try {
-    signed.loadSignature(signatures[0]);
+    signed.loadSignature(signature);
     references = signed.checkSignature(xml) ? signed.getSignedReferences() : [];
   } catch (error) {
     return fail('bad_signature', (error as Error).message);
@@ -142,9 +145,32 @@ export function parseFederationMetadata(
   if (references.length !== 1) {
     return fail('bad_signature', 'Metadata signature does not verify');
   }
+  return { ok: true, value: references[0] };
+}
 
-  const content = parseXml(references[0]).documentElement;
-  if (!content || content.namespaceURI !== MD || content.localName !== root.localName) {
+/**
+ * Verifies a federation metadata aggregate against the federation's signing certificate and
+ * indexes its SAML 2.0 identity providers by entityID. Only the signed content is read, so
+ * elements outside the signature cannot inject identity providers. Each stage's parsed document
+ * is released before the next is built, which keeps the peak memory of a large aggregate to
+ * about one document.
+ */
+export function parseFederationMetadata(
+  xml: string,
+  cert: string,
+  now: Date = new Date(),
+): FederationMetadataResult {
+  const located = locateSignature(xml);
+  if (!located.ok) {
+    return located;
+  }
+  const verified = verifySignature(xml, located.value.signature, cert);
+  if (!verified.ok) {
+    return verified;
+  }
+
+  const content = parseXml(verified.value).documentElement;
+  if (!content || content.namespaceURI !== MD || content.localName !== located.value.root) {
     return fail('bad_signature', 'Metadata signature does not cover the root element');
   }
 

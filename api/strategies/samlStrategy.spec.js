@@ -70,7 +70,8 @@ jest.mock('@librechat/api', () => ({
   resolveSamlRole: jest.requireActual('@librechat/api').resolveSamlRole,
   resolveSamlSubject: jest.fn((profile) => ({ nameID: profile.nameID })),
   resolveFederatedSamlSubject: jest.requireActual('@librechat/api').resolveFederatedSamlSubject,
-  createFederation: jest.fn(() => ({ start: jest.fn() })),
+  createFederation: jest.fn(({ url }) => ({ url })),
+  combineFederations: jest.fn((federations) => ({ federations, start: jest.fn() })),
   createSamlFederationGuard: jest.fn(() => 'federation guard'),
   getFederationSamlOptions: jest.fn(),
   TRANSIENT_SAML_NAME_ID_FORMAT: 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient',
@@ -333,6 +334,9 @@ u7wlOSk+oFzDIO/UILIA
     delete process.env.SAML_ORG_ROLES;
     delete process.env.SAML_FEDERATION_METADATA_URL;
     delete process.env.SAML_FEDERATION_METADATA_CERT;
+    delete process.env.SAML_FEDERATION_EDUGAIN_METADATA_URL;
+    delete process.env.SAML_FEDERATION_EDUGAIN_METADATA_CERT;
+    delete process.env.SAML_FEDERATION_EDUGAIN_DISCOVERY_URL;
     delete process.env.SAML_DISCOVERY_URL;
 
     resizeAvatar.mockResolvedValue(Buffer.from('safe avatar'));
@@ -1056,10 +1060,14 @@ u7wlOSk+oFzDIO/UILIA
         url: 'https://fed.example/metadata.xml',
         cert: expect.stringContaining('BEGIN CERTIFICATE'),
       });
-      expect(api.createFederation.mock.results[0].value.start).toHaveBeenCalled();
+      expect(api.combineFederations).toHaveBeenCalledWith([
+        { url: 'https://fed.example/metadata.xml' },
+      ]);
+      expect(api.combineFederations.mock.results[0].value.start).toHaveBeenCalled();
       expect(api.createSamlFederationGuard).toHaveBeenCalledWith(
         expect.objectContaining({
           discoveryUrl: 'https://fed.example/WAYF',
+          edugainDiscoveryUrl: undefined,
           entityID: 'saml-issuer',
         }),
       );
@@ -1073,6 +1081,48 @@ u7wlOSk+oFzDIO/UILIA
       );
       expect(verifyCallbacks.has('saml')).toBe(false);
       expect(verifyCallbacks.has('samlAdmin')).toBe(true);
+    });
+
+    describe('and eduGAIN metadata', () => {
+      beforeEach(() => {
+        process.env.SAML_FEDERATION_EDUGAIN_METADATA_URL = 'https://fed.example/edugain.xml';
+        process.env.SAML_FEDERATION_EDUGAIN_METADATA_CERT = process.env.SAML_CERT;
+        process.env.SAML_FEDERATION_EDUGAIN_DISCOVERY_URL = 'https://ds.example/ds/';
+        jest.clearAllMocks();
+      });
+
+      it('looks identity providers up in Haka first, then eduGAIN', async () => {
+        const api = require('@librechat/api');
+
+        await setupSaml();
+
+        expect(api.combineFederations).toHaveBeenCalledWith([
+          { url: 'https://fed.example/metadata.xml' },
+          { url: 'https://fed.example/edugain.xml' },
+        ]);
+        expect(api.createSamlFederationGuard).toHaveBeenCalledWith(
+          expect.objectContaining({
+            discoveryUrl: 'https://fed.example/WAYF',
+            edugainDiscoveryUrl: 'https://ds.example/ds/',
+          }),
+        );
+      });
+
+      it('keeps Haka sign-in when the eduGAIN certificate is invalid', async () => {
+        const api = require('@librechat/api');
+        process.env.SAML_FEDERATION_EDUGAIN_METADATA_CERT = 'not a certificate';
+        verifyCallbacks.clear();
+
+        await setupSaml();
+
+        expect(api.combineFederations).toHaveBeenCalledWith([
+          { url: 'https://fed.example/metadata.xml' },
+        ]);
+        expect(api.createSamlFederationGuard).toHaveBeenCalledWith(
+          expect.objectContaining({ edugainDiscoveryUrl: undefined }),
+        );
+        expect(verifyCallbacks.has('samlFederation')).toBe(true);
+      });
     });
 
     it('checks the issuer against the chosen identity provider', async () => {
