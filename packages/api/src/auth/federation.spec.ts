@@ -1,5 +1,8 @@
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFile, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import type { Response } from 'express';
 import type { FederationIdp, FederationMetadataResult } from './metadata';
 import type { Federation, SamlFederationRequest } from './federation';
@@ -132,6 +135,86 @@ describe('createFederation', () => {
     await jest.advanceTimersByTimeAsync(500);
     expect(fetch).toHaveBeenCalledTimes(3);
     federation.stop();
+  });
+});
+
+describe('createFederation with a metadata cache', () => {
+  const url = 'https://fed.example/md.xml';
+  let cacheDir: string;
+
+  beforeEach(async () => {
+    cacheDir = await mkdtemp(path.join(tmpdir(), 'saml-cache-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(cacheDir, { recursive: true, force: true });
+  });
+
+  const cacheFile = (forUrl: string) =>
+    path.join(cacheDir, `${createHash('sha256').update(forUrl).digest('hex').slice(0, 16)}.json`);
+
+  async function cache(result = loaded()) {
+    const parse = jest.fn().mockResolvedValue(result);
+    const fetch = jest.fn().mockResolvedValue(reply());
+    expect(await createFederation({ url, cert: 'C', fetch, parse, cacheDir }).refresh()).toBe(true);
+  }
+
+  async function restart(forUrl = url) {
+    const fetch = jest.fn().mockRejectedValue(new Error('offline'));
+    const parse = jest.fn();
+    const federation = createFederation({ url: forUrl, cert: 'C', fetch, parse, cacheDir });
+    await federation.start();
+    federation.stop();
+    return { federation, fetch, parse };
+  }
+
+  test('serves verified metadata from the cache after a restart, without the network', async () => {
+    await cache();
+
+    const { federation, fetch, parse } = await restart();
+
+    expect(federation.idp(UTU_IDP)).toEqual(idp);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(parse).not.toHaveBeenCalled();
+    expect((await readdir(cacheDir)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
+  });
+
+  test('ignores a cache past its validUntil', async () => {
+    await cache(loaded(new Date(Date.now() - 1000)));
+
+    const { federation, fetch } = await restart();
+
+    expect(fetch).toHaveBeenCalled();
+    expect(federation.idp(UTU_IDP)).toBeUndefined();
+  });
+
+  test('ignores a cache for another URL', async () => {
+    const other = 'https://other.example/md.xml';
+    await cache();
+    await copyFile(cacheFile(url), cacheFile(other));
+
+    const { federation, fetch } = await restart(other);
+
+    expect(fetch).toHaveBeenCalled();
+    expect(federation.idp(UTU_IDP)).toBeUndefined();
+  });
+
+  test('leaves the cache and the loaded metadata alone when a refresh fails', async () => {
+    const fetch = jest.fn().mockResolvedValue(reply());
+    const parse = jest
+      .fn()
+      .mockResolvedValueOnce(loaded())
+      .mockResolvedValueOnce({ ok: false, error: { code: 'bad_signature', message: 'no' } })
+      .mockRejectedValueOnce(new Error('Metadata process ended (SIGABRT)'));
+    const federation = createFederation({ url, cert: 'C', fetch, parse, cacheDir });
+    expect(await federation.refresh()).toBe(true);
+    const saved = await readFile(cacheFile(url), 'utf8');
+
+    expect(await federation.refresh()).toBe(false);
+    expect(await federation.refresh()).toBe(false);
+
+    expect(await readFile(cacheFile(url), 'utf8')).toBe(saved);
+    expect(federation.idp(UTU_IDP)).toBe(idp);
   });
 });
 

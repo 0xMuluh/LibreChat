@@ -450,11 +450,15 @@ function setupSamlFederation(samlConfig, url) {
     );
   }
   const parse = createMetadataParser(process.env.SAML_FEDERATION_METADATA_MAX_HEAP_MB);
+  const cacheDir =
+    process.env.SAML_FEDERATION_METADATA_CACHE_DIR?.trim() ||
+    path.join(paths.root, 'data', 'saml-federation');
   const federations = [
     createFederation({
       url,
       cert: getCertificateContent(process.env.SAML_FEDERATION_METADATA_CERT),
       parse,
+      cacheDir,
     }),
   ];
   const edugainUrl = process.env.SAML_FEDERATION_EDUGAIN_METADATA_URL?.trim();
@@ -462,7 +466,7 @@ function setupSamlFederation(samlConfig, url) {
     try {
       const cert = getCertificateContent(process.env.SAML_FEDERATION_EDUGAIN_METADATA_CERT);
       federations.push(
-        createFederation({ url: edugainUrl, cert, parse, listedNameIDFormats: true }),
+        createFederation({ url: edugainUrl, cert, parse, cacheDir, listedNameIDFormats: true }),
       );
     } catch (err) {
       logger.error('[samlStrategy] eduGAIN metadata left out', err);

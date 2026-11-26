@@ -339,6 +339,7 @@ u7wlOSk+oFzDIO/UILIA
     delete process.env.SAML_FEDERATION_EDUGAIN_METADATA_CERT;
     delete process.env.SAML_FEDERATION_EDUGAIN_DISCOVERY_URL;
     delete process.env.SAML_FEDERATION_METADATA_MAX_HEAP_MB;
+    delete process.env.SAML_FEDERATION_METADATA_CACHE_DIR;
     delete process.env.SAML_DISCOVERY_URL;
 
     resizeAvatar.mockResolvedValue(Buffer.from('safe avatar'));
@@ -1118,6 +1119,10 @@ u7wlOSk+oFzDIO/UILIA
           'metadata parser',
           'metadata parser',
         ]);
+        expect(api.createFederation.mock.calls.map(([options]) => options.cacheDir)).toEqual([
+          '/fake/root/path/data/saml-federation',
+          '/fake/root/path/data/saml-federation',
+        ]);
         expect(api.createFederation).toHaveBeenCalledWith(
           expect.objectContaining({
             url: 'https://fed.example/edugain.xml',
@@ -1139,6 +1144,17 @@ u7wlOSk+oFzDIO/UILIA
         await setupSaml();
 
         expect(api.createMetadataParser).toHaveBeenCalledWith('3072');
+      });
+
+      it('keeps verified metadata in SAML_FEDERATION_METADATA_CACHE_DIR', async () => {
+        const api = require('@librechat/api');
+        process.env.SAML_FEDERATION_METADATA_CACHE_DIR = '/srv/saml-cache';
+
+        await setupSaml();
+
+        expect(api.createFederation).toHaveBeenCalledWith(
+          expect.objectContaining({ cacheDir: '/srv/saml-cache' }),
+        );
       });
 
       it('keeps Haka sign-in when the eduGAIN certificate is invalid', async () => {

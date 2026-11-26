@@ -1,8 +1,9 @@
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { fork } from 'node:child_process';
 import { logger } from '@librechat/data-schemas';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import type { NextFunction, Request, Response } from 'express';
 import type { FederationIdp, FederationMetadata, FederationMetadataResult } from './metadata';
 import type { MetadataJob } from './metadata-worker';
@@ -95,6 +96,11 @@ export interface FederationOptions {
    * instead of from all of them (the default).
    */
   listedNameIDFormats?: boolean;
+  /**
+   * A directory to keep the index of verified metadata in, as shibd keeps metadata backing
+   * files, so a restart serves sign-ins at once instead of verifying again. Off when unset.
+   */
+  cacheDir?: string;
   /** How often verified metadata is refreshed (default 6 h). */
   refreshMs?: number;
   /** How soon a failed download is retried (default 10 min). */
@@ -112,19 +118,88 @@ export interface Federation {
   stop(): void;
 }
 
-/** Federation metadata held in memory and refreshed in the background. */
+/** The index of verified metadata as it is kept on disk. */
+interface CachedMetadata {
+  url: string;
+  fetchedAt: number;
+  validUntil: string;
+  idps: FederationIdp[];
+}
+
+/**
+ * Federation metadata held in memory and refreshed in the background. With `cacheDir`, each
+ * verified index is also written there and read back at start: a cache for the same URL whose
+ * validUntil is ahead serves sign-ins at once, and the first refresh waits for its normal time
+ * (at least `retryMs`). The cache only ever holds `parse`'s verified result; its integrity then
+ * rests on the container's file system, as with shibd's backing files.
+ */
 export function createFederation({
   url,
   cert,
   fetch: request = fetch,
   parse = createMetadataParser(),
   listedNameIDFormats = false,
+  cacheDir,
   refreshMs = 6 * 60 * 60 * 1000,
   retryMs = 10 * 60 * 1000,
   timeoutMs = 60 * 1000,
 }: FederationOptions): Federation {
+  const file = cacheDir
+    ? path.join(cacheDir, `${createHash('sha256').update(url).digest('hex').slice(0, 16)}.json`)
+    : undefined;
   let metadata: FederationMetadata | undefined;
   let timer: NodeJS.Timeout | undefined;
+
+  function accept(value: FederationMetadata) {
+    metadata = listedNameIDFormats
+      ? value
+      : {
+          ...value,
+          idps: new Map(
+            [...value.idps].map(([id, idp]): [string, FederationIdp] => [
+              id,
+              idp.persistent ? idp : { ...idp, persistent: true },
+            ]),
+          ),
+        };
+  }
+
+  async function save(value: FederationMetadata, fetchedAt: number) {
+    if (!file) {
+      return;
+    }
+    const cached: CachedMetadata = {
+      url,
+      fetchedAt,
+      validUntil: value.validUntil.toISOString(),
+      idps: [...value.idps.values()],
+    };
+    const temporary = `${file}.${process.pid}.tmp`;
+    try {
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(temporary, JSON.stringify(cached), { mode: 0o600 });
+      await rename(temporary, file);
+    } catch (error) {
+      logger.warn('[samlFederation] Could not save the metadata cache', error);
+    }
+  }
+
+  async function load(): Promise<{ value: FederationMetadata; fetchedAt: number } | undefined> {
+    if (!file) {
+      return undefined;
+    }
+    try {
+      const cached: CachedMetadata = JSON.parse(await readFile(file, 'utf8'));
+      const validUntil = new Date(cached.validUntil);
+      if (cached.url !== url || !Array.isArray(cached.idps) || !(validUntil > new Date())) {
+        return undefined;
+      }
+      const idps = new Map(cached.idps.map((idp): [string, FederationIdp] => [idp.entityID, idp]));
+      return { value: { validUntil, idps }, fetchedAt: Number(cached.fetchedAt) || 0 };
+    } catch {
+      return undefined;
+    }
+  }
 
   async function refresh(): Promise<boolean> {
     try {
@@ -133,23 +208,15 @@ export function createFederation({
         logger.warn(`[samlFederation] Metadata download failed with HTTP ${response.status}`);
         return false;
       }
+      const fetchedAt = Date.now();
       const result = await parse(await response.text(), cert);
       if (!result.ok) {
         logger.error(`[samlFederation] Metadata rejected (${result.error.code})`);
         return false;
       }
-      metadata = listedNameIDFormats
-        ? result.value
-        : {
-            ...result.value,
-            idps: new Map(
-              [...result.value.idps].map(([id, idp]): [string, FederationIdp] => [
-                id,
-                idp.persistent ? idp : { ...idp, persistent: true },
-              ]),
-            ),
-          };
-      logger.info(`[samlFederation] Loaded ${metadata.idps.size} identity providers`);
+      accept(result.value);
+      logger.info(`[samlFederation] Loaded ${result.value.idps.size} identity providers`);
+      await save(result.value, fetchedAt);
       return true;
     } catch (error) {
       logger.warn('[samlFederation] Metadata refresh failed', error);
@@ -157,10 +224,13 @@ export function createFederation({
     }
   }
 
-  async function tick() {
-    const ok = await refresh();
-    timer = setTimeout(tick, ok ? refreshMs : retryMs);
+  function schedule(ms: number) {
+    timer = setTimeout(tick, ms);
     timer.unref();
+  }
+
+  async function tick() {
+    schedule((await refresh()) ? refreshMs : retryMs);
   }
 
   return {
@@ -171,7 +241,17 @@ export function createFederation({
       return metadata.idps.get(entityID);
     },
     refresh,
-    start: tick,
+    async start() {
+      const cached = await load();
+      if (!cached) {
+        return tick();
+      }
+      accept(cached.value);
+      logger.info(
+        `[samlFederation] Loaded ${cached.value.idps.size} identity providers from cache`,
+      );
+      schedule(Math.max(cached.fetchedAt + refreshMs - Date.now(), retryMs));
+    },
     stop() {
       clearTimeout(timer);
     },
