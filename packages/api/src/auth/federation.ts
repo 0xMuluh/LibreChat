@@ -23,8 +23,8 @@ const DEFAULT_MAX_HEAP_MB = 2048;
  */
 export function parseMetadataInProcess(
   scriptPath: string,
-  maxHeapMb = DEFAULT_MAX_HEAP_MB,
-  timeoutMs = 15 * 60 * 1000,
+  maxHeapMb: number = DEFAULT_MAX_HEAP_MB,
+  timeoutMs: number = 15 * 60 * 1000,
 ): ParseMetadata {
   const run = async (xml: string, cert: string): Promise<FederationMetadataResult> => {
     const dir = await mkdtemp(path.join(tmpdir(), 'saml-metadata-'));
