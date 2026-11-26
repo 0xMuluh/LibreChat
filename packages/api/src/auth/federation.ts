@@ -42,6 +42,11 @@ export interface FederationOptions {
   fetch?: FetchMetadata;
   /** Verifies the downloaded XML; defaults to a worker thread. */
   parse?: ParseMetadata;
+  /**
+   * Request the persistent NameID format only from identity providers whose metadata lists it,
+   * instead of from all of them (the default).
+   */
+  listedNameIDFormats?: boolean;
   /** How often verified metadata is refreshed (default 6 h). */
   refreshMs?: number;
   /** How soon a failed download is retried (default 10 min). */
@@ -67,6 +72,7 @@ export function createFederation({
   parse = parseMetadataInWorker(
     path.join(path.dirname(require.resolve('@librechat/api')), 'auth/metadata-worker.cjs'),
   ),
+  listedNameIDFormats = false,
   refreshMs = 6 * 60 * 60 * 1000,
   retryMs = 10 * 60 * 1000,
   timeoutMs = 60 * 1000,
@@ -86,7 +92,17 @@ export function createFederation({
         logger.error(`[samlFederation] Metadata rejected (${result.error.code})`);
         return false;
       }
-      metadata = result.value;
+      metadata = listedNameIDFormats
+        ? result.value
+        : {
+            ...result.value,
+            idps: new Map(
+              [...result.value.idps].map(([id, idp]): [string, FederationIdp] => [
+                id,
+                idp.persistent ? idp : { ...idp, persistent: true },
+              ]),
+            ),
+          };
       logger.info(`[samlFederation] Loaded ${metadata.idps.size} identity providers`);
       return true;
     } catch (error) {
@@ -204,11 +220,15 @@ export function createSamlFederationGuard({
 /**
  * SAML options for the identity provider the guard chose, for MultiSamlStrategy. Federation
  * identity providers sign either the response or the assertion, so either is accepted; one
- * of them must still verify against the provider's certificates.
+ * of them must still verify against the provider's certificates. Given the home identity
+ * provider, any other provider whose metadata does not list the persistent NameID format is not
+ * asked for one: a provider that cannot meet the requested format must answer with an error, and
+ * such logins are keyed on their subject identifier attributes instead.
  */
 export function getFederationSamlOptions(
   req: SamlFederationRequest,
   done: (error: Error | null, options?: Record<string, unknown>) => void,
+  homeIssuer?: string,
 ): void {
   const idp = req.samlIdp;
   if (!idp) {
@@ -220,5 +240,8 @@ export function getFederationSamlOptions(
     wantAssertionsSigned: false,
     wantAuthnResponseSigned: false,
     disableRequestedAuthnContext: true,
+    ...(homeIssuer && idp.entityID !== homeIssuer && !idp.persistent
+      ? { identifierFormat: null }
+      : {}),
   });
 }

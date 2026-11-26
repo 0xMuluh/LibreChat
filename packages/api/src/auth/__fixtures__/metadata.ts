@@ -13,7 +13,10 @@ export function makeSigner(): { cert: string; privateKey: string } {
   return { cert: publicKey, privateKey };
 }
 
-/** A small aggregate: one usable identity provider, one without a Redirect endpoint, one SP. */
+/**
+ * A small aggregate: one usable identity provider, one whose entityID contains `!`, one without a
+ * Redirect endpoint, and one SP.
+ */
 export function metadataXml(validUntil: string | null = '2099-01-01T00:00:00Z'): string {
   const until = validUntil ? ` validUntil="${validUntil}"` : '';
   const key = (use: string | null, cert: string) =>
@@ -31,8 +34,15 @@ export function metadataXml(validUntil: string | null = '2099-01-01T00:00:00Z'):
       ${key('signing', 'U0lHTklORw==')}
       ${key(null, 'Qk9USA==')}
       ${key('encryption', 'RU5DUllQVA==')}
+      <NameIDFormat>urn:oasis:names:tc:SAML:2.0:nameid-format:persistent</NameIDFormat>
       <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://idp.utu.example/post"/>
       <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.utu.example/redirect"/>
+    </IDPSSODescriptor>
+  </EntityDescriptor>
+  <EntityDescriptor entityID="https://idp.bang.example/idp!x">
+    <IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+      ${key('signing', 'QkFORw==')}
+      <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.bang.example/redirect"/>
     </IDPSSODescriptor>
   </EntityDescriptor>
   <EntityDescriptor entityID="https://idp.post-only.example/idp">
