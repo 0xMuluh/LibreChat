@@ -167,11 +167,9 @@ test('offers no eduGAIN sign-in unless it is enabled', () => {
 });
 
 test('offers eduGAIN sign-in beside SAML when it is enabled', () => {
+  const edugain = { ...mockStartupConfig.data, samlEdugainEnabled: true };
   const { getByRole } = setup({
-    useGetStartupConfigReturnValue: {
-      ...mockStartupConfig,
-      data: { ...mockStartupConfig.data, samlEdugainEnabled: true },
-    },
+    useGetStartupConfigReturnValue: { ...mockStartupConfig, data: edugain },
   });
 
   expect(getByRole('link', { name: /Test SAML/i })).toHaveAttribute(
