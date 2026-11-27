@@ -259,7 +259,7 @@ export default function Presentation({
         <div className="omicsbase-aurora-glow" />
         <div className="omicsbase-aurora-vignette" />
       </div>
-      {helix !== undefined && <HelixBackground speed={0.2} visible={helix} />}
+      {helix !== undefined && <HelixBackground visible={helix} />}
       <AppChatSurface>
         {/* The editor buffer belongs to the pane's session, not to the window
             it happens to be in: hoisted, an undock keeps unsaved edits. */}
