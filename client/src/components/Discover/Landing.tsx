@@ -102,7 +102,7 @@ export default function Landing() {
         <div className="omicsbase-aurora-glow" />
         <div className="omicsbase-aurora-vignette" />
       </div>
-      <HelixBackground scrollRef={scrollRef} />
+      <HelixBackground />
 
       <aside
         className="border-border-light bg-surface-primary-alt relative z-[1] hidden w-64 flex-none flex-col border-r p-3 md:flex"

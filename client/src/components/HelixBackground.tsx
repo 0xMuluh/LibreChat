@@ -1,12 +1,11 @@
 import { useEffect, useRef } from 'react';
-import type { RefObject } from 'react';
 import { cn } from '~/utils';
 
 /**
  * OmicsBase: a slowly turning DNA double helix drawn behind the signed-out
  * pages (welcome, log in, sign up). It follows the light/dark class on <html>,
- * tilts a little with the pointer and holds still for readers who ask for
- * reduced motion.
+ * drifts on time alone (no pointer or scroll input) and holds still for readers
+ * who ask for reduced motion.
  */
 
 type Palette = {
@@ -43,35 +42,25 @@ const STEPS = 72;
 const TURN = 0.36;
 const GROOVE = 2.35;
 const FOV = 920;
+/** Rotation per ms: one full turn a minute. */
+const SPIN = (Math.PI * 2) / 60000;
+/** Tips the helix slightly towards the reader. */
+const TILT_X = 0.24;
 
 type Point = { x: number; y: number; z: number; scale: number };
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-function drawHelix(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  time: number,
-  pointer: { x: number; y: number },
-  p: Palette,
-  scroll: number,
-  speed: number,
-) {
+function drawHelix(ctx: CanvasRenderingContext2D, w: number, h: number, time: number, p: Palette) {
   ctx.clearRect(0, 0, w, h);
   const radius = Math.min(w, h) * 0.19;
   const pitch = Math.hypot(w, h) / 56;
-  /* As in the landing reference, scrolling turns the helix and flies along it. */
-  const tiltZ = Math.atan2(w * 0.85, h) - scroll * 0.12 + pointer.x * 0.1;
-  const tiltX = 0.24 + pointer.y * 0.2;
-  const spin = time * 0.00055 * speed + scroll * Math.PI * 3.2;
-  const flight = scroll * 14;
-  const step = Math.floor(flight);
-  const frac = flight % 1;
+  const tiltZ = Math.atan2(w * 0.85, h);
+  const spin = time * SPIN;
   const cz = Math.cos(tiltZ);
   const sz = Math.sin(tiltZ);
-  const cx = Math.cos(tiltX);
-  const sx = Math.sin(tiltX);
+  const cx = Math.cos(TILT_X);
+  const sx = Math.sin(TILT_X);
 
   const project = (x: number, y: number, z: number): Point => {
     const y1 = y * cx - z * sx;
@@ -90,8 +79,8 @@ function drawHelix(
   let prevB: Point | null = null;
 
   for (let i = 0; i < STEPS; i++) {
-    const y = (i - STEPS / 2 + frac) * pitch;
-    const phase = (i + step) * TURN + spin - frac * TURN;
+    const y = (i - STEPS / 2) * pitch;
+    const phase = i * TURN + spin;
     const ax = Math.cos(phase) * radius;
     const az = Math.sin(phase) * radius;
     const bx = Math.cos(phase + GROOVE) * radius;
@@ -99,7 +88,7 @@ function drawHelix(
     const a = project(ax, y, az);
     const b = project(bx, y, bz);
     const m = project((ax + bx) / 2, y, (az + bz) / 2);
-    const [c1, c2] = p.rungs[Math.abs(i + step) % 2];
+    const [c1, c2] = p.rungs[i % 2];
 
     queue.push({
       z: (a.z + m.z) / 2,
@@ -162,10 +151,6 @@ function drawHelix(
 }
 
 type Props = {
-  /** A scrolling element whose position turns the helix, as on the landing page. */
-  scrollRef?: RefObject<HTMLElement>;
-  /** Rotation speed; 1 is the welcome page's, one turn in about eleven seconds. */
-  speed?: number;
   /** Fades the helix out when false and stops drawing it once the fade is over. */
   visible?: boolean;
 };
@@ -173,10 +158,8 @@ type Props = {
 /** Length of the fade, in ms; matches the duration class on the wrapper. */
 const FADE_MS = 700;
 
-export default function HelixBackground({ scrollRef, speed = 1, visible = true }: Props) {
+export default function HelixBackground({ visible = true }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const speedRef = useRef(speed);
-  speedRef.current = speed;
   const shown = useRef({ visible, hiddenAt: 0 });
   const restart = useRef<() => void>(() => undefined);
 
@@ -188,24 +171,14 @@ export default function HelixBackground({ scrollRef, speed = 1, visible = true }
     }
     const root = document.documentElement;
     const still = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const pointer = { x: 0, y: 0 };
     let w = 0;
     let h = 0;
     let frame = 0;
-    let scroll = 0;
 
-    /* Eases toward the scroll position, so the helix glides rather than jumps. */
-    const scrollTarget = () => {
-      const el = scrollRef?.current;
-      if (!el) {
-        return 0;
-      }
-      return Math.min(1, el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight));
-    };
+    /* Under reduced motion every redraw paints the same still frame. */
     const draw = (time: number) => {
-      scroll += (scrollTarget() - scroll) * 0.08;
       const palette = root.classList.contains('dark') ? DARK : LIGHT;
-      drawHelix(ctx, w, h, time, pointer, palette, scroll, speedRef.current);
+      drawHelix(ctx, w, h, still.matches ? 0 : time, palette);
     };
 
     const resize = () => {
@@ -233,17 +206,11 @@ export default function HelixBackground({ scrollRef, speed = 1, visible = true }
       }
     };
 
-    const onPointer = (e: PointerEvent) => {
-      pointer.x = e.clientX / window.innerWidth - 0.5;
-      pointer.y = e.clientY / window.innerHeight - 0.5;
-    };
-
     /* Redraw at once when the theme flips, so a still helix changes colour too. */
-    const themeObserver = new MutationObserver(() => draw(still.matches ? 0 : performance.now()));
+    const themeObserver = new MutationObserver(() => draw(performance.now()));
     themeObserver.observe(root, { attributes: true, attributeFilter: ['class'] });
     const sizeObserver = new ResizeObserver(resize);
     sizeObserver.observe(canvas);
-    window.addEventListener('pointermove', onPointer, { passive: true });
     still.addEventListener('change', start);
     restart.current = start;
     resize();
@@ -253,10 +220,9 @@ export default function HelixBackground({ scrollRef, speed = 1, visible = true }
       cancelAnimationFrame(frame);
       themeObserver.disconnect();
       sizeObserver.disconnect();
-      window.removeEventListener('pointermove', onPointer);
       still.removeEventListener('change', start);
     };
-  }, [scrollRef]);
+  }, []);
 
   useEffect(() => {
     shown.current = { visible, hiddenAt: visible ? 0 : performance.now() };

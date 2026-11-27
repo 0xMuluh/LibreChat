@@ -737,7 +737,7 @@ export default function RoihuSessionCard({
 
   return (
     <div className="relative min-h-0 flex-1 overflow-y-auto px-6 py-6">
-      <HelixBackground speed={0.2} />
+      <HelixBackground />
       <section
         aria-labelledby={`${uid}-title`}
         className="border-border-light bg-surface-primary relative z-[1] mx-auto w-full max-w-xl rounded-2xl border p-6 text-left shadow-md"
